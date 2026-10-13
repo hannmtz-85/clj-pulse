@@ -1,0 +1,7 @@
+{:linters {:unresolved-namespace {:level :error}
+           :unused-namespace {:level :warning}
+           :unused-referred-var {:level :warning}
+           :redundant-do {:level :warning}
+           :missing-docstring {:level :off}}
+ :lint-as {clojure.test.check.clojure-test/defspec clojure.core/def}
+ :output {:exclude-files ["node_modules" ".shadow-cljs"]}}

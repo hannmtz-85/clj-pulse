@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: latest
+          bb: latest
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: deps-${{ hashFiles('**/deps.edn') }}
+          restore-keys: deps-
+
+      - name: Format
+        run: bb fmt:check
+
+      - name: Lint
+        run: bb lint
+
+      - name: Test
+        run: bb test

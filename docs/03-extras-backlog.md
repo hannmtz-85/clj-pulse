@@ -96,8 +96,8 @@ These are open on purpose and each ends in a short ADR, so they are not extras b
 
 | Decision | Options | Where it is resolved |
 |---|---|---|
-| Configuration loader | Aero (no release since 2020) or an in-house EDN loader of about 25 lines | Phase 1 |
-| Test runner | Kaocha (no release since 2024-05) or Cognitect test-runner | Phase 1 |
+| Configuration loader | Aero (no release since 2020) or an in-house EDN loader of about 25 lines | **Decided in Phase 1:** Aero, in-house loader as fallback (ADR-0003) |
+| Test runner | Kaocha (no release since 2024-05) or Cognitect test-runner | **Decided in Phase 1:** Kaocha, verified on Clojure 1.12.6 (ADR-0005) |
 | Logging library | mulog or Telemere | Phase 1 / Phase 4 |
 | HTTP client | `babashka.http-client` or hato | Phase 3 |
 | JWT verification | Nimbus JOSE+JWT facade (preferred) or Buddy with an in-house JWKS cache | Phase 4 |

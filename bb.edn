@@ -1,0 +1,22 @@
+{:paths ["tools"]
+ :tasks
+ {:requires ([babashka.process :refer [shell]])
+
+  doctor {:doc "Check that this machine can build and run the project"
+          :requires ([doctor])
+          :task (doctor/-main)}
+
+  test {:doc "Run the JVM test suite (Kaocha); extra args are passed through"
+        :task (apply shell "clojure" "-M:test" *command-line-args*)}
+
+  lint {:doc "Lint all sources with clj-kondo"
+        :task (shell "clojure" "-M:lint")}
+
+  fmt {:doc "Reformat all sources with cljfmt"
+       :task (shell "clojure" "-M:fmt" "fix")}
+
+  fmt:check {:doc "Fail if any source is not formatted (used by CI)"
+             :task (shell "clojure" "-M:fmt" "check")}
+
+  check {:doc "Everything CI runs: format check, lint and tests"
+         :task (do (run 'fmt:check) (run 'lint) (run 'test))}}}

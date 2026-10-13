@@ -1,6 +1,6 @@
 # 02 · Implementation plan
 
-> **Status: validated by the project owner on 2026-10-13. Phase 0 is done; Phase 1 is in progress.**
+> **Status: validated by the project owner on 2026-10-13. Phases 0 and 1 are done; Phase 2 (infrastructure) is next.**
 > Evidence and version tables: [01-stack-review.md](01-stack-review.md). Everything deliberately left out of Phases 0-10: [03-extras-backlog.md](03-extras-backlog.md).
 
 ## 0. Traceability: request → where it is handled
@@ -165,19 +165,21 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 - Free RAM dropped to about 0.7 GB with Docker idle (see risks in §8).
 - Docker Desktop's WSL integration also starts the Ubuntu distribution inside the same VM.
 
-### Phase 1 · Repository foundations (M) — IN PROGRESS
+### Phase 1 · Repository foundations (M) — DONE 2026-10-13 (CI run pending a remote)
 
 - [x] Clean repository in this folder: `git init -b main`, no history from the original proof of concept. That proof of concept was archived as `..\sso-poc.zip` (verified identical file by file) and removed from the working tree (moved to the Recycle Bin, recoverable).
 - [x] `.gitignore`, `README.md` and `CLAUDE.md` rewritten for the new project.
-- [ ] Layout from §4 and one namespace prefix per app.
-- [ ] Root `deps.edn` with aliases and `bb.edn` with tasks (`doctor`, `up`, `down`, `reset`, `logs`, `seed`, `dev`, `lint`, `fmt`, `fmt:check`, `test`, `test:it`, `build`).
-- [ ] `.editorconfig`, `.gitattributes` (LF forced for scripts, EDN, JSON and YAML, which avoids CRLF in files mounted into containers), `.env.example`, `.vscode/extensions.json`, `.lsp/config.edn` (limits analysis; clojure-lsp held about 1 GB before).
-- [ ] clj-kondo, cljfmt and Kaocha configured.
-- [ ] `bb doctor`: JDK ≥ 21, Clojure CLI, bb, Node/npm, Docker daemon, free RAM, ports, `.env`.
-- [ ] GitHub Actions: lint + format + JVM tests + CLJS compile + uberjars.
-- [ ] ADRs: template, 0001 (monorepo), 0002 (FHIR/HAPI), 0003 (configuration and lifecycle), 0004 (authorization as data).
+- [x] First commit (`8843f3a`).
+- [x] `libs/fhir` and `libs/platform` created, with one namespace prefix per app/lib. `libs/fhir` holds `pulse.fhir.reference` and a property-based test as a smoke test. `apps/`, `infra/`, `data/` and `design/` are created when their first file is (empty directories are not tracked by git).
+- [x] Root `deps.edn` with aliases `:dev`, `:test`, `:lint`, `:fmt`, and `bb.edn` with `doctor`, `test`, `lint`, `fmt`, `fmt:check`, `check`. The tasks `up`, `down`, `reset`, `logs`, `seed`, `dev`, `test:it` and `build` arrive with the phase that needs them.
+- [x] `.editorconfig`, `.gitattributes` (LF forced), `.env.example`, `.vscode/extensions.json`, `.lsp/config.edn`.
+- [x] clj-kondo, cljfmt and Kaocha configured.
+- [x] `bb doctor`: JDK ≥ 21, Clojure CLI, bb, Node/npm, git, Docker engine, free RAM, ports, `.env`.
+- [x] GitHub Actions workflow (format, lint, test). CLJS compile and uberjars are added with their apps. Not yet run: it needs a GitHub remote.
+- [x] ADRs: template and 0001-0005 in `docs/adr/`. Config loader (Aero) and test runner (Kaocha) are decided there.
+- [ ] Add `apps/` to the lint and format paths when the first app appears.
 
-*Acceptance:* `bb doctor`, `bb lint`, `bb fmt:check` and `bb test` green on the skeleton; CI green.
+*Acceptance:* `bb doctor`, `bb lint`, `bb fmt:check` and `bb test` green on the skeleton (done locally on 2026-10-13); CI green (pending the GitHub remote).
 
 ### Phase 2 · Reproducible infrastructure (M)
 

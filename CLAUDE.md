@@ -4,7 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phase 0 (workstation) is done and Phase 1 (repository foundations) is in progress. There is no application code and no build, lint or test command yet.** Do not invent commands; the `bb` tasks listed in the plan are created in Phase 1.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 (workstation) and 1 (repository foundations) are done; Phase 2 (infrastructure) is next. There is no application code yet**, only `libs/fhir` with a first namespace.
+
+## Commands
+
+Run from the repository root (any shell; quote the path, it has a space). Do not invent others: the remaining `bb` tasks arrive with their phase.
+
+- `bb doctor`: checks JDK, Clojure CLI, Babashka, Node, Docker, free RAM and ports.
+- `bb test`: Kaocha test suite (config in `tests.edn`). Pass Kaocha args through, for example `bb test --focus pulse.fhir.reference-test/parse-examples` to run a single test.
+- `bb lint` (clj-kondo), `bb fmt` (cljfmt fix), `bb fmt:check`, and `bb check` (format + lint + test, what CI runs).
+- REPL: alias `:dev` (see `dev/user.clj`), for example Calva jack-in.
+- New source directories (such as `apps/`) must be added to the lint and format paths in `deps.edn` and `cljfmt.edn`.
 
 `docs/` is the source of truth:
 - `docs/02-implementation-plan.md`: concept, architecture, phases with checklists and acceptance criteria. Read the current phase before starting work and tick items as they are completed.
