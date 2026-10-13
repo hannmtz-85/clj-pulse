@@ -1,6 +1,7 @@
 # Clojure / ClojureScript tooling caches
 .cpcache/
 .clj-kondo/.cache/
+.clj-kondo/imports/
 .lsp/.cache/
 .calva/
 .nrepl-port
