@@ -1,6 +1,6 @@
 # 02 · Implementation plan
 
-> **Status: validated by the project owner on 2026-10-13. Phases 0 and 1 are done; Phase 2 (infrastructure) is next.**
+> **Status: validated by the project owner on 2026-10-13. Phases 0, 1 and 2 are done; Phase 3 (FHIR core and seed data) is next.**
 > Evidence and version tables: [01-stack-review.md](01-stack-review.md). Everything deliberately left out of Phases 0-10: [03-extras-backlog.md](03-extras-backlog.md).
 
 ## 0. Traceability: request → where it is handled
@@ -181,17 +181,28 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 
 *Acceptance:* `bb doctor`, `bb lint`, `bb fmt:check` and `bb test` green on the skeleton (done locally on 2026-10-13); CI green (pending the GitHub remote).
 
-### Phase 2 · Reproducible infrastructure (M)
+### Phase 2 · Reproducible infrastructure (M) — DONE 2026-10-13
 
-- [ ] `compose.yaml`: `postgres:16` (an `init.sql` creates `keycloak` and `hapi`), `keycloak:26.0.0` with `start-dev --import-realm`, HAPI with a pinned tag (today `v8.12.0-2`); healthchecks, `depends_on: service_healthy`, memory limits, network and named volumes, variables from `.env`.
-- [ ] **Curated realm** (small, readable JSON with `${VAR}` for secrets and the demo password): roles, client scopes and mappers (`fhirUser`, roles, audience `pulse-api`), clients `pulse-web`, `pulse-spa`, `pulse-scheduler` (plus one for Swagger UI), **demo users** (Annex D), 5-minute access tokens, mandatory PKCE S256.
-- [ ] No custom hash provider, no JAR, no custom `passwordPolicy` (Keycloak's default PBKDF2 is used).
-- [ ] HAPI `application.yaml`: R4, PostgreSQL, `client_id_strategy`, validation and JVM limits.
-- [ ] `bb up | down | reset | logs | ps` tasks.
-- [ ] `.http` files per role (REST Client), without secrets.
-- [ ] Minimal login theme (the final one arrives in Phase 6).
+- [x] `compose.yaml`: `postgres:16-alpine` (`init.sql` creates `hapi` and `keycloak`), `keycloak:26.0.0` with `start-dev --import-realm`, `hapiproject/hapi:v8.12.0-2`; named volume, memory limits, variables from `.env`, every port bound to `127.0.0.1`. Postgres and Keycloak have healthchecks and `depends_on: service_healthy`. **HAPI has no container healthcheck**: its image is a distroless JRE (no shell, curl or compiler, and the `HealthCheck` class its README mentions is absent), so `bb up` waits for `http://localhost:8090/actuator/health` from the host instead.
+- [x] **Realm as Clojure data** ([ADR-0006](adr/0006-keycloak-realm-as-clojure-data.md)) rendered to `infra/keycloak/realm/pulse-realm.json`: 4 realm roles, 4 clients (`pulse-web`, `pulse-spa`, `pulse-docs`, `pulse-scheduler`) with mandatory PKCE S256, an audience mapper (`pulse-api`) and a `fhirUser` claim mapper, a declared `fhir_user` user attribute, 9 demo users plus the scheduler's service account, 5-minute access tokens. Secrets are `${VAR}` placeholders resolved by Keycloak from the container environment.
+- [x] No custom hash provider, no JAR, no custom `passwordPolicy`.
+- [x] HAPI `infra/hapi/application.yaml`: R4, `client_id_strategy: ALPHANUMERIC`, page sizes, no Lucene indexing; PostgreSQL and the dialect come from environment variables. Request validation is off while seeding; `$validate` is called explicitly.
+- [x] Tasks: `env:init`, `realm:build`, `realm:check`, `realm:smoke`, `token`, `up`, `down`, `reset`, `logs`, `ps`. `realm:check` is part of `bb check`.
+- [x] `http/keycloak.http` and `http/hapi.http` (REST Client, no secrets). The per-role requests against `api` arrive with `api` in Phase 4; until then `bb token <user>` prints a token to paste.
+- [x] Minimal `pulse` login theme (verified: Keycloak serves `pulse.css` with HTTP 200). The final one arrives in Phase 6.
 
-*Acceptance:* from scratch, `bb reset && bb up` leaves Keycloak, HAPI and Postgres healthy with no manual steps; the realm exists; every demo user can sign in; `GET /fhir/metadata` answers R4; `bb reset` returns to a clean state.
+*Acceptance (verified 2026-10-13):*
+- `bb reset` rebuilt everything from scratch in **2 min 8 s**, with no manual steps, and left PostgreSQL and Keycloak healthy and HAPI ready.
+- `bb realm:smoke` signed in as all 9 demo users through the real authorization-code + PKCE flow: each token carried exactly its own application role, the right `fhirUser`, audience `pulse-api` and the right `azp`; the scheduler's client-credentials token carried `rules-engine`; a wrong password was rejected. It passed both before and after the reset.
+- HAPI answers `fhirVersion` 4.0.1, accepts `PUT Patient/pt-scratch` (201, then 200), rejects an invalid resource at `$validate`, and returns 410 after `DELETE`.
+- Memory with the stack up: HAPI about 0.9 GB, Keycloak about 0.6 GB, PostgreSQL about 0.08 GB (about 1.5 GB in total; 2.7 GB of RAM were still free with VS Code and Docker running).
+- `bb check` (format, lint, realm check, tests) is green.
+
+*Lessons:*
+- Cheshire's pretty printer emits CRLF on Windows; the realm renderer normalises to LF so `realm:check` is stable across machines and CI.
+- `babashka.http-client` has no cookie jar (`:cookie-handler` is ignored), so `tools/kc.clj` forwards the `Set-Cookie` values by hand; without them Keycloak answers `cookie_not_found`.
+- Git Bash rewrites container paths such as `/tmp/x` into Windows paths; prefix `docker exec`/`docker cp` with `MSYS_NO_PATHCONV=1`.
+- HAPI caches search results for about a minute; use `Cache-Control: no-cache` when testing right after a write or delete.
 
 ### Phase 3 · FHIR core and seed data (L)
 

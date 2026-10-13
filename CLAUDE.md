@@ -4,17 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phases 0 (workstation) and 1 (repository foundations) are done; Phase 2 (infrastructure) is next. There is no application code yet**, only `libs/fhir` with a first namespace.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 (workstation), 1 (repository foundations) and 2 (infrastructure) are done; Phase 3 (FHIR core and seed data) is next. There is no application code yet**, only `libs/fhir` with a first namespace plus the infrastructure and its tooling.
 
 ## Commands
 
 Run from the repository root (any shell; quote the path, it has a space). Do not invent others: the remaining `bb` tasks arrive with their phase.
 
-- `bb doctor`: checks JDK, Clojure CLI, Babashka, Node, Docker, free RAM and ports.
+- `bb doctor`: checks JDK, Clojure CLI, Babashka, Node, Docker, free RAM and ports (ports in use are expected while the stack is up).
 - `bb test`: Kaocha test suite (config in `tests.edn`). Pass Kaocha args through, for example `bb test --focus pulse.fhir.reference-test/parse-examples` to run a single test.
-- `bb lint` (clj-kondo), `bb fmt` (cljfmt fix), `bb fmt:check`, and `bb check` (format + lint + test, what CI runs).
+- `bb lint` (clj-kondo), `bb fmt` (cljfmt fix), `bb fmt:check`, and `bb check` (format + lint + realm check + test, what CI runs).
+- Stack (needs Docker and `.env`): `bb up` (creates `.env` with random secrets if missing, rebuilds the realm JSON, starts PostgreSQL, Keycloak and HAPI, waits for readiness), `bb down`, `bb ps`, `bb logs [service]`, and `bb reset` which **destroys the stack's data** and starts clean (about 2 minutes).
+- Keycloak realm: edit `tools/realm.clj`, run `bb realm:build` and commit the generated JSON (`bb realm:check` fails if it is stale). Keycloak skips the import when the realm exists, so apply changes locally with `bb reset`. `bb realm:smoke` signs in as every demo user and checks their token claims; `bb token <username|scheduler>` prints an access token (for REST Client's `@token`).
 - REPL: alias `:dev` (see `dev/user.clj`), for example Calva jack-in.
 - New source directories (such as `apps/`) must be added to the lint and format paths in `deps.edn` and `cljfmt.edn`.
+
+## Local stack
+
+Everything binds to 127.0.0.1: Keycloak 8080 (management/health 9000), HAPI FHIR 8090 (`/fhir`, `/actuator/health`), PostgreSQL 5432. About 1.5 GB of RAM in total. Demo users and their password come from `tools/realm.clj` and `.env` (`DEMO_USER_PASSWORD`). HAPI has no container healthcheck (distroless JRE); `bb up` polls it from the host. HAPI caches searches for about a minute (send `Cache-Control: no-cache` when testing).
 
 `docs/` is the source of truth:
 - `docs/02-implementation-plan.md`: concept, architecture, phases with checklists and acceptance criteria. Read the current phase before starting work and tick items as they are completed.
@@ -47,3 +53,5 @@ Remote patient monitoring and appointment coordination on FHIR R4 with Keycloak 
 - Docker Desktop is capped by `~/.wslconfig` at 6 GB and 6 CPUs. Free RAM is scarce (about 0.7 GB with Docker idle), so do not start the full stack casually.
 - The project path contains a space (`Clojure Porfolio`): always quote paths.
 - In PowerShell, `"text $var: more"` is parsed as a scope-qualified variable and fails; write `${var}:`.
+- In Git Bash, prefix `docker exec`/`docker cp` that use container paths with `MSYS_NO_PATHCONV=1`, or `/tmp/x` becomes a Windows path.
+- `babashka.http-client` has no cookie jar and Cheshire's pretty printer emits CRLF on Windows (see `tools/kc.clj` and `tools/realm.clj`).

@@ -1,0 +1,20 @@
+# Keycloak requests for the REST Client extension. No secrets in this file.
+# To call protected endpoints, run `bb token <username>` (or `bb token scheduler`) in a
+# terminal and paste the result into @token below. Demo users: see tools/realm.clj.
+
+@kc = http://localhost:8080
+@realm = pulse
+@token =
+
+### OpenID Connect discovery document
+GET {{kc}}/realms/{{realm}}/.well-known/openid-configuration
+
+### Signing keys (JWKS) used by the API to verify tokens
+GET {{kc}}/realms/{{realm}}/protocol/openid-connect/certs
+
+### Readiness (management interface)
+GET http://localhost:9000/health/ready
+
+### User info for the pasted token
+GET {{kc}}/realms/{{realm}}/protocol/openid-connect/userinfo
+Authorization: Bearer {{token}}

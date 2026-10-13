@@ -1,0 +1,40 @@
+# HAPI FHIR (R4) requests for the REST Client extension. HAPI has no authentication of its
+# own: it is only reachable from this machine and the `api` app is the only intended client.
+
+@fhir = http://localhost:8090/fhir
+
+### Capability statement (fhirVersion must be 4.0.1)
+GET {{fhir}}/metadata
+Accept: application/fhir+json
+
+### Create or replace a scratch Patient with a client-assigned id
+PUT {{fhir}}/Patient/pt-scratch
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "id": "pt-scratch",
+  "name": [{ "family": "Scratch", "given": ["Test"] }],
+  "gender": "other",
+  "birthDate": "1990-01-01"
+}
+
+### Read it back
+GET {{fhir}}/Patient/pt-scratch
+Accept: application/fhir+json
+
+### Search
+GET {{fhir}}/Patient?family=Scratch
+Accept: application/fhir+json
+
+### Validate a resource against the base R4 profile
+POST {{fhir}}/Patient/$validate
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "gender": "not-a-gender"
+}
+
+### Clean up
+DELETE {{fhir}}/Patient/pt-scratch

@@ -6,6 +6,7 @@
           :requires ([doctor])
           :task (doctor/-main)}
 
+  ;; --- code quality -------------------------------------------------------
   test {:doc "Run the JVM test suite (Kaocha); extra args are passed through"
         :task (apply shell "clojure" "-M:test" *command-line-args*)}
 
@@ -18,5 +19,46 @@
   fmt:check {:doc "Fail if any source is not formatted (used by CI)"
              :task (shell "clojure" "-M:fmt" "check")}
 
-  check {:doc "Everything CI runs: format check, lint and tests"
-         :task (do (run 'fmt:check) (run 'lint) (run 'test))}}}
+  check {:doc "Everything CI runs: format check, lint, realm check and tests"
+         :task (do (run 'fmt:check) (run 'lint) (run 'realm:check) (run 'test))}
+
+  ;; --- infrastructure -----------------------------------------------------
+  env:init {:doc "Create .env from .env.example with random local secrets (never overwrites)"
+            :requires ([env])
+            :task (env/init!)}
+
+  realm:build {:doc "Generate the Keycloak realm JSON from tools/realm.clj"
+               :requires ([realm])
+               :task (realm/build!)}
+
+  realm:check {:doc "Fail if the committed realm JSON is stale"
+               :requires ([realm])
+               :task (realm/check!)}
+
+  realm:smoke {:doc "Sign in as every demo user and verify their token claims (needs `bb up`)"
+               :requires ([kc])
+               :task (kc/smoke)}
+
+  token {:doc "Print an access token: bb token <username | scheduler> (needs `bb up`)"
+         :requires ([kc])
+         :task (kc/print-token (first *command-line-args*))}
+
+  up {:doc "Start PostgreSQL, Keycloak and HAPI FHIR and wait until they are ready"
+      :depends [env:init realm:build]
+      :requires ([stack])
+      :task (do (shell "docker" "compose" "up" "-d" "--wait" "--wait-timeout" "420")
+                (stack/wait-http! "HAPI FHIR" "http://localhost:8090/actuator/health" 300))}
+
+  down {:doc "Stop the stack (data is kept)"
+        :task (shell "docker" "compose" "down")}
+
+  reset {:doc "DESTROY the stack's data (volumes) and start again from a clean state"
+         :depends [env:init]
+         :task (do (shell "docker" "compose" "down" "--volumes")
+                   (run 'up))}
+
+  logs {:doc "Follow the logs; optionally of one service: bb logs keycloak"
+        :task (apply shell "docker" "compose" "logs" "--follow" "--tail" "100" *command-line-args*)}
+
+  ps {:doc "Show the state of the stack"
+      :task (shell "docker" "compose" "ps")}}}

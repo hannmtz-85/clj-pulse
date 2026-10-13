@@ -1,0 +1,97 @@
+# Local development stack: PostgreSQL + Keycloak 26.0.0 + HAPI FHIR (R4).
+# Copy .env.example to .env first (`bb env:init` does it and generates random secrets).
+# Everything binds to 127.0.0.1 only.
+name: pulse
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?run "bb env:init" first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run "bb env:init" first}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      # -h 127.0.0.1 forces TCP: the temporary init-time server only listens on a socket,
+      # so the container is not reported healthy before the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 256m
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:?run "bb env:init" first}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?run "bb env:init" first}
+      # Hostname v2 (Keycloak 26). Back-channel URLs resolve dynamically so that
+      # containers on this network can reach Keycloak as http://keycloak:8080.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
+      # Consumed by the ${VAR} placeholders of the realm import file.
+      WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:?run "bb env:init" first}
+      SCHEDULER_CLIENT_SECRET: ${SCHEDULER_CLIENT_SECRET:?run "bb env:init" first}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:?run "bb env:init" first}
+    volumes:
+      # The import is skipped when the realm already exists: use `bb reset` to reload it.
+      - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
+      - ./infra/keycloak/themes/pulse:/opt/keycloak/themes/pulse:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      # The image has no curl: speak HTTP to the management port with bash.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000;
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    mem_limit: 1g
+
+  hapi:
+    image: hapiproject/hapi:v8.12.0-2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # infra/hapi/application.yaml is layered on top of the image defaults.
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/configs/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hapi
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
+      HIBERNATE_DIALECT: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx768m"
+    volumes:
+      - ./infra/hapi:/configs:ro
+    ports:
+      - "127.0.0.1:8090:8080"
+    mem_limit: 1200m
+
+volumes:
+  pg-data:

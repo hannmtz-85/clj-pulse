@@ -1,0 +1,362 @@
+{
+  "accessTokenLifespan" : 300,
+  "bruteForceProtected" : false,
+  "clients" : [ {
+    "attributes" : {
+      "pkce.code.challenge.method" : "S256",
+      "post.logout.redirect.uris" : "http://localhost:3300/*"
+    },
+    "clientAuthenticatorType" : "client-secret",
+    "clientId" : "pulse-web",
+    "consentRequired" : false,
+    "directAccessGrantsEnabled" : false,
+    "enabled" : true,
+    "fullScopeAllowed" : true,
+    "implicitFlowEnabled" : false,
+    "name" : "Pulse web portal",
+    "protocol" : "openid-connect",
+    "protocolMappers" : [ {
+      "config" : {
+        "access.token.claim" : "true",
+        "id.token.claim" : "false",
+        "included.custom.audience" : "pulse-api",
+        "introspection.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "pulse-api-audience",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-audience-mapper"
+    }, {
+      "config" : {
+        "access.token.claim" : "true",
+        "claim.name" : "fhirUser",
+        "id.token.claim" : "true",
+        "introspection.token.claim" : "true",
+        "jsonType.label" : "String",
+        "user.attribute" : "fhir_user",
+        "userinfo.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "fhirUser",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-usermodel-attribute-mapper"
+    } ],
+    "publicClient" : false,
+    "redirectUris" : [ "http://localhost:3300/oauth2/callback" ],
+    "secret" : "${WEB_CLIENT_SECRET}",
+    "serviceAccountsEnabled" : false,
+    "standardFlowEnabled" : true,
+    "webOrigins" : [ "http://localhost:3300" ]
+  }, {
+    "attributes" : {
+      "pkce.code.challenge.method" : "S256",
+      "post.logout.redirect.uris" : "http://localhost:3000/*"
+    },
+    "clientId" : "pulse-spa",
+    "consentRequired" : false,
+    "directAccessGrantsEnabled" : false,
+    "enabled" : true,
+    "fullScopeAllowed" : true,
+    "implicitFlowEnabled" : false,
+    "name" : "Pulse clinical workspace",
+    "protocol" : "openid-connect",
+    "protocolMappers" : [ {
+      "config" : {
+        "access.token.claim" : "true",
+        "id.token.claim" : "false",
+        "included.custom.audience" : "pulse-api",
+        "introspection.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "pulse-api-audience",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-audience-mapper"
+    }, {
+      "config" : {
+        "access.token.claim" : "true",
+        "claim.name" : "fhirUser",
+        "id.token.claim" : "true",
+        "introspection.token.claim" : "true",
+        "jsonType.label" : "String",
+        "user.attribute" : "fhir_user",
+        "userinfo.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "fhirUser",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-usermodel-attribute-mapper"
+    } ],
+    "publicClient" : true,
+    "redirectUris" : [ "http://localhost:3000/*" ],
+    "serviceAccountsEnabled" : false,
+    "standardFlowEnabled" : true,
+    "webOrigins" : [ "http://localhost:3000" ]
+  }, {
+    "attributes" : {
+      "pkce.code.challenge.method" : "S256"
+    },
+    "clientId" : "pulse-docs",
+    "consentRequired" : false,
+    "directAccessGrantsEnabled" : false,
+    "enabled" : true,
+    "fullScopeAllowed" : true,
+    "implicitFlowEnabled" : false,
+    "name" : "Pulse API documentation (Swagger UI)",
+    "protocol" : "openid-connect",
+    "protocolMappers" : [ {
+      "config" : {
+        "access.token.claim" : "true",
+        "id.token.claim" : "false",
+        "included.custom.audience" : "pulse-api",
+        "introspection.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "pulse-api-audience",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-audience-mapper"
+    }, {
+      "config" : {
+        "access.token.claim" : "true",
+        "claim.name" : "fhirUser",
+        "id.token.claim" : "true",
+        "introspection.token.claim" : "true",
+        "jsonType.label" : "String",
+        "user.attribute" : "fhir_user",
+        "userinfo.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "fhirUser",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-usermodel-attribute-mapper"
+    } ],
+    "publicClient" : true,
+    "redirectUris" : [ "http://localhost:4000/docs/*" ],
+    "serviceAccountsEnabled" : false,
+    "standardFlowEnabled" : true,
+    "webOrigins" : [ "http://localhost:4000" ]
+  }, {
+    "clientAuthenticatorType" : "client-secret",
+    "clientId" : "pulse-scheduler",
+    "consentRequired" : false,
+    "directAccessGrantsEnabled" : false,
+    "enabled" : true,
+    "fullScopeAllowed" : true,
+    "implicitFlowEnabled" : false,
+    "name" : "Pulse scheduler (service account)",
+    "protocol" : "openid-connect",
+    "protocolMappers" : [ {
+      "config" : {
+        "access.token.claim" : "true",
+        "id.token.claim" : "false",
+        "included.custom.audience" : "pulse-api",
+        "introspection.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "pulse-api-audience",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-audience-mapper"
+    }, {
+      "config" : {
+        "access.token.claim" : "true",
+        "claim.name" : "fhirUser",
+        "id.token.claim" : "true",
+        "introspection.token.claim" : "true",
+        "jsonType.label" : "String",
+        "user.attribute" : "fhir_user",
+        "userinfo.token.claim" : "true"
+      },
+      "consentRequired" : false,
+      "name" : "fhirUser",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-usermodel-attribute-mapper"
+    } ],
+    "publicClient" : false,
+    "secret" : "${SCHEDULER_CLIENT_SECRET}",
+    "serviceAccountsEnabled" : true,
+    "standardFlowEnabled" : false
+  } ],
+  "components" : {
+    "org.keycloak.userprofile.UserProfileProvider" : [ {
+      "config" : {
+        "kc.user.profile.config" : [ "{\"attributes\":[{\"displayName\":\"${username}\",\"multivalued\":false,\"name\":\"username\",\"permissions\":{\"edit\":[\"admin\",\"user\"],\"view\":[\"admin\",\"user\"]},\"validations\":{\"length\":{\"max\":255,\"min\":3},\"up-username-not-idn-homograph\":{},\"username-prohibited-characters\":{}}},{\"displayName\":\"${email}\",\"multivalued\":false,\"name\":\"email\",\"permissions\":{\"edit\":[\"admin\",\"user\"],\"view\":[\"admin\",\"user\"]},\"required\":{\"roles\":[\"user\"]},\"validations\":{\"email\":{},\"length\":{\"max\":255}}},{\"displayName\":\"${firstName}\",\"multivalued\":false,\"name\":\"firstName\",\"permissions\":{\"edit\":[\"admin\",\"user\"],\"view\":[\"admin\",\"user\"]},\"required\":{\"roles\":[\"user\"]},\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}}},{\"displayName\":\"${lastName}\",\"multivalued\":false,\"name\":\"lastName\",\"permissions\":{\"edit\":[\"admin\",\"user\"],\"view\":[\"admin\",\"user\"]},\"required\":{\"roles\":[\"user\"]},\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}}},{\"displayName\":\"FHIR user (Patient/... or Practitioner/...)\",\"multivalued\":false,\"name\":\"fhir_user\",\"permissions\":{\"edit\":[\"admin\"],\"view\":[\"admin\"]}}],\"groups\":[{\"displayDescription\":\"Attributes, which refer to user metadata\",\"displayHeader\":\"User metadata\",\"name\":\"user-metadata\"}]}" ]
+      },
+      "providerId" : "declarative-user-profile",
+      "subComponents" : { }
+    } ]
+  },
+  "displayName" : "Pulse",
+  "duplicateEmailsAllowed" : false,
+  "editUsernameAllowed" : false,
+  "enabled" : true,
+  "loginTheme" : "pulse",
+  "loginWithEmailAllowed" : true,
+  "realm" : "pulse",
+  "registrationAllowed" : false,
+  "resetPasswordAllowed" : false,
+  "roles" : {
+    "realm" : [ {
+      "description" : "A patient using the portal; sees only their own record",
+      "name" : "patient"
+    }, {
+      "description" : "A clinician; sees the patients on their panel",
+      "name" : "practitioner"
+    }, {
+      "description" : "Clinic administrator; sees every patient and operational status",
+      "name" : "clinic-admin"
+    }, {
+      "description" : "Service role of the scheduler: reads observations and raises alerts",
+      "name" : "rules-engine"
+    } ]
+  },
+  "sslRequired" : "external",
+  "ssoSessionIdleTimeout" : 1800,
+  "ssoSessionMaxLifespan" : 36000,
+  "users" : [ {
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "admin@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Sam",
+    "lastName" : "Admin",
+    "realmRoles" : [ "default-roles-pulse", "clinic-admin" ],
+    "username" : "admin@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Practitioner/pr-rivera" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "dr.rivera@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Elena",
+    "lastName" : "Rivera",
+    "realmRoles" : [ "default-roles-pulse", "practitioner" ],
+    "username" : "dr.rivera@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Practitioner/pr-okafor" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "dr.okafor@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Chidi",
+    "lastName" : "Okafor",
+    "realmRoles" : [ "default-roles-pulse", "practitioner" ],
+    "username" : "dr.okafor@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-ana" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "ana.garcia@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Ana",
+    "lastName" : "García",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "ana.garcia@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-liam" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "liam.chen@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Liam",
+    "lastName" : "Chen",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "liam.chen@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-sofia" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "sofia.rossi@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Sofía",
+    "lastName" : "Rossi",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "sofia.rossi@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-omar" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "omar.haddad@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Omar",
+    "lastName" : "Haddad",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "omar.haddad@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-maya" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "maya.patel@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Maya",
+    "lastName" : "Patel",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "maya.patel@pulse.test"
+  }, {
+    "attributes" : {
+      "fhir_user" : [ "Patient/pt-noah" ]
+    },
+    "credentials" : [ {
+      "temporary" : false,
+      "type" : "password",
+      "value" : "${DEMO_USER_PASSWORD}"
+    } ],
+    "email" : "noah.kim@pulse.test",
+    "emailVerified" : true,
+    "enabled" : true,
+    "firstName" : "Noah",
+    "lastName" : "Kim",
+    "realmRoles" : [ "default-roles-pulse", "patient" ],
+    "username" : "noah.kim@pulse.test"
+  }, {
+    "enabled" : true,
+    "realmRoles" : [ "default-roles-pulse", "rules-engine" ],
+    "serviceAccountClientId" : "pulse-scheduler",
+    "username" : "service-account-pulse-scheduler"
+  } ],
+  "verifyEmail" : false
+}

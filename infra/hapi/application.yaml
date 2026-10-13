@@ -1,0 +1,20 @@
+# Layered on top of the image's default application.yaml (SPRING_CONFIG_ADDITIONAL_LOCATION).
+# The datasource and dialect come from environment variables in compose.yaml.
+hapi:
+  fhir:
+    fhir_version: R4
+    # Clients choose resource IDs with PUT (pt-ana, pr-rivera, ...): the seed data and the
+    # Keycloak `fhir_user` attribute depend on stable IDs.
+    client_id_strategy: ALPHANUMERIC
+    default_page_size: 50
+    max_page_size: 200
+    # Request validation stays off while seeding; `$validate` is called explicitly instead.
+    validation:
+      requests_enabled: false
+      responses_enabled: false
+
+spring:
+  jpa:
+    properties:
+      # No Lucene/Elasticsearch full-text indexing: plain PostgreSQL search is enough.
+      hibernate.search.enabled: false
