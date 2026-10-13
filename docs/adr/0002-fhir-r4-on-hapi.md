@@ -13,6 +13,7 @@ Use the HAPI FHIR JPA Starter (image tag pinned, PostgreSQL storage) serving FHI
 
 ## Alternatives considered
 
+- **FHIR R5 as the base version (evaluated 2026-10-13, rejected):** R5 is the latest published release (2023-03-26) but is not backward compatible with R4 and has little production adoption. US Core 9.0.0 (HL7) and the International Patient Summary are R4; per Health Samurai, Epic and Oracle Health do not support R5; R6 started its first normative ballot in January 2026 and will not be final before 2027, so the likely migration path is R4 → R6. HAPI supports R5, so switching stays possible. R5 compatibility is kept as extra X-18.
 - **Blaze:** kept as an optional compose profile in the extras backlog.
 - **Aidbox:** licence friction for anyone cloning the repository.
 - **FHIR facade over our own store:** much more work, little to show.

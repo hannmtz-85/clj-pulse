@@ -38,3 +38,28 @@ Content-Type: application/fhir+json
 
 ### Clean up
 DELETE {{fhir}}/Patient/pt-scratch
+
+# --- Demo cohort (run `bb seed` first) ---------------------------------------
+
+### Dr. Rivera's patient panel
+GET {{fhir}}/Patient?general-practitioner=Practitioner/pr-rivera
+Accept: application/fhir+json
+Cache-Control: no-cache
+
+### Ana's latest blood pressure panels (newest first)
+GET {{fhir}}/Observation?patient=Patient/pt-ana&code=http://loinc.org|85354-9&_sort=-date&_count=5
+Accept: application/fhir+json
+Cache-Control: no-cache
+
+### Maya's weight over time (heart-failure scenario)
+GET {{fhir}}/Observation?patient=Patient/pt-maya&code=http://loinc.org|29463-7&_sort=date
+Accept: application/fhir+json
+Cache-Control: no-cache
+
+### Everything about one patient, in a single request
+GET {{fhir}}/Patient/pt-sofia/$everything
+Accept: application/fhir+json
+
+### Appointments that are only proposed (asked for by the patient)
+GET {{fhir}}/Appointment?status=proposed
+Accept: application/fhir+json

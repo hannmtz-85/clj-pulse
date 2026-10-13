@@ -18,3 +18,13 @@
   "Inverse of `parse`: {:type \"Patient\" :id \"pt-ana\"} -> \"Patient/pt-ana\"."
   [{:keys [type id]}]
   (str type "/" id))
+
+(defn reference
+  "A FHIR Reference map pointing at `type`/`id`, optionally with a display text."
+  ([type id] {:reference (str type "/" id)})
+  ([type id display] (assoc (reference type id) :display display)))
+
+(defn target
+  "Parses the `:reference` of a Reference map: {:reference \"Patient/pt-ana\"} -> {:type .. :id ..}."
+  [reference-map]
+  (parse (:reference reference-map)))

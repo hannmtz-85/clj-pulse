@@ -1,0 +1,101 @@
+;; The Pulse demo cohort: synthetic people, conditions, medication, appointments and the
+;; 30-day measurement scenarios that make the rules engine raise alerts.
+;; Everything here is invented. Concept keys refer to pulse.fhir.terminology/concepts.
+;; Times of appointments are relative to the moment of seeding (`:in-hours`, `:from-days`).
+;;
+;; A signal's numeric channel is {:baseline n :sd n :decimals n
+;;                                :by-slot {hour offset}
+;;                                :ramp {:days n :to value}   ; linear drift over the last n days
+;;                                :events [{:day -1 :slot 20 :value 255}]}  ; day 0 = last day
+{:organization {:id "org-pulse-demo" :name "Pulse Demo Clinic"}
+
+ :practitioners
+ [{:id "pr-rivera" :given "Elena" :family "Rivera" :gender "female"
+   :email "dr.rivera@pulse.test" :specialty "Internal medicine"}
+  {:id "pr-okafor" :given "Chidi" :family "Okafor" :gender "male"
+   :email "dr.okafor@pulse.test" :specialty "Cardiology"}]
+
+ :patients
+ [;; R1: blood pressure climbing over the last 10 days
+  {:id "pt-ana" :given "Ana" :family "García" :gender "female" :birth-date "1968-03-14"
+   :email "ana.garcia@pulse.test" :mrn "PULSE-0001" :gp "pr-rivera" :city "Valencia" :country "ES"
+   :conditions [{:id "cond-ana-1" :concept :hypertension :onset "2019-05-02"}]
+   :medications [{:id "med-ana-1" :concept :lisinopril :dosage "10 mg once daily" :authored "2025-11-04T09:00:00Z"}
+                 {:id "med-ana-2" :concept :amlodipine :dosage "5 mg once daily" :authored "2025-11-04T09:00:00Z"}]
+   :allergies []
+   :appointments [{:id "appt-ana-1" :practitioner "pr-rivera" :description "Hypertension follow-up"
+                   :in-hours 20 :minutes 30}]
+   :signals [{:signal :blood-pressure :slots [8 20]
+              :systolic {:baseline 138 :sd 3 :ramp {:days 10 :to 174}}
+              :diastolic {:baseline 86 :sd 2.5 :ramp {:days 10 :to 106}}}
+             {:signal :heart-rate :slots [8 20] :channel {:baseline 74 :sd 4}}
+             {:signal :weight :slots [8] :channel {:baseline 82.4 :sd 0.3 :decimals 1}}]}
+
+  ;; R3: glucose out of range (a hypoglycaemia 3 days ago and highs in the last two evenings)
+  {:id "pt-liam" :given "Liam" :family "Chen" :gender "male" :birth-date "1980-07-22"
+   :email "liam.chen@pulse.test" :mrn "PULSE-0002" :gp "pr-rivera" :city "Madrid" :country "ES"
+   :conditions [{:id "cond-liam-1" :concept :type-2-diabetes :onset "2021-02-10"}]
+   :medications [{:id "med-liam-1" :concept :metformin :dosage "1000 mg twice daily" :authored "2025-09-15T09:00:00Z"}
+                 {:id "med-liam-2" :concept :empagliflozin :dosage "10 mg once daily" :authored "2025-09-15T09:00:00Z"}]
+   :allergies []
+   :appointments [{:id "appt-liam-1" :practitioner "pr-rivera" :description "Diabetes review"
+                   :in-hours 72 :minutes 30}]
+   :signals [{:signal :glucose :slots [8 20]
+              :channel {:baseline 122 :sd 7 :by-slot {20 58}
+                        :events [{:day -3 :slot 8 :value 63}
+                                 {:day -1 :slot 20 :value 255}
+                                 {:day 0 :slot 20 :value 268}]}}
+             {:signal :blood-pressure :slots [8]
+              :systolic {:baseline 128 :sd 5} :diastolic {:baseline 82 :sd 3}}
+             {:signal :weight :slots [8] :channel {:baseline 91.0 :sd 0.3 :decimals 1}}]}
+
+  ;; R2: low oxygen saturation, repeatedly during the last two days
+  {:id "pt-sofia" :given "Sofía" :family "Rossi" :gender "female" :birth-date "1959-06-05"
+   :email "sofia.rossi@pulse.test" :mrn "PULSE-0003" :gp "pr-rivera" :city "Sevilla" :country "ES"
+   :conditions [{:id "cond-sofia-1" :concept :copd :onset "2016-11-20"}]
+   :medications [{:id "med-sofia-1" :concept :tiotropium :dosage "18 mcg inhaled once daily" :authored "2025-10-01T09:00:00Z"}
+                 {:id "med-sofia-2" :concept :albuterol :dosage "2 puffs as needed" :authored "2025-10-01T09:00:00Z"}]
+   :allergies [{:id "alg-sofia-1" :concept :penicillin-g :reaction "Skin rash" :recorded "2018-04-12T10:00:00Z"}]
+   :appointments [{:id "appt-sofia-1" :practitioner "pr-rivera" :description "COPD check-up (requested by the patient)"
+                   :requested {:from-days 3 :to-days 10}}]
+   :signals [{:signal :spo2 :slots [8 20]
+              :channel {:baseline 94 :sd 0.8
+                        :events [{:day -9 :slot 8 :value 90}
+                                 {:day -6 :slot 20 :value 91}
+                                 {:day -1 :slot 8 :value 90}
+                                 {:day -1 :slot 20 :value 91}
+                                 {:day 0 :slot 8 :value 90}
+                                 {:day 0 :slot 20 :value 89}]}}
+             {:signal :heart-rate :slots [8 20] :channel {:baseline 82 :sd 5}}]}
+
+  ;; Healthy control: nothing should ever alert
+  {:id "pt-omar" :given "Omar" :family "Haddad" :gender "male" :birth-date "1991-02-09"
+   :email "omar.haddad@pulse.test" :mrn "PULSE-0004" :gp "pr-rivera" :city "Barcelona" :country "ES"
+   :conditions [] :medications [] :allergies [] :appointments []
+   :signals [{:signal :blood-pressure :slots [8 20]
+              :systolic {:baseline 118 :sd 4} :diastolic {:baseline 76 :sd 3}}
+             {:signal :heart-rate :slots [8 20] :channel {:baseline 64 :sd 4}}
+             {:signal :weight :slots [8] :channel {:baseline 78.0 :sd 0.3 :decimals 1}}]}
+
+  ;; R4: rapid weight gain over the last 4 days (heart failure)
+  {:id "pt-maya" :given "Maya" :family "Patel" :gender "female" :birth-date "1974-09-30"
+   :email "maya.patel@pulse.test" :mrn "PULSE-0005" :gp "pr-okafor" :city "Bilbao" :country "ES"
+   :conditions [{:id "cond-maya-1" :concept :heart-failure :onset "2022-06-15"}]
+   :medications [{:id "med-maya-1" :concept :furosemide :dosage "40 mg once daily" :authored "2025-08-20T09:00:00Z"}
+                 {:id "med-maya-2" :concept :carvedilol :dosage "12.5 mg twice daily" :authored "2025-08-20T09:00:00Z"}]
+   :allergies []
+   :appointments [{:id "appt-maya-1" :practitioner "pr-okafor" :description "Heart failure review"
+                   :in-hours 48 :minutes 45}]
+   :signals [{:signal :weight :slots [8]
+              :channel {:baseline 71.8 :sd 0.2 :decimals 1 :ramp {:days 4 :to 75.8}}}
+             {:signal :blood-pressure :slots [8 20]
+              :systolic {:baseline 118 :sd 5} :diastolic {:baseline 72 :sd 3}}
+             {:signal :heart-rate :slots [8 20] :channel {:baseline 78 :sd 5}}]}
+
+  ;; Newly registered: no measurements yet (the empty state of the UI)
+  {:id "pt-noah" :given "Noah" :family "Kim" :gender "male" :birth-date "1997-04-18"
+   :email "noah.kim@pulse.test" :mrn "PULSE-0006" :gp "pr-okafor" :city "Zaragoza" :country "ES"
+   :conditions [] :medications [] :allergies []
+   :appointments [{:id "appt-noah-1" :practitioner "pr-okafor" :description "New patient intake"
+                   :requested {:from-days 1 :to-days 7}}]
+   :signals []}]}

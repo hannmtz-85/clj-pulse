@@ -1,6 +1,6 @@
 # 02 · Implementation plan
 
-> **Status: validated by the project owner on 2026-10-13. Phases 0, 1 and 2 are done; Phase 3 (FHIR core and seed data) is next.**
+> **Status: validated by the project owner on 2026-10-13. Phases 0 to 3 are done; Phase 4 (`api`, the clinical gateway) is next.**
 > Evidence and version tables: [01-stack-review.md](01-stack-review.md). Everything deliberately left out of Phases 0-10: [03-extras-backlog.md](03-extras-backlog.md).
 
 ## 0. Traceability: request → where it is handled
@@ -107,14 +107,13 @@ The repository root is this folder; `clj-pulse` is the name of the GitHub reposi
 │  ├─ api/  web/  scheduler/   # each with deps.edn, src, resources, test
 │  └─ spa/                     # deps.edn, shadow-cljs.edn, package.json, src, test
 ├─ libs/
-│  ├─ fhir/                    # pure .cljc: resources as data, malli schemas, units, Bundles
+│  ├─ fhir/                    # .cljc: resources as data, malli schemas, units, Bundles; .clj: clients, synthetic cohort (+ resources/pulse/seed/cohort.edn)
 │  └─ platform/                # .clj: config (Aero + malli), JWT/JWKS, HTTP client, logging, Integrant helpers
 ├─ infra/
 │  ├─ keycloak/                # realm/pulse-realm.json, themes/pulse/login/…
 │  ├─ hapi/                    # application.yaml
 │  └─ postgres/                # init.sql
 ├─ tools/                      # Babashka scripts: doctor, seed, realm utilities
-├─ data/seed/                  # clinical scenarios as EDN
 ├─ design/                     # tokens and HTML mock-ups
 ├─ docs/                       # plan, review, extras, ADRs, architecture
 └─ .github/workflows/ci.yml
@@ -204,18 +203,31 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 - Git Bash rewrites container paths such as `/tmp/x` into Windows paths; prefix `docker exec`/`docker cp` with `MSYS_NO_PATHCONV=1`.
 - HAPI caches search results for about a minute; use `Cache-Control: no-cache` when testing right after a write or delete.
 
-### Phase 3 · FHIR core and seed data (L)
+### Phase 3 · FHIR core and seed data (L) — DONE 2026-10-13
 
-- [ ] Resources as maps: constructors and accessors (`Reference`, `CodeableConcept`, `Quantity`, `value[x]`, `component`).
-- [ ] malli schemas for an R4 subset, and conversion of errors to `OperationOutcome`.
-- [ ] UCUM units and conversions (mmHg, kg↔lb, °C↔°F, mg/dL↔mmol/L) and reference ranges.
-- [ ] Minimal EDN catalogue (LOINC, ICD-10-CM, RxNorm) + `NOTICE`.
-- [ ] FHIR client: `FhirClient` protocol, HTTP implementation and in-memory fake; paginated search with `iteration`; `OperationOutcome` → `ex-info`.
-- [ ] **Deterministic cohort generator** (Annex C) and a `transaction` Bundle with `PUT` and fixed IDs.
-- [ ] `bb seed` (idempotent) and `bb seed:validate` (`$validate`).
-- [ ] Unit and property tests.
+- [x] Resources as plain maps: `pulse.fhir.reference`, `coding`, `observation` (a multimethod on `value[x]`, component and blood-pressure accessors) and `resource` (builders for Organization, Practitioner, Patient, Condition, MedicationRequest, AllergyIntolerance, Appointment, Flag, Communication). Portable `.cljc`.
+- [x] malli schemas for the R4 subset (`pulse.fhir.schema`, FHIR primitive regexes anchored) and conversion of malli errors to `OperationOutcome` with FHIRPath-like expressions (`pulse.fhir.outcome`).
+- [x] UCUM units as data with linear and affine conversion (`pulse.fhir.units`: kg/g/lb, °C/°F/K, mmHg/kPa, mg/dL↔mmol/L) and didactic reference bands (`pulse.fhir.ranges`).
+- [x] Terminology catalogue in code (`pulse.fhir.terminology`): 9 LOINC, 4 ICD-10-CM and 9 RxNorm concepts, every code checked against the NLM Clinical Tables and RxNav services. `NOTICE` added.
+- [x] `FhirClient` protocol with an HTTP implementation and an in-memory fake; lazy paginated search with `iteration`; HAPI errors become `ex-info` carrying the `OperationOutcome` ([ADR-0007](adr/0007-fhir-client-protocol-and-shared-bb-jvm-code.md)).
+- [x] **Deterministic cohort generator** (`pulse.fhir.synthetic`, [ADR-0008](adr/0008-deterministic-synthetic-cohort.md)) reading `libs/fhir/resources/pulse/seed/cohort.edn` from the classpath, and `transaction` Bundles of `PUT`s with fixed ids.
+- [x] `bb seed` (idempotent) and `bb seed:validate` (a representative sample, or `--all`); `bb test:it` for integration tests.
+- [x] Unit and property tests: 50 tests, 7853 assertions. Properties cover unit round trips, band coverage, schema rejection of every missing required element, and independence of a day's values from the seeding moment.
 
-*Acceptance:* `bb seed` loads the cohort (counts documented); `$validate` reports no errors; tests green; REPL demo.
+*Acceptance (verified 2026-10-13):*
+- `bb seed` loaded **708 resources in 10.6 s** (1 Organization, 2 Practitioners, 6 Patients, 4 Conditions, 8 MedicationRequests, 1 AllergyIntolerance, 5 Appointments and 681 Observations; the count is up to 690 when seeding after 20:00 UTC, because the last evening readings do not exist yet earlier in the day). The server's per-type counts matched, and a second run left them unchanged.
+- HAPI's `$validate` reported **no errors for all 708 resources** (30 s, sequential). Only warnings remain: the missing narrative (`dom-6`) and code systems HAPI does not have loaded (LOINC, ICD-10-CM, RxNorm).
+- Content checks through the FHIR API: Dr. Rivera's panel has 4 patients and Dr. Okafor's 2; Ana's last blood pressures were 177/100, 172/102 and 165/106 (rule R1); Maya's weight went from 72.1 to 75.8 kg in four days (rule R4); Noah has no observations.
+- Scenario tests prove that rules R1-R4 would fire for every one of the 24 hours of the day at which the cohort could be seeded, and that the healthy control never leaves the normal bands.
+- `bb test:it`: 4 integration tests (22 assertions) pass; the HTTP client and the in-memory client give identical answers to 7 kinds of query against the real HAPI, and `next` links are followed.
+- `bb check` is green (format, lint with no warnings, realm check, unit tests).
+
+*Lessons:*
+- Babashka has neither `StrictMath` nor guaranteed-identical transcendental functions, so the noise is a sum of twelve uniform samples (additions only), identical on the JVM and in `bb`.
+- malli's `:re` uses `re-find`: FHIR primitive patterns must be anchored with `^…$` or `"14/03/1968"` passes as a date.
+- `(sequence cat …)` is chunked and `mapcat` spreads its first arguments with `apply`; lazy page-by-page flattening needs `lazy-seq` and `rest` (not `next`).
+- **HAPI's validator needs memory.** Ten concurrent `$validate` calls exhausted the 768 MB heap (`OutOfMemoryError`, 100 % CPU in garbage collection); the container stayed up but unusable until restarted. Validation is now sequential. If more headroom is wanted, raise `JAVA_TOOL_OPTIONS` and `mem_limit` in `compose.yaml`.
+- Cheshire/JSON and Babashka details are recorded in `CLAUDE.md`; `Cache-Control: no-cache` is the default for the HTTP client because HAPI caches searches.
 
 ### Phase 4 · `api`: clinical gateway (L)
 
@@ -286,7 +298,7 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 ### Phase 10 · Polish and publication (M)
 
 - [ ] README: pitch, GIF/screenshots, diagram, quick start in a few commands, demo users (local only), "what it demonstrates in Clojure" with links to the code, ADRs, limits and the synthetic-data notice.
-- [ ] `LICENSE` and `NOTICE` (LOINC and other attributions).
+- [ ] `LICENSE`, and re-check the attribution texts in `NOTICE` (LOINC, RxNorm, UCUM) against their current licences, including the LOINC copyright years.
 - [ ] Secret scan (`gitleaks`).
 - [ ] Publish on GitHub (`gh repo create`), topics, CI badge and release `v0.1.0`. **Only with the owner's explicit confirmation at that moment.**
 

@@ -28,6 +28,9 @@
 | X-15 | CDS Hooks service | Clinical decision support endpoint backed by the rules engine | Beyond the MVP | Phases 4, 5 | L |
 | X-16 | Blaze compose profile | A second, Clojure-based FHIR server (`samply/blaze`) behind the same `FhirClient`, plus a server-independence test matrix and CQL `$evaluate-measure` cohort analytics. ⚠ Blaze's Subscription and auth support is not verified | Doubles the test matrix | Phases 2, 3 | M-L |
 | X-17 | Multi-organization separation | Organization-scoped compartments and data separation | Single demo clinic is enough | Phase 4 | L |
+| X-19 | Generated narrative | A `text.div` for every resource, silencing the `dom-6` validator warning (708 of them) and making resources readable in generic FHIR tools | Cosmetic: only a warning | Phase 3 | S |
+| X-20 | Terminologies loaded into HAPI | LOINC, ICD-10-CM and RxNorm as code systems in HAPI, so `$validate` checks codes instead of warning "CodeSystem is unknown" | Large downloads and licences; the codes were verified against the NLM services instead | Phases 2, 3 | M |
+| X-18 | FHIR R5 compatibility | `libs/fhir` normalises R4/R5 differences behind version-aware accessors (for example `MedicationRequest.medication`, a `medication[x]` choice in R4 and a `CodeableReference` in R5; `AllergyIntolerance` fields) with multimethods dispatching on version, plus an optional compose profile running HAPI in R5 and a test matrix. Shows R5 knowledge without depending on it | R4 is the base (see ADR-0002); few partners support R5 and R6 is coming | Phases 3, 4 | M |
 
 ## C. Real time and integration
 
@@ -89,6 +92,7 @@
 | clj-http | Rejected | `babashka.http-client` shares one API between bb and the JVM |
 | Custom password-hash provider | Rejected | Keycloak's default hashing is enough for a portfolio |
 | Upgrading Keycloak beyond 26.0.x | Rejected | Owner decision: the focus is Clojure, not Keycloak |
+| FHIR R5 as the primary version | Rejected (2026-10-13) | US Core 9.0.0 and the IPS are R4; Epic and Oracle Health do not support R5; R6 started normative ballot in January 2026, so the likely path is R4 → R6. Kept as extra X-18 |
 
 ## I. Decisions that will be resolved inside the phases
 

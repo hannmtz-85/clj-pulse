@@ -1,2 +1,7 @@
-{:paths ["src"]
- :deps {org.clojure/clojure {:mvn/version "1.12.6"}}}
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        metosin/malli {:mvn/version "0.20.3"}
+        ;; JVM/Babashka only (pulse.fhir.client.*): one JSON codec and one HTTP client that
+        ;; behave the same on the JVM and in `bb seed`.
+        org.clojure/data.json {:mvn/version "2.5.2"}
+        org.babashka/http-client {:mvn/version "0.4.25"}}}

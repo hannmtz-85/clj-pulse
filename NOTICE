@@ -1,0 +1,24 @@
+Pulse: third-party notices
+
+All clinical data in this repository is synthetic. Pulse is not a medical device and must
+not be used with real patient data.
+
+LOINC
+This material contains content from LOINC (http://loinc.org). LOINC is copyright
+1995-2026, Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and
+Codes (LOINC) Committee and is available at no cost under the license at
+http://loinc.org/license. LOINC is a registered United States trademark of Regenstrief
+Institute, Inc.
+
+RxNorm
+This product uses publicly available data from the U.S. National Library of Medicine
+(NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
+responsible for the product and does not endorse or recommend this or any other product.
+
+ICD-10-CM
+ICD-10-CM is published by the U.S. National Center for Health Statistics (CDC/NCHS) and
+is in the public domain.
+
+UCUM
+The Unified Code for Units of Measure (UCUM) is copyright Regenstrief Institute, Inc. and
+The UCUM Organization, and is used here under its free license (https://ucum.org).

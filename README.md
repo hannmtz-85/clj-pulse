@@ -4,9 +4,9 @@ Remote patient monitoring and appointment coordination on **FHIR R4**, written i
 
 A portfolio project: four applications of different kinds share one identity provider and one FHIR server.
 
-> **Status: early development.** The workstation, repository foundations and local infrastructure (PostgreSQL, Keycloak 26.0.0 with the `pulse` realm and demo users, HAPI FHIR R4) are done; the apps are not written yet. Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
+> **Status: early development.** Done: the workstation, repository foundations, the local infrastructure (PostgreSQL, Keycloak 26.0.0 with the `pulse` realm and demo users, HAPI FHIR R4) and the FHIR core library with a deterministic synthetic cohort. The four apps are not written yet. Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
 >
-> Try the infrastructure (needs Docker, Babashka and the Clojure CLI): `bb doctor`, then `bb up` and `bb realm:smoke`.
+> Try it (needs Docker, Babashka and the Clojure CLI): `bb doctor`, `bb up`, `bb realm:smoke`, `bb seed`.
 
 ## The four apps
 

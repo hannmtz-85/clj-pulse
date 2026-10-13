@@ -1,4 +1,5 @@
-{:paths ["tools"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources"]
+ :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])
 
@@ -7,8 +8,11 @@
           :task (doctor/-main)}
 
   ;; --- code quality -------------------------------------------------------
-  test {:doc "Run the JVM test suite (Kaocha); extra args are passed through"
-        :task (apply shell "clojure" "-M:test" *command-line-args*)}
+  test {:doc "Run the JVM unit tests (Kaocha); extra args are passed through"
+        :task (apply shell "clojure" "-M:test" "--skip-meta" ":integration" *command-line-args*)}
+
+  test:it {:doc "Run the integration tests against the running stack (needs `bb up`)"
+           :task (apply shell "clojure" "-M:test" "--focus-meta" ":integration" *command-line-args*)}
 
   lint {:doc "Lint all sources with clj-kondo"
         :task (shell "clojure" "-M:lint")}
@@ -42,6 +46,14 @@
   token {:doc "Print an access token: bb token <username | scheduler> (needs `bb up`)"
          :requires ([kc])
          :task (kc/print-token (first *command-line-args*))}
+
+  seed {:doc "Load the demo cohort into HAPI FHIR (idempotent; needs `bb up`)"
+        :requires ([seed])
+        :task (seed/seed!)}
+
+  seed:validate {:doc "Validate the demo cohort with HAPI's $validate: a representative sample, or everything with --all (needs `bb up`)"
+                 :requires ([seed])
+                 :task (apply seed/validate! *command-line-args*)}
 
   up {:doc "Start PostgreSQL, Keycloak and HAPI FHIR and wait until they are ready"
       :depends [env:init realm:build]

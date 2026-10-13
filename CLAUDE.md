@@ -4,19 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phases 0 (workstation), 1 (repository foundations) and 2 (infrastructure) are done; Phase 3 (FHIR core and seed data) is next. There is no application code yet**, only `libs/fhir` with a first namespace plus the infrastructure and its tooling.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is next.** The only code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort) plus the infrastructure tooling in `tools/`; there are no apps yet.
 
 ## Commands
 
 Run from the repository root (any shell; quote the path, it has a space). Do not invent others: the remaining `bb` tasks arrive with their phase.
 
 - `bb doctor`: checks JDK, Clojure CLI, Babashka, Node, Docker, free RAM and ports (ports in use are expected while the stack is up).
-- `bb test`: Kaocha test suite (config in `tests.edn`). Pass Kaocha args through, for example `bb test --focus pulse.fhir.reference-test/parse-examples` to run a single test.
+- `bb test`: Kaocha unit tests (config in `tests.edn`; tests tagged `^:integration` are skipped). Pass Kaocha args through, for example `bb test --focus pulse.fhir.reference-test/parse-examples` to run a single test. `bb test:it` runs the integration tests against the running stack.
+- `bb seed` loads the demo cohort into HAPI (idempotent, about 700 resources); `bb seed:validate` runs HAPI's `$validate` on a representative sample, `--all` on every resource.
 - `bb lint` (clj-kondo), `bb fmt` (cljfmt fix), `bb fmt:check`, and `bb check` (format + lint + realm check + test, what CI runs).
 - Stack (needs Docker and `.env`): `bb up` (creates `.env` with random secrets if missing, rebuilds the realm JSON, starts PostgreSQL, Keycloak and HAPI, waits for readiness), `bb down`, `bb ps`, `bb logs [service]`, and `bb reset` which **destroys the stack's data** and starts clean (about 2 minutes).
 - Keycloak realm: edit `tools/realm.clj`, run `bb realm:build` and commit the generated JSON (`bb realm:check` fails if it is stale). Keycloak skips the import when the realm exists, so apply changes locally with `bb reset`. `bb realm:smoke` signs in as every demo user and checks their token claims; `bb token <username|scheduler>` prints an access token (for REST Client's `@token`).
 - REPL: alias `:dev` (see `dev/user.clj`), for example Calva jack-in.
 - New source directories (such as `apps/`) must be added to the lint and format paths in `deps.edn` and `cljfmt.edn`.
+
+## libs/fhir
+
+FHIR R4 resources are plain keyword-keyed maps. Portable `.cljc`: `reference`, `coding`, `terminology` (verified LOINC/ICD-10-CM/RxNorm catalogue), `units` (UCUM as data), `ranges`, `observation` (multimethod on `value[x]`), `resource` (builders), `schema` (malli, open maps), `outcome`, `bundle`, `time`. JVM/Babashka only: `client` (the `FhirClient` protocol and lazy paged search), `client.http`, `client.memory` (a faithful fake server for tests and the "lite" profile), `synthetic` (the deterministic cohort from `resources/pulse/seed/cohort.edn`). The same code runs in the apps, the tests and `bb` (see `bb.edn` `:paths`).
+
+Gotchas learned the hard way: malli `:re` uses `re-find`, so patterns need `^…$`; Babashka has no `StrictMath` (the generator's noise is additions only); `sequence`+`cat` and `mapcat` over `iteration` fetch extra pages (see `client/paged`); HAPI's validator runs out of its 768 MB heap under concurrent `$validate` calls (keep validation sequential).
 
 ## Local stack
 
