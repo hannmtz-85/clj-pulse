@@ -1,0 +1,32 @@
+# Clojure / ClojureScript tooling caches
+.cpcache/
+.clj-kondo/.cache/
+.lsp/.cache/
+.calva/
+.nrepl-port
+.shadow-cljs/
+.portal/
+
+# Build output
+target/
+out/
+dist/
+node_modules/
+# shadow-cljs output
+**/resources/public/js/
+
+# Environment and secrets (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# Logs and reports
+*.log
+TEST*.xml
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

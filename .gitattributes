@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.clj  text eol=lf
+*.cljs text eol=lf
+*.cljc text eol=lf
+*.edn  text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+*.http text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
