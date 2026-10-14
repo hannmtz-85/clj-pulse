@@ -1,0 +1,100 @@
+(ns pulse.platform.test.idp
+  "A fake identity provider for tests, shared by every suite that needs signed tokens: throwaway
+  RSA keys, a function that mints tokens, and a small HTTP server that serves a key set at
+  /jwks. The server can be told to serve other keys, to fail, and it counts the requests it got,
+  which is what lets key caching, rotation and outages be tested for real.
+
+  Test code only: it is on the classpath of the `:test` alias and nowhere else."
+  (:import (com.nimbusds.jose JOSEObjectType JWSAlgorithm JWSHeader$Builder)
+           (com.nimbusds.jose.crypto RSASSASigner)
+           (com.nimbusds.jose.jwk JWK JWKSet KeyUse RSAKey)
+           (com.nimbusds.jose.jwk.gen RSAKeyGenerator)
+           (com.nimbusds.jwt JWTClaimsSet SignedJWT)
+           (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
+           (java.net InetSocketAddress)
+           (java.nio.charset StandardCharsets)
+           (java.util ArrayList Collection LinkedHashMap List Map)))
+
+(defn generate-key
+  "A throwaway RSA key with the given `kid`, key use (`KeyUse/SIGNATURE`) and algorithm."
+  ^RSAKey [kid key-use alg]
+  (.generate (doto (RSAKeyGenerator. 2048)
+               (.keyID kid)
+               (.keyUse key-use)
+               (.algorithm alg))))
+
+(defn signing-key
+  "A throwaway RS256 signature key with the given `kid`."
+  ^RSAKey [kid]
+  (generate-key kid KeyUse/SIGNATURE JWSAlgorithm/RS256))
+
+(defn ->java
+  "Clojure data as the plain java.util maps and lists that Nimbus takes."
+  [x]
+  (cond
+    (map? x) (let [m (LinkedHashMap.)]
+               (doseq [[k v] x] (.put m (name k) (->java v)))
+               m)
+    (sequential? x) (ArrayList. ^Collection (mapv ->java x))
+    :else x))
+
+(defn mint
+  "A compact JWT with `claims` (Clojure data) signed by `key`. Options override the header:
+  `:alg` (default RS256) and `:kid` (default the key's; nil leaves it out)."
+  ([key claims] (mint key claims {}))
+  ([^RSAKey key claims opts]
+   (let [alg (get opts :alg JWSAlgorithm/RS256)
+         kid (if (contains? opts :kid) (:kid opts) (.getKeyID key))
+         header (-> (JWSHeader$Builder. ^JWSAlgorithm alg)
+                    (.type JOSEObjectType/JWT)
+                    (cond-> kid (.keyID ^String kid))
+                    (.build))
+         jwt (SignedJWT. header (JWTClaimsSet/parse ^Map (->java claims)))]
+     (.sign jwt (RSASSASigner. key))
+     (.serialize jwt))))
+
+(defn jwks-json
+  "A key set as an identity provider publishes it: public keys only."
+  [keys]
+  (.toString (JWKSet. ^List (mapv #(.toPublicJWK ^JWK %) keys))))
+
+(defn start!
+  "Starts a fake identity provider on a random local port. Its /jwks serves `keys`. Returns a
+  map with `:uri` (the JWKS URL) for the other functions here."
+  [keys]
+  (let [state (atom {:body (jwks-json keys) :status 200 :hits 0})
+        server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/jwks"
+                    (reify HttpHandler
+                      (handle [_ ex]
+                        (let [^HttpExchange ex ex
+                              {:keys [^String body status]} (swap! state update :hits inc)
+                              payload (.getBytes body StandardCharsets/UTF_8)
+                              ok? (= 200 status)]
+                          (.add (.getResponseHeaders ex) "Content-Type" "application/json")
+                          (.sendResponseHeaders ex (int status) (if ok? (long (alength payload)) -1))
+                          (when ok?
+                            (with-open [out (.getResponseBody ex)] (.write out payload)))
+                          (.close ex)))))
+    (.start server)
+    {:server server
+     :state state
+     :uri (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/jwks")}))
+
+(defn stop! [idp]
+  (.stop ^HttpServer (:server idp) 0))
+
+(defn serve!
+  "From now on, serve `keys` (and answer 200)."
+  [idp keys]
+  (swap! (:state idp) assoc :body (jwks-json keys) :status 200))
+
+(defn break!
+  "From now on, answer 503."
+  [idp]
+  (swap! (:state idp) assoc :status 503))
+
+(defn hits
+  "How many requests the key set endpoint has received."
+  [idp]
+  (:hits @(:state idp)))

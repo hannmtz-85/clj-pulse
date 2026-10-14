@@ -73,4 +73,8 @@
         :task (apply shell "docker" "compose" "logs" "--follow" "--tail" "100" *command-line-args*)}
 
   ps {:doc "Show the state of the stack"
-      :task (shell "docker" "compose" "ps")}}}
+      :task (shell "docker" "compose" "ps")}
+
+  ;; --- the apps ------------------------------------------------------------
+  dev {:doc "Run the apps built so far in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up)"
+       :task (apply shell "clojure" "-M:dev" "-m" "pulse.api.main" *command-line-args*)}}}

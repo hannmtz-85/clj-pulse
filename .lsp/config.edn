@@ -1,3 +1,3 @@
 {:source-paths ["libs" "apps" "tools" "dev"]
  :source-paths-ignore-regex ["node_modules" "\\.shadow-cljs" "\\.cpcache"]
- :cljfmt {:paths ["libs" "tools" "dev"]}}
+ :cljfmt {:paths ["libs" "apps" "tools" "dev"]}}

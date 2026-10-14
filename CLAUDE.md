@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is under way: the access-token verifier in `libs/platform` is done, the app skeleton is next.** The code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort), `libs/platform` (the token verifier) and the infrastructure tooling in `tools/`; there are no apps yet.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is under way: the access-token verifier, the HTTP mechanisms and the app skeleton are done (`/healthz`, `/readyz`, `/api/me`); the Annex A authorization matrix and the remaining Annex B endpoints are next.** The code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort), `libs/platform` (config, logging, token verification, HTTP mechanisms), `apps/api` and the infrastructure tooling in `tools/`.
 
 ## Commands
 
@@ -16,8 +16,9 @@ Run from the repository root (any shell; quote the path, it has a space). Do not
 - `bb lint` (clj-kondo), `bb fmt` (cljfmt fix), `bb fmt:check`, and `bb check` (format + lint + realm check + test, what CI runs).
 - Stack (needs Docker and `.env`): `bb up` (creates `.env` with random secrets if missing, rebuilds the realm JSON, starts PostgreSQL, Keycloak and HAPI, waits for readiness), `bb down`, `bb ps`, `bb logs [service]`, and `bb reset` which **destroys the stack's data** and starts clean (about 2 minutes).
 - Keycloak realm: edit `tools/realm.clj`, run `bb realm:build` and commit the generated JSON (`bb realm:check` fails if it is stale). Keycloak skips the import when the realm exists, so apply changes locally with `bb reset`. `bb realm:smoke` signs in as every demo user and checks their token claims; `bb token <username|scheduler>` prints an access token (for REST Client's `@token`).
-- REPL: alias `:dev` (see `dev/user.clj`), for example Calva jack-in.
-- New source directories (such as `apps/`) must be added to the lint and format paths in `deps.edn` and `cljfmt.edn`.
+- `bb dev [dev|lite]` runs the apps built so far in one JVM (today the api, on 127.0.0.1:4000); `lite` uses an in-memory FHIR server instead of HAPI but still needs Keycloak. Logs are readable text; set `LOG_FORMAT=json` and `LOG_LEVEL=debug` for JSON lines and more detail. Try it with `http/api.http` and `bb token <user>`.
+- REPL: alias `:dev` (see `dev/user.clj`), for example Calva jack-in, then `(go)`, `(reset)`, `(halt)` (Integrant; `reset` reloads with clj-reload).
+- New source directories must be added to the lint and format paths in `deps.edn`, `cljfmt.edn` and `.lsp/config.edn` (`libs`, `apps`, `tools` and `dev` already are), and a new test directory to `tests.edn`.
 
 ## libs/fhir
 
@@ -27,9 +28,19 @@ Gotchas learned the hard way: malli `:re` uses `re-find`, so patterns need `^…
 
 ## libs/platform
 
-JVM only. So far just `pulse.platform.jwt`, the access-token verifier ([ADR-0009](docs/adr/0009-access-token-verification-with-nimbus-facade.md)): `jwks-source` and `verifier` build it, `verify` returns `{:ok claims}` or `{:error {:type ...}}` and never throws because of a bad token, and `errors` and `challenge` give the HTTP status and the `WWW-Authenticate` value. Its unit tests (`bb test`) mint tokens with throwaway RSA keys and serve the JWKS from a local HTTP server; `bb test:it` also verifies tokens from the real Keycloak (it runs `bb token`).
+JVM only; the mechanisms shared by the services, with no policy of their own. `config` (Aero + malli: `read-config` validates before anything starts, and never prints the offending values), `log` (Telemere, [ADR-0010](docs/adr/0010-structured-logging-with-telemere.md)), `jwt` (the access-token verifier, [ADR-0009](docs/adr/0009-access-token-verification-with-nimbus-facade.md): `verify` returns `{:ok claims}` or `{:error {:type ...}}` and never throws because of a bad token; `errors` and `challenge` give the status and `WWW-Authenticate`), and `http/*` ([ADR-0011](docs/adr/0011-api-request-pipeline-and-errors.md)): `problem` (RFC 9457 errors), `middleware` (request id, access log, exception handler), `auth` (bearer authentication) and `health` (readiness checks under one deadline).
 
-Gotchas learned the hard way: Nimbus 10 enables refresh-ahead caching by default (a background thread; switched off explicitly); its JWKS rate limiter lets two fetches through per window and then throws `RateLimitReachedException`, which must not be reported as an unknown key when no key set was ever fetched; Keycloak's JWKS also holds an encryption key (`use: enc`) that must never verify a signature; Keycloak access tokens carry the application role next to its own default roles in `realm_access.roles`.
+Tests mint tokens with throwaway RSA keys and serve the JWKS from a local HTTP server: that fake identity provider is `pulse.platform.test.idp` in `libs/platform/test-support`, on the classpath of the `:test` alias and shared by the suites. `bb test:it` also verifies tokens from the real Keycloak (it runs `bb token`).
+
+Gotchas learned the hard way: Nimbus 10 enables refresh-ahead caching by default (a background thread; switched off explicitly); its JWKS rate limiter lets two fetches through per window and then throws `RateLimitReachedException`, which must not be reported as an unknown key when no key set was ever fetched; Keycloak's JWKS also holds an encryption key (`use: enc`) that must never verify a signature; Keycloak access tokens carry the application role next to its own default roles in `realm_access.roles`. Telemere's `:json` output format exists only in ClojureScript (we pass jsonista as `:pr-fn`); `t/with-signals` returns `{:value :error :signals}` and, with `true` as first argument, traps the signals so tests print nothing; `telemere-slf4j` is the SLF4J provider but the SLF4J API comes from Jetty. `integrant/repl` 0.5 reloads with clj-reload, not tools.namespace.
+
+## apps/api
+
+Resource server and FHIR gateway on Ring + Jetty + Reitit. `pulse/api/config.edn` (classpath resource) is the Integrant system map, read by Aero and checked by `pulse.api.config/schema` (closed maps, so a misspelt key fails); profile `dev`, `lite` or `test`, chosen with `API_PROFILE`. `system` starts the components, `handler` assembles the pipeline, `routes` is the route table as data, `authz` holds the pure `authorize`, the `rules` per action and the middleware, `identity` turns verified claims into an identity (its role list must match the realm: a test compares it with the committed realm JSON).
+
+Every endpoint declares `:authz` (`:public`, or `{:action a}` with a rule for `a` in `authz/rules`); `check-routes!` makes the start-up fail otherwise (deny by default, ADR-0004 and ADR-0011). To add an endpoint: route, schemas, `:authz`, rule, test.
+
+Gotchas learned the hard way: reitit-malli closes every `:map` schema and strips undeclared keys, so a FHIR resource in a response schema must be `[:map-of :keyword :any]` (a plain `:map` turned it into `{}`); Reitit adds an `OPTIONS` endpoint to every route unless `::ring/default-options-endpoint` is nil; query parameters are only parsed if `parameters-middleware` is in the chain; muuntaja is restricted to JSON.
 
 ## Local stack
 

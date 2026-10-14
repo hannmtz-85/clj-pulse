@@ -108,7 +108,7 @@ The repository root is this folder; `clj-pulse` is the name of the GitHub reposi
 │  └─ spa/                     # deps.edn, shadow-cljs.edn, package.json, src, test
 ├─ libs/
 │  ├─ fhir/                    # .cljc: resources as data, malli schemas, units, Bundles; .clj: clients, synthetic cohort (+ resources/pulse/seed/cohort.edn)
-│  └─ platform/                # .clj: config (Aero + malli), JWT/JWKS, HTTP client, logging, Integrant helpers
+│  └─ platform/                # .clj: config (Aero + malli), JWT/JWKS, logging (Telemere), HTTP server mechanisms (problem details, request id, bearer auth, health)
 ├─ infra/
 │  ├─ keycloak/                # realm/pulse-realm.json, themes/pulse/login/…
 │  ├─ hapi/                    # application.yaml
@@ -231,15 +231,18 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 
 ### Phase 4 · `api`: clinical gateway (L)
 
-- [ ] Integrant system + Aero, with the configuration validated by malli at start-up.
+- [x] Integrant system + Aero, with the configuration validated by malli at start-up (`apps/api`, `pulse.platform.config`, [ADR-0003](adr/0003-configuration-and-lifecycle.md)). Profiles `dev`, `lite` (in-memory FHIR) and `test`; `bb dev [profile]`; `go`/`reset`/`halt` in the REPL.
 - [x] JWT verification with Nimbus behind a thin facade (`pulse.platform.jwt`, [ADR-0009](adr/0009-access-token-verification-with-nimbus-facade.md)): signature, `iss`, `aud`, `exp`/`nbf` with leeway, `kid`, a JWKS cache with TTL, typed errors and the `WWW-Authenticate` value. Spike (d) of §7, done 2026-10-14: 19 unit tests and 2 integration tests against the real Keycloak.
-- [ ] Middleware that answers 401 (and 503 when there are no keys) with `WWW-Authenticate`, using the facade; it arrives with the app skeleton.
-- [ ] Authorization in route data (`:authz`), **deny by default**, through a pure `authorize` function (identity, action, resource → decision and reason).
-- [ ] Annex B endpoints with malli coercion; OpenAPI and Swagger UI (`/docs`) with PKCE login.
-- [ ] `/summary` with concurrent fan-out and timeouts.
-- [ ] Uniform errors, in-house CORS, security headers, `X-Request-Id`.
-- [ ] Structured logs with an audit event for every access to clinical data; `/healthz` and `/readyz` (Keycloak and HAPI).
-- [ ] Tests: authorization matrix as a table, contract tests against the fake, properties.
+- [x] Authentication middleware that answers 401 (and 503 when there are no keys) with `WWW-Authenticate` (`pulse.platform.http.auth`).
+- [x] Authorization in route data (`:authz`), **deny by default**, through a pure `authorize` function (identity, action, resource → decision and reason): the mechanism, checked when the router is built ([ADR-0011](adr/0011-api-request-pipeline-and-errors.md)).
+- [ ] The Annex A matrix as the `rules` of `authorize`, with patient-compartment checks on the resource. Today there is one rule, `:identity/read`.
+- [ ] Annex B endpoints with malli coercion; OpenAPI and Swagger UI (`/docs`) with PKCE login. Done so far: `GET /healthz`, `/readyz`, `/api/me`.
+- [ ] `/summary` with concurrent fan-out and timeouts (the FHIR HTTP client still has no timeout).
+- [x] Uniform errors (RFC 9457 problem details) and `X-Request-Id`.
+- [ ] In-house CORS and security headers.
+- [x] Structured logs ([ADR-0010](adr/0010-structured-logging-with-telemere.md)): events as data, a request id in every line, text or JSON; `/healthz` and `/readyz` (Keycloak keys and FHIR).
+- [ ] An audit event for every access to clinical data.
+- [ ] Tests: authorization matrix as a table, contract tests against the fake, properties. Done so far: 38 unit tests in `apps/api`, 58 in `libs/platform`, and an integration test of the api against the real stack.
 
 *Acceptance:* with Swagger UI and the `.http` files each role sees only what it should; negative cases (401/403/404) follow the matrix; `bb test` green.
 

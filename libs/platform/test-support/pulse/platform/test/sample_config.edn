@@ -1,0 +1,9 @@
+;; A configuration to read in tests: it uses every tag the apps' files use.
+{:sample/server
+ {:port #profile {:default 8080 :test 0}
+  :host #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET "localhost"]
+  :limit #long #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET 25]
+  :level #keyword #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET "info"]}
+
+ :sample/client
+ {:server #ig/ref :sample/server}}

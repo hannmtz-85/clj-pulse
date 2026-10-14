@@ -1,106 +1,39 @@
 (ns pulse.platform.jwt-test
   "Unit tests of the token facade. They need no network and no Keycloak: tokens are minted here
   with throwaway RSA keys, and the key set is served by a small HTTP server on a random local
-  port, which is what lets caching, key rotation and outages be tested for real. The real
-  Keycloak is covered by `jwt-keycloak-test` (`bb test:it`)."
+  port (`pulse.platform.test.idp`), which is what lets caching, key rotation and outages be
+  tested for real. The real Keycloak is covered by `jwt-keycloak-test` (`bb test:it`)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [pulse.platform.jwt :as jwt])
-  (:import (com.nimbusds.jose JOSEObjectType JWEAlgorithm JWSAlgorithm JWSHeader$Builder)
-           (com.nimbusds.jose.crypto MACSigner RSASSASigner)
-           (com.nimbusds.jose.jwk JWK JWKSet KeyUse RSAKey)
-           (com.nimbusds.jose.jwk.gen RSAKeyGenerator)
+            [pulse.platform.jwt :as jwt]
+            [pulse.platform.test.idp :as idp :refer [break! hits mint serve!]])
+  (:import (com.nimbusds.jose JWEAlgorithm JWSAlgorithm JWSHeader$Builder)
+           (com.nimbusds.jose.crypto MACSigner)
+           (com.nimbusds.jose.jwk JWKSet KeyUse)
            (com.nimbusds.jose.jwk.source ImmutableJWKSet)
            (com.nimbusds.jwt JWTClaimsSet SignedJWT)
-           (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
-           (java.net InetSocketAddress)
            (java.nio.charset StandardCharsets)
-           (java.util ArrayList Base64 Collection LinkedHashMap List Map)))
+           (java.util Base64 List Map)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures: keys, tokens and a fake identity provider
 
-(defn- generate-key
-  "A throwaway RSA key with the given `kid`, `use` and algorithm."
-  ^RSAKey [kid key-use alg]
-  (.generate (doto (RSAKeyGenerator. 2048)
-               (.keyID kid)
-               (.keyUse key-use)
-               (.algorithm alg))))
-
-(def ^:private k1 (generate-key "k1" KeyUse/SIGNATURE JWSAlgorithm/RS256))
-(def ^:private k2 (generate-key "k2" KeyUse/SIGNATURE JWSAlgorithm/RS256))
-(def ^:private k3 (generate-key "k3" KeyUse/SIGNATURE JWSAlgorithm/RS256))
+(def ^:private k1 (idp/signing-key "k1"))
+(def ^:private k2 (idp/signing-key "k2"))
+(def ^:private k3 (idp/signing-key "k3"))
 ;; Keycloak publishes an encryption key next to its signature key; tokens must never use it.
-(def ^:private enc-key (generate-key "enc" KeyUse/ENCRYPTION JWEAlgorithm/RSA_OAEP))
+(def ^:private enc-key (idp/generate-key "enc" KeyUse/ENCRYPTION JWEAlgorithm/RSA_OAEP))
 ;; Never published by the fake identity provider.
-(def ^:private rogue (generate-key "rogue" KeyUse/SIGNATURE JWSAlgorithm/RS256))
-
-(defn- ->java
-  "Clojure data as the plain java.util maps and lists that Nimbus takes."
-  [x]
-  (cond
-    (map? x) (let [m (LinkedHashMap.)]
-               (doseq [[k v] x] (.put m (name k) (->java v)))
-               m)
-    (sequential? x) (ArrayList. ^Collection (mapv ->java x))
-    :else x))
+(def ^:private rogue (idp/signing-key "rogue"))
 
 (defn- b64 [^String s]
   (.encodeToString (.withoutPadding (Base64/getUrlEncoder)) (.getBytes s StandardCharsets/UTF_8)))
 
 (defn- unb64 [^String s]
   (String. (.decode (Base64/getUrlDecoder) s) StandardCharsets/UTF_8))
-
-(defn- mint
-  "A compact JWT with `claims` (Clojure data) signed by `key`. Options override the header:
-  `:alg` (default RS256) and `:kid` (default the key's; nil leaves it out)."
-  ([key claims] (mint key claims {}))
-  ([^RSAKey key claims opts]
-   (let [alg (get opts :alg JWSAlgorithm/RS256)
-         kid (if (contains? opts :kid) (:kid opts) (.getKeyID key))
-         header (-> (JWSHeader$Builder. ^JWSAlgorithm alg)
-                    (.type JOSEObjectType/JWT)
-                    (cond-> kid (.keyID ^String kid))
-                    (.build))
-         jwt (SignedJWT. header (JWTClaimsSet/parse ^Map (->java claims)))]
-     (.sign jwt (RSASSASigner. key))
-     (.serialize jwt))))
-
-(defn- jwks-json
-  "A key set as an identity provider publishes it: public keys only."
-  [keys]
-  (.toString (JWKSet. ^List (mapv #(.toPublicJWK ^JWK %) keys))))
-
-(defn- start-idp!
-  "A fake identity provider: an HTTP server whose /jwks serves `keys`. Tests can change what it
-  serves, make it fail and count the requests it got."
-  [keys]
-  (let [state (atom {:body (jwks-json keys) :status 200 :hits 0})
-        server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext server "/jwks"
-                    (reify HttpHandler
-                      (handle [_ ex]
-                        (let [^HttpExchange ex ex
-                              {:keys [^String body status]} (swap! state update :hits inc)
-                              payload (.getBytes body StandardCharsets/UTF_8)
-                              ok? (= 200 status)]
-                          (.add (.getResponseHeaders ex) "Content-Type" "application/json")
-                          (.sendResponseHeaders ex (int status) (if ok? (long (alength payload)) -1))
-                          (when ok?
-                            (with-open [out (.getResponseBody ex)] (.write out payload)))
-                          (.close ex)))))
-    (.start server)
-    {:server server
-     :state state
-     :uri (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/jwks")}))
-
-(defn- serve! [idp keys] (swap! (:state idp) assoc :body (jwks-json keys) :status 200))
-(defn- break! [idp] (swap! (:state idp) assoc :status 503))
-(defn- hits [idp] (:hits @(:state idp)))
 
 (def ^:private now 1760000000)
 (def ^:private issuer "http://idp.test/realms/pulse")
@@ -123,18 +56,18 @@
   reads from it, with its clock frozen at `now`. `jwks-options` and `verifier-options` are
   merged over the defaults of `jwt/jwks-source` and `jwt/verifier`."
   [keys jwks-options verifier-options f]
-  (let [idp (start-idp! keys)
-        source (jwt/jwks-source (merge {:uri (:uri idp)} jwks-options))]
+  (let [server (idp/start! keys)
+        source (jwt/jwks-source (merge {:uri (:uri server)} jwks-options))]
     (try
-      (f idp (jwt/verifier (merge {:jwks-source source
-                                   :issuer issuer
-                                   :audience audience
-                                   :token-type "Bearer"
-                                   :clock (constantly now)}
-                                  verifier-options)))
+      (f server (jwt/verifier (merge {:jwks-source source
+                                      :issuer issuer
+                                      :audience audience
+                                      :token-type "Bearer"
+                                      :clock (constantly now)}
+                                     verifier-options)))
       (finally
         (jwt/close! source)
-        (.stop ^HttpServer (:server idp) 0)))))
+        (idp/stop! server)))))
 
 (defn- error-type [result]
   (get-in result [:error :type]))
@@ -211,7 +144,7 @@
             [h p s] (str/split token #"\.")
             secret (.getBytes (str (.toPublicJWK k1)) StandardCharsets/UTF_8)
             hs256 (doto (SignedJWT. (-> (JWSHeader$Builder. JWSAlgorithm/HS256) (.keyID "k1") (.build))
-                                    (JWTClaimsSet/parse ^Map (->java claims)))
+                                    (JWTClaimsSet/parse ^Map (idp/->java claims)))
                     (.sign (MACSigner. secret)))]
         (doseq [[label expected candidate]
                 [["a good token" nil token]

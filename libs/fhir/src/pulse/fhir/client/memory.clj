@@ -116,7 +116,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Search
 
-(defn- decode [s] (URLDecoder/decode s "UTF-8"))
+(defn- decode [^String s] (URLDecoder/decode s "UTF-8"))
 
 (defn- parse-url
   "{:type \"Observation\" :pairs [[\"patient\" \"pt-ana\"] ...]} from a relative search URL."

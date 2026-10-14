@@ -1,3 +1,3 @@
-{:paths ["libs" "tools" "dev" "deps.edn" "bb.edn" "tests.edn"]
+{:paths ["libs" "apps" "tools" "dev" "deps.edn" "bb.edn" "tests.edn"]
  :extra-indents {defrule [[:block 1]]
                  for-all [[:block 1]]}}

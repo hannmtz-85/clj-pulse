@@ -2,4 +2,15 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.6"}
         ;; JOSE and JWT for `pulse.platform.jwt`: signature checks, key selection by `kid`
         ;; and the JWKS cache. Self-contained: Tink and BouncyCastle are optional and unused.
-        com.nimbusds/nimbus-jose-jwt {:mvn/version "10.10"}}}
+        com.nimbusds/nimbus-jose-jwt {:mvn/version "10.10"}
+        ;; Configuration (ADR-0003) and lifecycle: EDN read with Aero, checked with malli,
+        ;; started and stopped by Integrant.
+        aero/aero {:mvn/version "1.1.6"}
+        integrant/integrant {:mvn/version "1.0.1"}
+        metosin/malli {:mvn/version "0.20.3"}
+        ;; Structured logging (ADR-0010). `telemere-slf4j` makes SLF4J consumers such as Jetty
+        ;; log through Telemere.
+        com.taoensso/telemere {:mvn/version "1.4.0"}
+        com.taoensso/telemere-slf4j {:mvn/version "1.4.0"}
+        ;; JSON for log lines and problem responses.
+        metosin/jsonista {:mvn/version "1.0.2"}}}

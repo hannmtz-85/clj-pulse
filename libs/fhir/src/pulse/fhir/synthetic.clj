@@ -157,7 +157,7 @@
        (assoc base
               :requested-start (str (days-from end (:from-days requested)))
               :requested-end (str (days-from end (:to-days requested))))
-       (let [start (hours-from end in-hours)]
+       (let [^Instant start (hours-from end in-hours)]
          (assoc base
                 :start (str start)
                 :end (str (.plus start (long minutes) ChronoUnit/MINUTES))

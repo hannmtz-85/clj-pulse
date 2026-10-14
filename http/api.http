@@ -1,0 +1,34 @@
+# Requests to the api for the REST Client extension. No secrets in this file.
+# Start the api first (`bb dev`, or `(go)` in the REPL). To call protected endpoints, run
+# `bb token <username>` (or `bb token scheduler`) in a terminal and paste the result into
+# @token below; access tokens last 5 minutes. Demo users: see tools/realm.clj.
+
+@api = http://localhost:4000
+@token =
+
+### Liveness: the process is up
+GET {{api}}/healthz
+
+### Readiness: Keycloak's signing keys and the FHIR server answer (503 when one does not)
+GET {{api}}/readyz
+
+### Who am I: identity, roles and the FHIR resource that is me
+GET {{api}}/api/me
+Authorization: Bearer {{token}}
+
+### Without a token: 401 and a bare WWW-Authenticate challenge
+GET {{api}}/api/me
+
+### With a bad token: 401 and error="invalid_token"
+GET {{api}}/api/me
+Authorization: Bearer not.a.token
+
+### A request id of your own comes back on the response and in the logs
+GET {{api}}/healthz
+X-Request-Id: my-trace-1
+
+### A route that does not exist: 404 as application/problem+json
+GET {{api}}/nope
+
+### A method the route does not support: 405 with Allow
+POST {{api}}/healthz

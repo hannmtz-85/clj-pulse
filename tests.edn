@@ -4,6 +4,9 @@
            :ns-patterns ["-test$"]}
           {:id :platform
            :test-paths ["libs/platform/test"]
+           :ns-patterns ["-test$"]}
+          {:id :api
+           :test-paths ["apps/api/test"]
            :ns-patterns ["-test$"]}]
   :plugins [:kaocha.plugin/print-invocations]
   :reporter kaocha.report/dots}
