@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is next.** The only code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort) plus the infrastructure tooling in `tools/`; there are no apps yet.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is under way: the access-token verifier in `libs/platform` is done, the app skeleton is next.** The code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort), `libs/platform` (the token verifier) and the infrastructure tooling in `tools/`; there are no apps yet.
 
 ## Commands
 
@@ -24,6 +24,12 @@ Run from the repository root (any shell; quote the path, it has a space). Do not
 FHIR R4 resources are plain keyword-keyed maps. Portable `.cljc`: `reference`, `coding`, `terminology` (verified LOINC/ICD-10-CM/RxNorm catalogue), `units` (UCUM as data), `ranges`, `observation` (multimethod on `value[x]`), `resource` (builders), `schema` (malli, open maps), `outcome`, `bundle`, `time`. JVM/Babashka only: `client` (the `FhirClient` protocol and lazy paged search), `client.http`, `client.memory` (a faithful fake server for tests and the "lite" profile), `synthetic` (the deterministic cohort from `resources/pulse/seed/cohort.edn`). The same code runs in the apps, the tests and `bb` (see `bb.edn` `:paths`).
 
 Gotchas learned the hard way: malli `:re` uses `re-find`, so patterns need `^…$`; Babashka has no `StrictMath` (the generator's noise is additions only); `sequence`+`cat` and `mapcat` over `iteration` fetch extra pages (see `client/paged`); HAPI's validator runs out of its 768 MB heap under concurrent `$validate` calls (keep validation sequential).
+
+## libs/platform
+
+JVM only. So far just `pulse.platform.jwt`, the access-token verifier ([ADR-0009](docs/adr/0009-access-token-verification-with-nimbus-facade.md)): `jwks-source` and `verifier` build it, `verify` returns `{:ok claims}` or `{:error {:type ...}}` and never throws because of a bad token, and `errors` and `challenge` give the HTTP status and the `WWW-Authenticate` value. Its unit tests (`bb test`) mint tokens with throwaway RSA keys and serve the JWKS from a local HTTP server; `bb test:it` also verifies tokens from the real Keycloak (it runs `bb token`).
+
+Gotchas learned the hard way: Nimbus 10 enables refresh-ahead caching by default (a background thread; switched off explicitly); its JWKS rate limiter lets two fetches through per window and then throws `RateLimitReachedException`, which must not be reported as an unknown key when no key set was ever fetched; Keycloak's JWKS also holds an encryption key (`use: enc`) that must never verify a signature; Keycloak access tokens carry the application role next to its own default roles in `realm_access.roles`.
 
 ## Local stack
 

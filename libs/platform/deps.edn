@@ -1,2 +1,5 @@
 {:paths ["src"]
- :deps {org.clojure/clojure {:mvn/version "1.12.6"}}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        ;; JOSE and JWT for `pulse.platform.jwt`: signature checks, key selection by `kid`
+        ;; and the JWKS cache. Self-contained: Tink and BouncyCastle are optional and unused.
+        com.nimbusds/nimbus-jose-jwt {:mvn/version "10.10"}}}

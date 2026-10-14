@@ -15,6 +15,8 @@
 | X-05 | Rate limiting in `api` | Per-client throttling and basic abuse protection | Not needed for a local demo | Phase 4 | S-M |
 | X-06 | Persisted audit trail | FHIR `AuditEvent` and `Provenance` stored in HAPI instead of structured logs only | Logs are enough for the MVP | Phase 4 | M |
 | X-07 | Keycloak patch bump | 26.0.0 → 26.0.8 inside the same line, for security patches | The owner pinned 26.0.0 | Phase 2 | S |
+| X-08 | Stricter access-token checks | Token introspection (RFC 7662) or a revocation list so a revoked session stops working before the token expires; an allow-list of `azp` clients; `jti` replay checks; sender-constrained tokens (DPoP, RFC 9449) | Access tokens live 5 minutes and stateless validation is enough for the demo (ADR-0009) | Phase 4 | M |
+| X-09 | JWKS observability and refresh-ahead | Nimbus event listeners feeding the structured logs (fetch, rate limited, outage served from cache), and optionally refresh-ahead caching so that no request ever waits for a key fetch | A lazy cache costs one short fetch per TTL and has no thread to manage (ADR-0009) | Phase 4 | S |
 
 ## B. FHIR and clinical features
 
@@ -36,9 +38,9 @@
 
 | ID | Extra | What it adds | Why it is not in 0-10 | Needs | Effort |
 |---|---|---|---|---|---|
-| X-20 | Server-Sent Events for alerts | Push new alerts from `api` to the SPA (and to `web` through the htmx SSE extension) | Polling is enough | Phases 4, 8 | M |
 | X-21 | Real notification channel | Reminders sent through SMTP (MailHog in compose) or web push instead of a `Communication` record only | Needs extra services | Phase 5 | M |
 | X-22 | Device gateway simulation | Measurements arriving over MQTT or HTTP from a separate simulated gateway instead of the in-process simulator | In-process simulator is simpler | Phase 5 | M |
+| X-23 | Server-Sent Events for alerts | Push new alerts from `api` to the SPA (and to `web` through the htmx SSE extension) | Polling is enough | Phases 4, 8 | M |
 
 ## D. UX and product
 
@@ -104,5 +106,5 @@ These are open on purpose and each ends in a short ADR, so they are not extras b
 | Test runner | Kaocha (no release since 2024-05) or Cognitect test-runner | **Decided in Phase 1:** Kaocha, verified on Clojure 1.12.6 (ADR-0005) |
 | Logging library | mulog or Telemere | Phase 1 / Phase 4 |
 | HTTP client | `babashka.http-client` or hato | Phase 3 |
-| JWT verification | Nimbus JOSE+JWT facade (preferred) or Buddy with an in-house JWKS cache | Phase 4 |
+| JWT verification | Nimbus JOSE+JWT facade (preferred) or Buddy with an in-house JWKS cache | **Decided in Phase 4:** Nimbus facade, policy in Clojure (ADR-0009) |
 | Licence | MIT (proposed) or EPL-2.0, and the copyright holder's name | Phase 10 |

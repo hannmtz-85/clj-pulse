@@ -232,7 +232,8 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 ### Phase 4 · `api`: clinical gateway (L)
 
 - [ ] Integrant system + Aero, with the configuration validated by malli at start-up.
-- [ ] JWT verification with Nimbus behind a thin facade: signature, `iss`, `aud`, `exp`/`nbf` with leeway, `kid` and a JWKS cache with TTL; 401 answers carry `WWW-Authenticate`.
+- [x] JWT verification with Nimbus behind a thin facade (`pulse.platform.jwt`, [ADR-0009](adr/0009-access-token-verification-with-nimbus-facade.md)): signature, `iss`, `aud`, `exp`/`nbf` with leeway, `kid`, a JWKS cache with TTL, typed errors and the `WWW-Authenticate` value. Spike (d) of §7, done 2026-10-14: 19 unit tests and 2 integration tests against the real Keycloak.
+- [ ] Middleware that answers 401 (and 503 when there are no keys) with `WWW-Authenticate`, using the facade; it arrives with the app skeleton.
 - [ ] Authorization in route data (`:authz`), **deny by default**, through a pure `authorize` function (identity, action, resource → decision and reason).
 - [ ] Annex B endpoints with malli coercion; OpenAPI and Swagger UI (`/docs`) with PKCE login.
 - [ ] `/summary` with concurrent fan-out and timeouts.
@@ -310,7 +311,7 @@ Everything else lives in [03-extras-backlog.md](03-extras-backlog.md).
 
 - **Document first.** Every stack change gets a short ADR (context, decision, alternatives, consequences) before code.
 - **One phase = one demonstrable increment**, with its acceptance criteria checked and a summary of the verification.
-- **Bounded spikes** for the risky parts: (a) shadow-cljs 3 + Reagent 2 + React 19; (b) ring-oauth2 with PKCE and refresh; (c) HAPI + Postgres + client IDs + `$validate`; (d) Nimbus/JWKS from Clojure.
+- **Bounded spikes** for the risky parts: (a) shadow-cljs 3 + Reagent 2 + React 19; (b) ring-oauth2 with PKCE and refresh; (c) HAPI + Postgres + client IDs + `$validate` (covered in Phases 2-3); (d) Nimbus/JWKS from Clojure (done 2026-10-14, [ADR-0009](adr/0009-access-token-verification-with-nimbus-facade.md)).
 - **What I do:** write code, documentation and tests; run the project's lint, tests and builds; propose system-level commands.
 - **What I need from the owner:** approve plans and decisions; confirm system installs; review mock-ups; authorize publication; review secrets before publishing.
 - **Not done without explicit confirmation at that moment:** installing software, changing Windows/WSL/Docker configuration, starting containers, publishing to GitHub, permanently deleting files. Removals go to the Recycle Bin or to an archive first.
