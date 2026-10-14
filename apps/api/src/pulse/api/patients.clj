@@ -13,7 +13,7 @@
 ;; ---------------------------------------------------------------------------
 ;; One patient
 
-(defn- target-of
+(defn target-of
   "`{:type \"Patient\" :id id}` for the `{id}` of the request, or nil when it cannot be a FHIR id.
   Such an id cannot name a patient, and it must not reach a URL sent to the FHIR server."
   [request]
@@ -68,8 +68,8 @@
 (defn- identifier-of [patient]
   (get-in patient [:identifier 0 :value]))
 
-(defn- summary
-  "What a row of the panel shows."
+(defn summary
+  "What a row of the panel shows, and the summary of one patient starts with."
   [patient]
   (let [{:keys [family given]} (get-in patient [:name 0])]
     {:id (:id patient)
@@ -79,6 +79,16 @@
      :birthDate (:birthDate patient)
      :gender (:gender patient)
      :identifier (identifier-of patient)}))
+
+(def row-schema
+  [:map
+   [:id :string]
+   [:name :string]
+   [:family [:maybe :string]]
+   [:given [:vector :string]]
+   [:birthDate [:maybe :string]]
+   [:gender [:maybe :string]]
+   [:identifier [:maybe :string]]])
 
 (defn- identifiers-only [patient]
   {:id (:id patient) :identifier (identifier-of patient)})

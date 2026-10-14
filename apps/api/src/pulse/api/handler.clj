@@ -102,6 +102,7 @@
 
 (defn create
   "The api's Ring handler. `options` is the `:pulse.api/handler` component: `:verifier`,
-  `:fhir`, `:realm` and `:quiet-paths`."
-  [{:keys [verifier fhir] :as options}]
-  (ring-handler (routes/routes {:verifier verifier :fhir fhir}) options))
+  `:fhir`, `:realm`, `:quiet-paths` and `:summary-timeout-ms`."
+  [{:keys [verifier fhir summary-timeout-ms] :as options}]
+  (ring-handler (routes/routes {:verifier verifier :fhir fhir :summary-timeout-ms summary-timeout-ms})
+                options))

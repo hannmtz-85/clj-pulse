@@ -5,7 +5,8 @@
   are built from `deps`, the started components they need."
   (:require [pulse.api.health :as health]
             [pulse.api.me :as me]
-            [pulse.api.patients :as patients]))
+            [pulse.api.patients :as patients]
+            [pulse.api.summary :as summary]))
 
 (def ^:private readiness-schema
   [:map
@@ -13,7 +14,7 @@
    [:checks [:map-of :string [:enum "up" "down"]]]])
 
 (defn routes
-  "The route table. `deps` is `{:verifier v :fhir c}`."
+  "The route table. `deps` is `{:verifier v :fhir c :summary-timeout-ms n}`."
   [{:keys [fhir] :as deps}]
   [["/healthz" {:get {:authz :public
                       :summary "Liveness: the process is up and serving"
@@ -40,4 +41,10 @@
             :summary "One patient's demographics, as a FHIR Patient"
             :parameters {:path [:map [:id :string]]}
             :responses {200 {:body [:map-of :keyword :any]}}
-            :handler (patients/get-handler deps)}}]]])
+            :handler (patients/get-handler deps)}}]
+    ["/patients/:id/summary"
+     {:get {:authz {:action :patient/read :resource (patients/resolver fhir)}
+            :summary "One screen about a patient: conditions, medication, allergies, latest vital signs, appointments and alerts"
+            :parameters {:path [:map [:id :string]]}
+            :responses {200 {:body summary/schema}}
+            :handler (summary/handler deps)}}]]])

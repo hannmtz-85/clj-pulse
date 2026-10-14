@@ -67,6 +67,15 @@
     (is (= #{"pt-liam"} (ids "ch")))
     (is (= #{} (ids "arcia")) "a prefix, not a substring")))
 
+(deftest search-parameters-are-the-ones-r4-defines
+  ;; Flag has no `status` search parameter in R4, and HAPI answers HAPI-0524 when asked for one.
+  (let [client (mem/memory-client [(r/flag {:id "f-1" :patient "pt-ana" :text "BP" :start "2026-10-10T08:00:00Z"})
+                                   (r/flag {:id "f-2" :patient "pt-ana" :text "BP again" :start "2026-10-13T08:00:00Z"})])]
+    (is (thrown? clojure.lang.ExceptionInfo (doall (c/search client "Flag" {:patient "pt-ana" :status "active"}))))
+    (testing "what R4 does give Flag: the patient, and the date of the period to sort by"
+      (is (= ["f-2" "f-1"] (mapv :id (c/search client "Flag" {:patient "pt-ana" :_sort "-date"}))))
+      (is (= ["f-1" "f-2"] (mapv :id (c/search client "Flag" {:patient "pt-ana" :_sort "date"})))))))
+
 (deftest search-sorting
   (let [client (mem/memory-client (ana-readings))
         dates (fn [sort] (mapv :effectiveDateTime (c/search client "Observation" {:_sort sort})))]

@@ -45,10 +45,12 @@
                   "actor" [:reference [:participant :actor]]
                   "status" [:code [:status]]
                   "date" [:date [:start]]}
+   ;; R4 gives Flag no `status` search parameter (HAPI answers HAPI-0524): an alert is
+   ;; filtered on its status after the search
    "Flag" {"_id" [:id [:id]]
            "patient" [:reference [:subject]]
            "subject" [:reference [:subject]]
-           "status" [:code [:status]]
+           "date" [:date [:period :start]]
            "identifier" [:identifier [:identifier]]}
    "Communication" {"patient" [:reference [:subject]]
                     "subject" [:reference [:subject]]

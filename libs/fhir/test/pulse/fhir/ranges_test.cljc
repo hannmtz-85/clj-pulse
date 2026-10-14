@@ -38,3 +38,24 @@
                            bands)]
       (and (= 1 (count matching))
            (= (ffirst matching) (ranges/classify measurement x))))))
+
+(deftest every-band-has-a-severity
+  (is (every? ranges/severity (for [[_ {:keys [bands]}] ranges/measurements
+                                    [label] bands]
+                                label))
+      "a new band label without a severity would sort as nothing"))
+
+(deftest the-worse-band-wins
+  (is (= :very-high (ranges/worst [:normal :very-high :elevated])))
+  (is (= :normal (ranges/worst [:normal])))
+  (is (= :high (ranges/worst [:elevated :high])))
+  (is (= :low (ranges/worst [:low :elevated])) "of equal severity, the first")
+  (is (= :elevated (ranges/worst [:elevated :low])))
+  (is (nil? (ranges/worst [])))
+  (is (nil? (ranges/worst nil))))
+
+(defspec the-worst-band-is-one-of-them-and-nothing-is-worse 200
+  (prop/for-all [bands (gen/not-empty (gen/vector (gen/elements (vec (keys ranges/severity)))))]
+    (let [w (ranges/worst bands)]
+      (and (some #{w} bands)
+           (every? #(<= (ranges/severity %) (ranges/severity w)) bands)))))

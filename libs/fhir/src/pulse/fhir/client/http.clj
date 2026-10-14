@@ -28,10 +28,13 @@
          (catch Exception _ nil))))
 
 (defn- send-request
-  "Performs the request and returns {:status n :body parsed-json-or-nil}."
-  [{:keys [no-cache?]} method url body]
+  "Performs the request and returns {:status n :body parsed-json-or-nil}. A request that takes
+  longer than the client's timeout throws `java.net.http.HttpTimeoutException`."
+  [{:keys [no-cache? http-client timeout-ms]} method url body]
   (let [response (http/request (cond-> {:uri url
                                         :method method
+                                        :client http-client
+                                        :timeout timeout-ms
                                         :headers (cond-> {"Accept" fhir-json}
                                                    body (assoc "Content-Type" fhir-json)
                                                    no-cache? (assoc "Cache-Control" "no-cache"))
@@ -41,7 +44,7 @@
 
 (defn- success? [status] (<= 200 status 299))
 
-(defrecord HttpClient [base-url no-cache?]
+(defrecord HttpClient [base-url no-cache? http-client timeout-ms]
   c/FhirClient
   (read-resource [this resource-type id]
     (let [{:keys [status body]} (send-request this :get (str base-url "/" resource-type "/" id) nil)]
@@ -93,7 +96,20 @@
 
 (defn client
   "An HttpClient for the FHIR base URL, e.g. (client {:base-url \"http://localhost:8090/fhir\"}).
-  Searches bypass the server's result cache by default (`:no-cache? true`) so a read
-  right after a write sees the write."
-  [{:keys [base-url no-cache?] :or {no-cache? true}}]
-  (->HttpClient (str/replace base-url #"/+$" "") no-cache?))
+
+  Options:
+
+  `:no-cache?`           default true: searches bypass the server's result cache, so a read
+                         right after a write sees the write
+  `:timeout-ms`          default 10000: how long to wait for the response to one request
+  `:connect-timeout-ms`  default 3000: how long to wait for a connection
+
+  A request that takes too long throws `java.net.http.HttpTimeoutException` (its subclass
+  `HttpConnectTimeoutException` for the connection), so that nothing hangs on a stuck server.
+  The timeout is per request: each page of a paged search has its own."
+  [{:keys [base-url no-cache? timeout-ms connect-timeout-ms]
+    :or {no-cache? true timeout-ms 10000 connect-timeout-ms 3000}}]
+  (->HttpClient (str/replace base-url #"/+$" "")
+                no-cache?
+                (http/client (assoc http/default-client-opts :connect-timeout connect-timeout-ms))
+                timeout-ms))

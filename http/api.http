@@ -31,6 +31,11 @@ Authorization: Bearer {{token}}
 GET {{api}}/api/patients/pt-ana
 Authorization: Bearer {{token}}
 
+### One screen about a patient: conditions, medication, allergies, latest vital signs, appointments, alerts
+# A section that could not be loaded is null and named in "unavailable"; an empty one is [].
+GET {{api}}/api/patients/pt-ana/summary
+Authorization: Bearer {{token}}
+
 ### A patient that does not exist: 404 for staff, 403 for a patient (no way to probe)
 GET {{api}}/api/patients/pt-ghost
 Authorization: Bearer {{token}}

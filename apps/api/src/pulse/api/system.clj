@@ -28,9 +28,9 @@
 (defmethod ig/init-key :pulse.api/verifier [_ {:keys [jwks] :as options}]
   (jwt/verifier (-> options (dissoc :jwks) (assoc :jwks-source jwks))))
 
-(defmethod ig/init-key :pulse.api/fhir [_ {:keys [kind base-url]}]
+(defmethod ig/init-key :pulse.api/fhir [_ {:keys [kind] :as options}]
   (case kind
-    :http (fhir-http/client {:base-url base-url})
+    :http (fhir-http/client (dissoc options :kind))
     ;; The "lite" backend: a small FHIR server in memory, holding the demo cohort.
     :memory (fhir-memory/memory-client (synthetic/generate (synthetic/cohort)))))
 

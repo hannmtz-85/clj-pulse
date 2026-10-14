@@ -33,3 +33,18 @@
    (when-let [{base-unit :unit :keys [bands]} (get measurements measurement)]
      (let [v (if (and unit (not= unit base-unit)) (units/convert value unit base-unit) value)]
        (some (fn [band] (when (in-band? v band) (first band))) bands)))))
+
+(def severity
+  "How far from normal each band label is, 0 being normal. It lets a caller pick the worse of
+  several bands: a blood pressure is as bad as the worse of its two components."
+  {:normal 0
+   :low 1 :elevated 1
+   :very-low 2 :high 2 :fever 2
+   :very-high 3 :high-fever 3})
+
+(defn worst
+  "The most severe of `bands` (labels as `classify` returns them), or nil for none. Of equal
+  severity, the first wins."
+  [bands]
+  (when (seq bands)
+    (reduce (fn [a b] (if (> (severity b) (severity a)) b a)) bands)))

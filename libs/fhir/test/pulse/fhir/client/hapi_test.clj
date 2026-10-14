@@ -80,6 +80,50 @@
              (patient-ids hapi {:general-practitioner "Practitioner/pr-rivera"})))
       (is (= #{"pt-ana"} (patient-ids hapi {:family "Garcia"}))))))
 
+(deftest ^:integration the-queries-of-the-patient-summary-agree-on-the-demo-cohort
+  ;; What the api's summary asks for: what is current of one patient, and the latest reading of
+  ;; each vital sign (needs `bb seed`). The readings themselves differ in time between the two
+  ;; servers, so for those only whether there is one, and of what, is compared.
+  (let [hapi (http/client {:base-url base-url})
+        memory (mem/memory-client (synthetic/generate (synthetic/cohort)))
+        ids (fn [client resource-type params] (set (map :id (c/search client resource-type params))))
+        patients ["Patient/pt-ana" "Patient/pt-sofia" "Patient/pt-liam" "Patient/pt-maya" "Patient/pt-noah"]]
+    (doseq [patient patients
+            [resource-type extra] [["Condition" {:clinical-status "active"}]
+                                   ["MedicationRequest" {:status "active"}]
+                                   ["AllergyIntolerance" {}]
+                                   ["Appointment" {}]
+                                   ["Flag" {:_sort "-date"}]]]
+      (testing (str resource-type " of " patient)
+        (let [params (assoc extra :patient patient)]
+          (is (= (ids memory resource-type params) (ids hapi resource-type params))))))
+    (testing "the latest reading of each vital sign"
+      (doseq [patient patients
+              [concept code] {:bp-panel "http://loinc.org|85354-9"
+                              :heart-rate "http://loinc.org|8867-4"
+                              :glucose "http://loinc.org|2339-0"
+                              :spo2 "http://loinc.org|59408-5"
+                              :body-weight "http://loinc.org|29463-7"}]
+        (let [params {:patient patient :code code :_sort "-date"}
+              from-hapi (c/find-one hapi "Observation" params)
+              from-memory (c/find-one memory "Observation" params)]
+          (is (= (some? from-memory) (some? from-hapi)) (str concept " of " patient))
+          (when from-hapi
+            (is (obs/concept? from-hapi concept))))))
+    (testing "the answers are not all empty by accident"
+      (is (= #{"cond-ana-1"} (ids hapi "Condition" {:patient "Patient/pt-ana" :clinical-status "active"})))
+      (is (= #{"alg-sofia-1"} (ids hapi "AllergyIntolerance" {:patient "Patient/pt-sofia"}))))))
+
+(deftest ^:integration every-search-parameter-of-the-fake-exists-on-hapi
+  ;; The fake must not accept what the real server rejects: R4 gave Flag no `status` parameter,
+  ;; the fake had one, and the api asked for it. Each parameter is tried with a value of its kind.
+  (let [hapi (http/client {:base-url base-url})
+        dummy {:id "x" :string "x" :reference "Patient/x" :token "x" :code "x" :date "ge2026-01-01" :identifier "x"}]
+    (doseq [[resource-type params] mem/search-params
+            [param [kind _]] params]
+      (testing (str resource-type "?" param)
+        (is (some? (doall (take 1 (c/search hapi resource-type {(keyword param) (dummy kind)})))))))))
+
 (deftest ^:integration paging-follows-hapi-next-links
   (let [hapi (http/client {:base-url base-url})
         all (ids hapi {:patient patient-id :_sort "date"})]

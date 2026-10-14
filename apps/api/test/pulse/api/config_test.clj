@@ -30,6 +30,9 @@
         test-cfg (config/load-config {:profile :test})]
     (is (= :http (get-in dev [:pulse.api/fhir :kind])) "dev talks to HAPI")
     (is (string? (get-in dev [:pulse.api/fhir :base-url])))
+    (testing "and gives up on it when it is slow"
+      (is (= 10000 (get-in dev [:pulse.api/fhir :timeout-ms])))
+      (is (= 3000 (get-in dev [:pulse.api/fhir :connect-timeout-ms]))))
     (is (= {:kind :memory} (:pulse.api/fhir lite)) "lite needs no HAPI")
     (is (= {:kind :memory} (:pulse.api/fhir test-cfg)))
     (is (= 0 (get-in test-cfg [:pulse.api/server :port])) "tests take any free port")
@@ -38,6 +41,14 @@
 
 (deftest the-default-profile-is-dev
   (is (= (config/load-config {:profile :dev}) (config/load-config))))
+
+(deftest the-summary-has-a-deadline-tighter-than-the-fhir-timeout
+  (doseq [profile [:dev :lite :test]]
+    (let [cfg (config/load-config {:profile profile})]
+      (is (= 4000 (get-in cfg [:pulse.api/handler :summary-timeout-ms])) (str profile))
+      (is (< (get-in cfg [:pulse.api/handler :summary-timeout-ms])
+             (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :timeout-ms]))
+          "the deadline of the fan-out governs the summary; the client timeout protects the other endpoints"))))
 
 (deftest the-api-checks-the-audience-of-the-realm
   (is (= "pulse-api" (get-in (config/load-config) [:pulse.api/verifier :audience]))))
@@ -77,6 +88,14 @@
     (is (seq (problems-with #(assoc % :pulse.api/fhir {:kind :carrier-pigeon})))))
   (testing "an HTTP FHIR server needs its URL"
     (is (mentions? (problems-with #(assoc % :pulse.api/fhir {:kind :http}))
+                   ":pulse.api/fhir")))
+  (testing "a summary deadline that is absurd"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :summary-timeout-ms] 5))
+                   ":pulse.api/handler :summary-timeout-ms"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :summary-timeout-ms] 600000))
+                   ":pulse.api/handler :summary-timeout-ms")))
+  (testing "a FHIR timeout that is absurd"
+    (is (mentions? (problems-with #(assoc % :pulse.api/fhir {:kind :http :base-url "http://localhost:8090/fhir" :timeout-ms 0}))
                    ":pulse.api/fhir")))
   (testing "a missing component"
     (is (mentions? (problems-with #(dissoc % :pulse.api/server)) ":pulse.api/server"))))

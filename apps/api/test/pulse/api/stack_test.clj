@@ -69,6 +69,43 @@
           (is (= 404 (:status (patient "admin@pulse.test" "pt-ghost"))))
           (is (= 403 (:status (patient "ana.garcia@pulse.test" "pt-ghost")))))))))
 
+(deftest ^:integration the-patient-summary-against-the-real-stack
+  (with-running-api
+    (fn [base-url]
+      (let [summary (fn [who id] (get-json (str base-url "/api/patients/" id "/summary") :token (token-for who)))
+            started (System/nanoTime)
+            ana (summary "dr.rivera@pulse.test" "pt-ana")
+            elapsed-ms (/ (- (System/nanoTime) started) 1e6)
+            body (:json ana)]
+        (testing "Ana, read by her doctor: everything arrives, from about a dozen queries to HAPI"
+          (is (= 200 (:status ana)))
+          (is (= [] (:unavailable body)))
+          (is (= "pt-ana" (get-in body [:patient :id])))
+          (is (= "I10" (get-in body [:conditions 0 :code])))
+          (is (= ["amlodipine" "lisinopril"] (mapv :display (:medications body))))
+          (is (= [] (:allergies body)))
+          (is (= "very-high" (get-in body [:vitals :blood-pressure :band])))
+          (is (= "/min" (get-in body [:vitals :heart-rate :unit])))
+          (is (= "Hypertension follow-up" (get-in body [:appointments 0 :description])))
+          (is (= "Practitioner/pr-rivera" (get-in body [:appointments 0 :practitioner])))
+          (is (< elapsed-ms 4000) (str "took " (long elapsed-ms) " ms, under the deadline")))
+        (testing "Sofia, read by the administrator: an allergy, a requested appointment, low oxygen"
+          (let [sofia (:json (summary "admin@pulse.test" "pt-sofia"))]
+            (is (= [] (:unavailable sofia)))
+            (is (= "penicillin G" (get-in sofia [:allergies 0 :display])))
+            (is (= "proposed" (get-in sofia [:appointments 0 :status])))
+            (is (contains? #{"low" "very-low"} (get-in sofia [:vitals :spo2 :band])))))
+        (testing "Noah, who has no measurements: nothing to show, nothing missing"
+          (let [noah (:json (summary "dr.okafor@pulse.test" "pt-noah"))]
+            (is (= [] (:unavailable noah)))
+            (is (every? nil? (vals (:vitals noah))))))
+        (testing "who may read it"
+          (is (= 200 (:status (summary "ana.garcia@pulse.test" "pt-ana"))))
+          (is (= 403 (:status (summary "ana.garcia@pulse.test" "pt-liam"))))
+          (is (= 403 (:status (summary "dr.rivera@pulse.test" "pt-maya"))))
+          (is (= 403 (:status (summary "scheduler" "pt-ana"))))
+          (is (= 404 (:status (summary "dr.rivera@pulse.test" "pt-ghost")))))))))
+
 (deftest ^:integration the-api-against-the-real-stack
   (with-running-api
     (fn [base-url]

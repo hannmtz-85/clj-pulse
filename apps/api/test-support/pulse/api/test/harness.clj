@@ -96,15 +96,40 @@
     (transact! [_ bundle] (fc/transact! client bundle))
     (validate [_ resource] (fc/validate client resource))))
 
+(defn- misbehave!
+  "Applies the behaviour for `resource-type`: `:fail` throws, `[:slow ms]` waits first."
+  [behaviours resource-type]
+  (let [behaviour (get behaviours resource-type)]
+    (cond
+      (= :fail behaviour) (refused)
+      (and (vector? behaviour) (= :slow (first behaviour))) (Thread/sleep (long (second behaviour))))))
+
+(defn misbehaving
+  "A FHIR client that answers like `client`, except for the resource types in `behaviours`, a
+  map of type to `:fail` (throws) or `[:slow ms]` (waits first). It applies to reads and searches."
+  [client behaviours]
+  (reify fc/FhirClient
+    (read-resource [_ resource-type id]
+      (misbehave! behaviours resource-type)
+      (fc/read-resource client resource-type id))
+    (search [_ resource-type params]
+      (misbehave! behaviours resource-type)
+      (fc/search client resource-type params))
+    (put! [_ resource] (fc/put! client resource))
+    (delete! [_ resource-type id] (fc/delete! client resource-type id))
+    (transact! [_ bundle] (fc/transact! client bundle))
+    (validate [_ resource] (fc/validate client resource))))
+
 (defn with-api
   "Calls `(f {:handler h :idp server})` with a fake identity provider and the api's handler
-  wired to it. Options: `:fhir` (default: the demo cohort in memory) and `:routes` (extra
-  routes, added to the api's)."
-  [{:keys [fhir routes]} f]
+  wired to it. Options: `:fhir` (default: the demo cohort in memory), `:routes` (extra routes,
+  added to the api's) and `:summary-timeout-ms` (the deadline of a patient summary)."
+  [{:keys [fhir routes summary-timeout-ms]} f]
   (let [server (idp/start! [signing-key])
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (jwt/verifier {:jwks-source source :issuer issuer :audience "pulse-api" :token-type "Bearer"})
-        api-routes (routes/routes {:verifier verifier :fhir (or fhir (demo-cohort))})]
+        api-routes (routes/routes {:verifier verifier :fhir (or fhir (demo-cohort))
+                                   :summary-timeout-ms summary-timeout-ms})]
     (try
       (f {:handler (handler/ring-handler (into api-routes routes)
                                          {:verifier verifier :realm "pulse-api"

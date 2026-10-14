@@ -31,7 +31,11 @@
 
  :pulse.api/fhir
  #profile {:default {:kind :http
-                     :base-url #or [#env FHIR_BASE_URL "http://localhost:8090/fhir"]}
+                     :base-url #or [#env FHIR_BASE_URL "http://localhost:8090/fhir"]
+                     ;; A request that takes longer is abandoned and the caller gets a 504; so
+                     ;; does a connection that takes longer to make (a refused one is a 502)
+                     :timeout-ms 10000
+                     :connect-timeout-ms 3000}
            :lite {:kind :memory}
            :test {:kind :memory}}
 
@@ -40,7 +44,10 @@
   :verifier #ig/ref :pulse.api/verifier
   :fhir #ig/ref :pulse.api/fhir
   :realm "pulse-api"
-  :quiet-paths #{"/healthz" "/readyz"}}
+  :quiet-paths #{"/healthz" "/readyz"}
+  ;; The summary of a patient asks FHIR about a dozen things at once and waits this long for all
+  ;; of them: what is late is left out and named in the answer (ADR-0013)
+  :summary-timeout-ms 4000}
 
  :pulse.api/server
  {:handler #ig/ref :pulse.api/handler

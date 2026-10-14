@@ -33,7 +33,11 @@
      [:token-type {:optional true} [:string {:min 1}]]]]
    [:pulse.api/fhir
     [:multi {:dispatch :kind}
-     [:http [:map {:closed true} [:kind [:= :http]] [:base-url http-url]]]
+     [:http [:map {:closed true}
+             [:kind [:= :http]]
+             [:base-url http-url]
+             [:timeout-ms {:optional true} [:int {:min 100 :max 120000}]]
+             [:connect-timeout-ms {:optional true} [:int {:min 100 :max 60000}]]]]
      [:memory [:map {:closed true} [:kind [:= :memory]]]]]]
    [:pulse.api/handler
     [:map {:closed true}
@@ -41,7 +45,8 @@
      [:verifier ref-schema]
      [:fhir ref-schema]
      [:realm [:string {:min 1}]]
-     [:quiet-paths [:set :string]]]]
+     [:quiet-paths [:set :string]]
+     [:summary-timeout-ms [:int {:min 100 :max 60000}]]]]
    [:pulse.api/server
     [:map {:closed true}
      [:handler ref-schema]
