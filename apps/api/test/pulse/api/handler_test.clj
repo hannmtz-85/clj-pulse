@@ -1,109 +1,14 @@
 (ns pulse.api.handler-test
-  "The api's Ring handler, whole: middleware, router, authorization, coercion and error
-  responses, with a fake identity provider (real signatures, real key set over HTTP) and an
-  in-memory FHIR server holding the demo cohort. No server and no network beyond localhost."
+  "The api's Ring handler, whole: middleware, router, authentication, coercion and error
+  responses, through the shared harness (a fake identity provider and an in-memory FHIR server).
+  The endpoints for patients have their own tests, in `patients-test`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [jsonista.core :as json]
             [pulse.api.authz :as authz]
             [pulse.api.handler :as handler]
-            [pulse.api.routes :as routes]
-            [pulse.fhir.client :as fc]
-            [pulse.fhir.client.memory :as memory]
-            [pulse.fhir.synthetic :as synthetic]
+            [pulse.api.test.harness :as h :refer [access-token call content-type header with-api]]
             [pulse.platform.jwt :as jwt]
-            [pulse.platform.test.idp :as idp]
-            [taoensso.telemere :as t])
-  (:import (java.io ByteArrayInputStream InputStream)
-           (java.nio.charset StandardCharsets)))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures
-
-(def ^:private k1 (idp/signing-key "k1"))
-(def ^:private issuer "http://idp.test/realms/pulse")
-
-(def ^:private cohort (delay (synthetic/generate (synthetic/cohort))))
-
-(defn- now-s [] (quot (System/currentTimeMillis) 1000))
-
-(defn- access-token
-  "A token signed like Keycloak's. Overrides replace claims; a nil value removes one."
-  [& {:as overrides}]
-  (idp/mint k1 (into {} (remove (comp nil? val))
-                     (merge {:iss issuer :aud ["pulse-api" "account"] :sub "u-1" :typ "Bearer"
-                             :azp "pulse-spa" :preferred_username "ana.garcia@pulse.test"
-                             :iat (now-s) :exp (+ (now-s) 300)
-                             :fhirUser "Patient/pt-ana"
-                             :realm_access {:roles ["default-roles-pulse" "patient" "offline_access"]}}
-                            overrides))))
-
-(defn- roles [& roles]
-  {:realm_access {:roles (into ["default-roles-pulse" "offline_access"] (map name) roles)}})
-
-(defn- refused []
-  (throw (ex-info "connection refused: secret-host:8090" {})))
-
-(def ^:private unreachable-fhir
-  "A FHIR server that cannot be reached, whose exceptions say too much."
-  (reify fc/FhirClient
-    (read-resource [_ _ _] (refused))
-    (search [_ _ _] (refused))
-    (put! [_ _] (refused))
-    (delete! [_ _ _] (refused))
-    (transact! [_ _] (refused))
-    (validate [_ _] (refused))))
-
-(defn- with-api
-  "Calls `(f {:handler h :idp server})` with a fake identity provider and the api's handler
-  wired to it. Options: `:fhir` (default: the demo cohort in memory) and `:routes` (extra
-  routes, added to the api's)."
-  [{:keys [fhir routes]} f]
-  (let [server (idp/start! [k1])
-        source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
-        verifier (jwt/verifier {:jwks-source source :issuer issuer :audience "pulse-api" :token-type "Bearer"})
-        fhir (or fhir (memory/memory-client @cohort))
-        api-routes (routes/routes {:verifier verifier :fhir fhir})]
-    (try
-      (f {:handler (handler/ring-handler (into api-routes routes)
-                                         {:verifier verifier :realm "pulse-api"
-                                          :quiet-paths #{"/healthz" "/readyz"}})
-          :idp server})
-      (finally
-        (jwt/close! source)
-        (idp/stop! server)))))
-
-(defn- text-of [body]
-  (cond (nil? body) ""
-        (string? body) body
-        (instance? InputStream body) (slurp body)
-        :else (str body)))
-
-(defn- parse [text]
-  (try (json/read-value text json/keyword-keys-object-mapper)
-       (catch Exception _ nil)))
-
-(defn- call
-  "The response to a request, with `:text`, `:json` (parsed body) and `:signals` (what was
-  logged, trapped so nothing is printed) added. Options: `:token`, `:headers`, `:query` (a
-  query string) and `:body` (a string, sent as JSON)."
-  [{:keys [handler]} method uri & {:keys [token headers query body]}]
-  (let [request (cond-> {:request-method method
-                         :uri uri
-                         :headers (cond-> (or headers {})
-                                    token (assoc "authorization" (str "Bearer " token))
-                                    body (assoc "content-type" "application/json"))}
-                  query (assoc :query-string query)
-                  body (assoc :body (ByteArrayInputStream. (.getBytes ^String body StandardCharsets/UTF_8))))
-        {:keys [value signals]} (t/with-signals true (handler request))
-        text (text-of (:body value))]
-    (assoc value :text text :json (parse text) :signals signals)))
-
-(defn- header [response name]
-  (get-in response [:headers name]))
-
-(defn- content-type [response]
-  (some-> (header response "Content-Type") (str/split #";") first))
+            [pulse.platform.test.idp :as idp]))
 
 ;; ---------------------------------------------------------------------------
 ;; Public endpoints
@@ -128,7 +33,7 @@
           (is (= 503 (:status ready)))
           (is (= {:status "unready" :checks {:keycloak "down" :fhir "up"}} (:json ready)))))))
   (testing "the FHIR server, without saying why"
-    (with-api {:fhir unreachable-fhir}
+    (with-api {:fhir h/unreachable-fhir}
       (fn [api]
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
@@ -186,13 +91,13 @@
     (fn [api]
       (doseq [[label token expected]
               [["garbage" "abc.def.ghi" :malformed]
-               ["expired" (access-token :exp (- (now-s) 3600)) :expired]
+               ["expired" (access-token :exp (- (h/now-s) 3600)) :expired]
                ["another audience" (access-token :aud ["other-api"]) :bad-audience]
                ["another issuer" (access-token :iss "http://evil.test/realms/pulse") :bad-issuer]
                ["an ID token" (access-token :typ "ID" :aud "pulse-spa") :bad-audience]
-               ["an unknown key" (idp/mint k1 {:iss issuer} {:kid "nope"}) :unknown-key]
-               ["tampered" (let [[h p s] (str/split (access-token) #"\.")]
-                             (str/join "." [h p (str (subs s 0 10) (if (= \A (nth s 10)) "B" "A") (subs s 11))]))
+               ["an unknown key" (idp/mint h/signing-key {:iss h/issuer} {:kid "nope"}) :unknown-key]
+               ["tampered" (let [[head payload sig] (str/split (access-token) #"\.")]
+                             (str/join "." [head payload (str (subs sig 0 10) (if (= \A (nth sig 10)) "B" "A") (subs sig 11))]))
                 :bad-signature]]]
         (testing label
           (let [r (call api :get "/api/me" :token token)]
@@ -231,10 +136,7 @@
 (deftest me-for-a-practitioner
   (with-api {}
     (fn [api]
-      (let [body (:json (call api :get "/api/me"
-                              :token (access-token (merge (roles :practitioner)
-                                                          {:fhirUser "Practitioner/pr-rivera"
-                                                           :preferred_username "dr.rivera@pulse.test"}))))]
+      (let [body (:json (call api :get "/api/me" :token (h/token-for :rivera)))]
         (is (= ["practitioner"] (:roles body)))
         (is (= "Practitioner/pr-rivera" (:fhirUser body)))
         (is (= "Practitioner" (get-in body [:resource :resourceType])))
@@ -243,12 +145,8 @@
 (deftest me-for-the-admin-and-the-scheduler
   (with-api {}
     (fn [api]
-      (let [admin (:json (call api :get "/api/me"
-                               :token (access-token (merge (roles :clinic-admin) {:fhirUser nil}))))
-            scheduler (:json (call api :get "/api/me"
-                                   :token (access-token (merge (roles :rules-engine)
-                                                               {:fhirUser nil :azp "pulse-scheduler"
-                                                                :preferred_username "service-account-pulse-scheduler"}))))]
+      (let [admin (:json (call api :get "/api/me" :token (h/token-for :admin)))
+            scheduler (:json (call api :get "/api/me" :token (h/token-for :scheduler)))]
         (is (= ["clinic-admin"] (:roles admin)))
         (is (nil? (:fhirUser admin)))
         (is (nil? (:resource admin)))
@@ -259,7 +157,7 @@
 (deftest me-for-someone-with-no-application-role
   (with-api {}
     (fn [api]
-      (let [r (call api :get "/api/me" :token (access-token (merge (roles) {:fhirUser nil})))]
+      (let [r (call api :get "/api/me" :token (access-token (merge (h/roles-claim) {:fhirUser nil})))]
         (is (= 200 (:status r)) "authenticated is enough for /api/me")
         (is (= [] (:roles (:json r))) "Keycloak's own default roles mean nothing here")))))
 
@@ -272,7 +170,7 @@
         (is (nil? (:resource (:json r))))))))
 
 (deftest me-when-the-fhir-server-is-down
-  (with-api {:fhir unreachable-fhir}
+  (with-api {:fhir h/unreachable-fhir}
     (fn [api]
       (let [r (call api :get "/api/me" :token (access-token))]
         (is (= 502 (:status r)))
@@ -280,6 +178,11 @@
         (is (= "The FHIR server could not be reached." (:detail (:json r))))
         (is (not (str/includes? (:text r) "secret-host")) "the cause is logged, not shown")
         (is (some #(= :pulse.http/problem (:id %)) (:signals r)))))))
+
+(deftest identity-reads-are-not-audited
+  (with-api {}
+    (fn [api]
+      (is (empty? (h/audit-events (call api :get "/api/me" :token (access-token))))))))
 
 (deftest the-request-id-ties-the-response-the-body-and-the-log-together
   (with-api {}
@@ -291,23 +194,29 @@
         (is (= {:request-id "trace-me"} (:ctx logged)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Authorization by role
+;; Authorization by role, through a rule added for the purpose
 
-(deftest a-rule-that-asks-for-a-role-is-enforced
-  (with-redefs [authz/rules (assoc authz/rules :chart/read {:roles #{:practitioner}})]
+(deftest a-rule-that-asks-for-a-role-is-enforced-and-audited
+  (with-redefs [authz/rules (assoc authz/rules :chart/read {:practitioner :all})]
     (with-api {:routes [["/api/chart" {:get {:authz {:action :chart/read}
                                              :handler (fn [{caller :identity}]
                                                         {:status 200 :body {:reader (:subject caller)}})}}]]}
       (fn [api]
-        (let [patient (call api :get "/api/chart" :token (access-token))
-              clinician (call api :get "/api/chart" :token (access-token (roles :practitioner)))
-              denial (first (filter #(= :pulse.authz/denied (:id %)) (:signals patient)))]
+        (let [patient (call api :get "/api/chart" :token (h/token-for :ana))
+              clinician (call api :get "/api/chart" :token (h/token-for :rivera))
+              [denied] (h/audit-events patient)
+              [allowed] (h/audit-events clinician)]
           (is (= 403 (:status patient)))
           (is (= "You are not allowed to do this." (:detail (:json patient))) "no hint of why")
-          (is (= {:subject "u-1" :action :chart/read :reason :role-not-allowed :path "/api/chart"}
-                 (:data denial)) "the reason goes to the log")
+          (is (= {:action :chart/read :outcome :denied :reason :role-not-allowed :path "/api/chart" :method "GET"
+                  :actor {:subject "u-ana" :username "ana.garcia@pulse.test" :roles ["patient"] :client "pulse-spa"}}
+                 (:data denied))
+              "the reason goes to the log, as an audit event")
+          (is (= :warn (:level denied)))
           (is (= 200 (:status clinician)))
-          (is (= "u-1" (:reader (:json clinician))))
+          (is (= "u-rivera" (:reader (:json clinician))))
+          (is (= [:allowed :all] ((juxt #(get-in % [:data :outcome]) #(get-in % [:data :scope])) allowed)))
+          (is (= :info (:level allowed)))
           (testing "authentication still comes first"
             (is (= 401 (:status (call api :get "/api/chart"))))))))))
 
@@ -370,14 +279,15 @@
         (is (= {:name ["should be a string"]} (get-in wrong [:json :errors])))))))
 
 (deftest nobody-gets-to-feed-the-parser-without-a-token
-  (with-redefs [authz/rules (assoc authz/rules :test/guarded {:roles :any})]
+  (with-redefs [authz/rules (assoc authz/rules :test/guarded {:clinic-admin :all})]
     (with-api {:routes guarded-routes}
       (fn [api]
         (testing "a malformed body without a token is a 401, not a parse error"
           (is (= 401 (:status (call api :post "/test/guarded" :body "{\"name\":")))))
         (testing "with a token the body is looked at"
-          (is (= 400 (:status (call api :post "/test/guarded" :body "{\"name\":" :token (access-token)))))
-          (is (= 200 (:status (call api :post "/test/guarded" :body "{\"name\":\"Ana\"}" :token (access-token))))))))))
+          (let [token (h/token-for :admin)]
+            (is (= 400 (:status (call api :post "/test/guarded" :body "{\"name\":" :token token))))
+            (is (= 200 (:status (call api :post "/test/guarded" :body "{\"name\":\"Ana\"}" :token token))))))))))
 
 (deftest unexpected-failures
   (with-api {:routes test-routes}

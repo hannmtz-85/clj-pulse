@@ -235,14 +235,14 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 - [x] JWT verification with Nimbus behind a thin facade (`pulse.platform.jwt`, [ADR-0009](adr/0009-access-token-verification-with-nimbus-facade.md)): signature, `iss`, `aud`, `exp`/`nbf` with leeway, `kid`, a JWKS cache with TTL, typed errors and the `WWW-Authenticate` value. Spike (d) of §7, done 2026-10-14: 19 unit tests and 2 integration tests against the real Keycloak.
 - [x] Authentication middleware that answers 401 (and 503 when there are no keys) with `WWW-Authenticate` (`pulse.platform.http.auth`).
 - [x] Authorization in route data (`:authz`), **deny by default**, through a pure `authorize` function (identity, action, resource → decision and reason): the mechanism, checked when the router is built ([ADR-0011](adr/0011-api-request-pipeline-and-errors.md)).
-- [ ] The Annex A matrix as the `rules` of `authorize`, with patient-compartment checks on the resource. Today there is one rule, `:identity/read`.
-- [ ] Annex B endpoints with malli coercion; OpenAPI and Swagger UI (`/docs`) with PKCE login. Done so far: `GET /healthz`, `/readyz`, `/api/me`.
+- [x] The Annex A matrix as the `rules` of `authorize`, by scope (`:own`, `:panel`, `:all`, `:identifiers`), with the resource checks that patient-compartment access needs ([ADR-0012](adr/0012-authorization-by-scope.md)). The matrix is a table in the tests, transcribed apart from the code.
+- [ ] Annex B endpoints with malli coercion; OpenAPI and Swagger UI (`/docs`) with PKCE login. Done so far: `GET /healthz`, `/readyz`, `/api/me`, `/api/patients` (the panel, with filter, sorting and paging) and `/api/patients/{id}`. Next: the summary, observations, appointments, alerts and jobs.
 - [ ] `/summary` with concurrent fan-out and timeouts (the FHIR HTTP client still has no timeout).
 - [x] Uniform errors (RFC 9457 problem details) and `X-Request-Id`.
 - [ ] In-house CORS and security headers.
 - [x] Structured logs ([ADR-0010](adr/0010-structured-logging-with-telemere.md)): events as data, a request id in every line, text or JSON; `/healthz` and `/readyz` (Keycloak keys and FHIR).
-- [ ] An audit event for every access to clinical data.
-- [ ] Tests: authorization matrix as a table, contract tests against the fake, properties. Done so far: 38 unit tests in `apps/api`, 58 in `libs/platform`, and an integration test of the api against the real stack.
+- [x] An audit event for every authorization decision on clinical data (`:pulse.audit/access`: who, what, which patient, the outcome and the reason, never the record; [ADR-0012](adr/0012-authorization-by-scope.md)). What a response contained, such as how many rows, is not in it yet.
+- [ ] Tests: authorization matrix as a table, contract tests against the fake, properties. Done so far: 63 unit tests in `apps/api`, 58 in `libs/platform`, integration tests of the api against the real stack, and a contract test that the in-memory FHIR client and HAPI answer the api's patient searches alike.
 
 *Acceptance:* with Swagger UI and the `.http` files each role sees only what it should; negative cases (401/403/404) follow the matrix; `bb test` green.
 

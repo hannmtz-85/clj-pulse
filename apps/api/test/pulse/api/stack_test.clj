@@ -25,13 +25,53 @@
                                            token (assoc "Authorization" (str "Bearer " token)))})]
     (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
 
-(deftest ^:integration the-api-against-the-real-stack
+(defn- with-running-api [f]
   (let [cfg (-> (config/load-config {:profile :dev})
                 (assoc-in [:pulse.api/server :port] 0)
                 (assoc-in [:pulse.api/logging :level] :warn))
-        running (system/start cfg)
-        base-url (str "http://127.0.0.1:" (system/port running))]
-    (try
+        running (system/start cfg)]
+    (try (f (str "http://127.0.0.1:" (system/port running)))
+         (finally (system/stop running)))))
+
+(deftest ^:integration the-patient-endpoints-against-the-real-stack
+  (with-running-api
+    (fn [base-url]
+      (let [token-of (memoize token-for)
+            panel (fn [who & [query]]
+                    (get-json (str base-url "/api/patients" (when query (str "?" query))) :token (token-of who)))
+            ids (fn [response] (set (map :id (get-in response [:json :items]))))
+            patient (fn [who id]
+                      (get-json (str base-url "/api/patients/" id) :token (token-of who)))]
+        (testing "each role gets the panel Annex A gives it, from HAPI"
+          (is (= #{"pt-ana" "pt-liam" "pt-sofia" "pt-omar"} (ids (panel "dr.rivera@pulse.test"))))
+          (is (= #{"pt-maya" "pt-noah"} (ids (panel "dr.okafor@pulse.test"))))
+          (is (every? (ids (panel "admin@pulse.test")) ["pt-ana" "pt-liam" "pt-sofia" "pt-omar" "pt-maya" "pt-noah"]))
+          (is (= 403 (:status (panel "ana.garcia@pulse.test")))))
+        (testing "the rules engine sees identifiers only"
+          (let [r (panel "scheduler")]
+            (is (= 200 (:status r)))
+            (is (every? #(= #{:id :identifier} (set (keys %))) (get-in r [:json :items])))))
+        (testing "filters, sorting and paging reach HAPI and come back right"
+          (is (= #{"pt-ana"} (ids (panel "dr.rivera@pulse.test" "family=garcia"))) "HAPI ignores accents")
+          (is (= ["pt-liam" "pt-ana"]
+                 (mapv :id (get-in (panel "dr.rivera@pulse.test" "limit=2") [:json :items]))))
+          (is (= 4 (get-in (panel "dr.rivera@pulse.test" "limit=1") [:json :total]))))
+        (testing "one patient: own, panel, and everyone for the administrator"
+          (is (= 200 (:status (patient "ana.garcia@pulse.test" "pt-ana"))))
+          (is (= "Patient" (get-in (patient "ana.garcia@pulse.test" "pt-ana") [:json :resourceType])))
+          (is (= 403 (:status (patient "ana.garcia@pulse.test" "pt-liam"))))
+          (is (= 200 (:status (patient "dr.rivera@pulse.test" "pt-ana"))))
+          (is (= 403 (:status (patient "dr.rivera@pulse.test" "pt-maya"))))
+          (is (= 200 (:status (patient "admin@pulse.test" "pt-maya"))))
+          (is (= 403 (:status (patient "scheduler" "pt-ana")))))
+        (testing "a patient that does not exist"
+          (is (= 404 (:status (patient "dr.rivera@pulse.test" "pt-ghost"))))
+          (is (= 404 (:status (patient "admin@pulse.test" "pt-ghost"))))
+          (is (= 403 (:status (patient "ana.garcia@pulse.test" "pt-ghost")))))))))
+
+(deftest ^:integration the-api-against-the-real-stack
+  (with-running-api
+    (fn [base-url]
       (testing "Keycloak's keys and HAPI both answer"
         (is (= {:status "ready" :checks {:keycloak "up" :fhir "up"}}
                (:json (get-json (str base-url "/readyz"))))))
@@ -59,6 +99,4 @@
               {:keys [status headers json]} (get-json (str base-url "/api/me") :token flipped)]
           (is (= 401 status))
           (is (str/includes? (get headers "www-authenticate") "invalid_token"))
-          (is (= "The access token signature is invalid" (:detail json)))))
-      (finally
-        (system/stop running)))))
+          (is (= "The access token signature is invalid" (:detail json))))))))

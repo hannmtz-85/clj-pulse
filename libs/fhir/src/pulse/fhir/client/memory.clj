@@ -13,7 +13,8 @@
             [pulse.fhir.outcome :as outcome]
             [pulse.fhir.schema :as schema]
             [pulse.fhir.time :as time])
-  (:import (java.net URLDecoder)))
+  (:import (java.net URLDecoder)
+           (java.text Normalizer Normalizer$Form)))
 
 ;; ---------------------------------------------------------------------------
 ;; Search parameters: type -> name -> [kind path]
@@ -74,8 +75,16 @@
   (let [wanted (set (str/split v #","))]
     (boolean (some wanted values))))
 
+(defn- fold
+  "Lower case, without accents: how a FHIR server compares strings in a search, HAPI included
+  (\"Garcia\" finds \"García\")."
+  [^String s]
+  (-> (Normalizer/normalize (str/lower-case s) Normalizer$Form/NFD)
+      (str/replace #"\p{M}+" "")))
+
 (defmethod matches? :string [_ values v]
-  (boolean (some #(str/starts-with? (str/lower-case %) (str/lower-case v)) values)))
+  (let [wanted (fold v)]
+    (boolean (some #(str/starts-with? (fold %) wanted) values))))
 
 (defmethod matches? :reference [_ values v]
   (boolean (some (fn [{:keys [reference]}]

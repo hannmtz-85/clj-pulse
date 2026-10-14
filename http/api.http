@@ -19,6 +19,22 @@ Authorization: Bearer {{token}}
 ### Without a token: 401 and a bare WWW-Authenticate challenge
 GET {{api}}/api/me
 
+### The panel: the patients the caller may see (a practitioner's panel, everyone for the admin)
+GET {{api}}/api/patients
+Authorization: Bearer {{token}}
+
+### Filter by family name (a prefix, any case, accents ignored), sort and page
+GET {{api}}/api/patients?family=garcia&sort=birthDate&limit=10&offset=0
+Authorization: Bearer {{token}}
+
+### One patient's demographics: your own, one on your panel, or anyone for the admin
+GET {{api}}/api/patients/pt-ana
+Authorization: Bearer {{token}}
+
+### A patient that does not exist: 404 for staff, 403 for a patient (no way to probe)
+GET {{api}}/api/patients/pt-ghost
+Authorization: Bearer {{token}}
+
 ### With a bad token: 401 and error="invalid_token"
 GET {{api}}/api/me
 Authorization: Bearer not.a.token

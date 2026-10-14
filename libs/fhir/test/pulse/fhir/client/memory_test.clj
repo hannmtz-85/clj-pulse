@@ -54,6 +54,19 @@
     (testing "unsupported parameters are an error, like on a real server"
       (is (thrown? clojure.lang.ExceptionInfo (doall (c/search client "Observation" {:nope "x"})))))))
 
+(deftest string-search-ignores-case-and-accents
+  ;; As HAPI does: someone who types "Garcia" must find "García".
+  (let [client (mem/memory-client [(r/patient {:id "pt-ana" :given "Ana" :family "García" :gender "female"
+                                               :birth-date "1968-03-14"})
+                                   (r/patient {:id "pt-liam" :given "Liam" :family "Chen" :gender "male"
+                                               :birth-date "1980-07-22"})])
+        ids (fn [family] (set (map :id (c/search client "Patient" {:family family}))))]
+    (is (= #{"pt-ana"} (ids "Garcia")))
+    (is (= #{"pt-ana"} (ids "garcía")))
+    (is (= #{"pt-ana"} (ids "GARC")))
+    (is (= #{"pt-liam"} (ids "ch")))
+    (is (= #{} (ids "arcia")) "a prefix, not a substring")))
+
 (deftest search-sorting
   (let [client (mem/memory-client (ana-readings))
         dates (fn [sort] (mapv :effectiveDateTime (c/search client "Observation" {:_sort sort})))]

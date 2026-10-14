@@ -1,51 +1,120 @@
 (ns pulse.api.authz
-  "Authorization, deny by default (ADR-0004).
+  "Authorization by scope, deny by default (ADR-0004, ADR-0012).
 
   Every endpoint declares what it needs in its own route data, under `:authz`:
 
-    :public                              no credentials needed
-    {:action :patient/read              the action being performed, a key of `rules`
-     :resource (fn [request] ...)}      optional: what it is performed on, for `authorize`
+    :public                               no credentials needed
+    {:action :patient/read                the action, a key of `rules`
+     :resource (fn [request scope] ...)}  optional: for an endpoint on one resource, builds the
+                                          descriptor `authorize` judges (see below)
 
-  `authorize` is a pure function of the caller, the action and the resource. The middleware
-  built by `middleware` authenticates the request, calls it and either passes the request on
-  with `:identity` attached or answers 401, 403 or 503.
+  `rules` is Annex A of the plan as data: for each action, the scope each role has. `authorize`
+  is a pure function of the caller, the action and a description of the resource. The
+  middleware built by `middleware` authenticates the request, asks `authorize`, audits the
+  decision and either passes the request on, with `:identity` and `:scope` attached, or answers
+  401, 403, 404 or 503.
 
   The default is no. An endpoint with no valid `:authz` makes `check-routes!` fail at start-up,
   and should one be reached anyway, it answers 403 to everybody."
-  (:require [clojure.set :as set]
+  (:require [clojure.string :as str]
             [pulse.api.identity :as identity]
+            [pulse.fhir.reference :as ref]
             [pulse.platform.http.auth :as auth]
             [pulse.platform.http.problem :as problem]
             [reitit.core :as r]
             [taoensso.telemere :as t]))
 
+;; ---------------------------------------------------------------------------
+;; The matrix
+
 (def rules
-  "What each action requires. `:roles` is `:any` (any authenticated caller) or a set of roles,
-  any one of which is enough. An action that is not listed is denied to everyone."
-  {:identity/read {:roles :any}})
+  "What each role may do with each action, as a scope:
+
+    :own          records whose patient is the caller's own `fhirUser`
+    :panel        records of patients whose `generalPractitioner` includes the caller
+    :all          every record
+    :identifiers  every patient, but only their identifiers
+
+  A role that is not listed has no access; `:any` stands for every authenticated caller. The
+  rows follow Annex A of the plan, plus `:appointment/read`, implied by Annex B."
+  {:identity/read {:any :all}
+   :patient/list {:practitioner :panel :clinic-admin :all :rules-engine :identifiers}
+   :patient/read {:patient :own :practitioner :panel :clinic-admin :all}
+   :observation/read {:patient :own :practitioner :panel :clinic-admin :all :rules-engine :all}
+   :observation/record {:patient :own :practitioner :panel :rules-engine :all}
+   :appointment/read {:patient :own :practitioner :panel :clinic-admin :all}
+   :appointment/request {:patient :own}
+   :appointment/manage {:practitioner :panel :clinic-admin :all}
+   :alert/read {:practitioner :panel :clinic-admin :all}
+   :alert/ack {:practitioner :panel :clinic-admin :all}
+   :alert/write {:rules-engine :all}
+   :jobs/read {:clinic-admin :all}})
+
+(def ^:private scope-rank
+  "Which scope wins when a caller's roles give different ones for the same action."
+  {:own 1 :identifiers 2 :panel 3 :all 4})
+
+(defn- usable?
+  "A scope about the caller's own FHIR resource only counts if they have one of the right type.
+  Without that, a practitioner whose token lacks `fhirUser` would have no panel to restrict to."
+  [scope caller]
+  (case scope
+    :own (= "Patient" (get-in caller [:fhir-user :type]))
+    :panel (= "Practitioner" (get-in caller [:fhir-user :type]))
+    true))
+
+(defn scope-of
+  "The widest scope `caller` (an identity) has for `action`, or nil for none, including when
+  there is no rule for the action. Pure."
+  [caller action]
+  (when-let [rule (get rules action)]
+    (let [scopes (->> (cons :any (:roles caller))
+                      (keep rule)
+                      (filter #(usable? % caller)))]
+      (when (seq scopes)
+        (apply max-key scope-rank scopes)))))
+
+(defn- fhir-ref [caller]
+  (some-> (:fhir-user caller) ref/->str))
+
+(defn permits?
+  "Whether `scope` covers `resource` for `caller`. `resource` describes it as
+  `{:patient \"Patient/pt-ana\" :practitioners #{\"Practitioner/pr-rivera\"}}`: the patient it
+  belongs to, and the patient's practitioners. Pure."
+  [scope caller resource]
+  (let [me (fhir-ref caller)]
+    (boolean
+     (case scope
+       (:all :identifiers) true
+       :own (and me (= me (:patient resource)))
+       :panel (and me (contains? (:practitioners resource) me))
+       false))))
 
 (defn authorize
-  "The decision for `caller` (an identity) performing `action` on `resource`: `{:allow? true}`
-  or `{:allow? false :reason r}`, where the reason is for the logs and never for the client.
-  Pure."
-  [caller action _resource]
-  (let [{:keys [roles]} (get rules action)]
+  "The decision for `caller` performing `action` on `resource`: `{:allow? true :scope s}`, or
+  `{:allow? false :reason r}` with the reason for the logs and never for the client. With a nil
+  `resource` only the role is checked, and the scope in the answer is what the endpoint must
+  restrict itself to (a collection returns only what the scope covers). Pure."
+  [caller action resource]
+  (let [scope (scope-of caller action)]
     (cond
-      (nil? roles) {:allow? false :reason :no-rule-for-action}
-      (= :any roles) {:allow? true}
-      (seq (set/intersection (:roles caller) roles)) {:allow? true}
-      :else {:allow? false :reason :role-not-allowed})))
+      (not (contains? rules action)) {:allow? false :reason :no-rule-for-action}
+      (nil? scope) {:allow? false :reason :role-not-allowed}
+      (nil? resource) {:allow? true :scope scope}
+      (permits? scope caller resource) {:allow? true :scope scope}
+      :else {:allow? false :reason :outside-scope :scope scope})))
 
 ;; ---------------------------------------------------------------------------
 ;; Route data
 
 (defn valid-spec?
-  "Whether `spec` is a usable `:authz` value: `:public`, or a map naming an action that
-  `rules` knows."
+  "Whether `spec` is a usable `:authz` value: `:public`, or a map naming an action that `rules`
+  knows and, if it has one, a `:resource` function."
   [spec]
   (or (= :public spec)
-      (and (map? spec) (contains? rules (:action spec)))))
+      (and (map? spec)
+           (contains? rules (:action spec))
+           (let [resource (:resource spec)] (or (nil? resource) (ifn? resource))))))
 
 (def ^:private http-methods [:get :head :post :put :delete :connect :options :trace :patch])
 
@@ -76,25 +145,51 @@
 (defn- forbidden [request]
   (problem/response 403 {:detail "You are not allowed to do this." :request request}))
 
+(def ^:private unaudited
+  "Actions that are not about clinical data."
+  #{:identity/read})
+
+(defn- audit!
+  "One event per decision on clinical data, allowed or not (ADR-0012): who, what, on which
+  patient, with what outcome. Nothing from the record itself."
+  [request caller action outcome {:keys [scope reason]} descriptor]
+  (when-not (contains? unaudited action)
+    (t/event! :pulse.audit/access
+              {:level (if (= :allowed outcome) :info :warn)
+               :data (cond-> {:actor {:subject (:subject caller)
+                                      :username (:username caller)
+                                      :roles (vec (sort (map name (:roles caller))))
+                                      :client (:client caller)}
+                              :action action
+                              :outcome outcome
+                              :method (some-> (:request-method request) name str/upper-case)
+                              :path (:uri request)}
+                       (:patient descriptor) (assoc :patient (:patient descriptor))
+                       scope (assoc :scope scope)
+                       reason (assoc :reason reason))})))
+
 (defn- protect
-  "Middleware for an endpoint that needs `action`: authenticate, authorize, attach `:identity`."
+  "Middleware for an endpoint that needs `action`: authenticate, find the caller's scope, build
+  the resource descriptor if the endpoint has one (only when the caller has a scope at all, so
+  nobody triggers a lookup they have no right to), authorize, audit, and attach `:identity` and
+  `:scope` to the request."
   [auth-deps {:keys [action resource]}]
   (fn [handler]
     (fn [request]
       (let [{:keys [claims response]} (auth/authenticate auth-deps request)]
-        (if response
-          response
-          (let [caller (identity/from-claims claims)
-                decision (authorize caller action (when resource (resource request)))]
-            (if (:allow? decision)
-              (handler (assoc request :identity caller))
-              (do (t/event! :pulse.authz/denied
-                            {:level :info
-                             :data {:subject (:subject caller)
-                                    :action action
-                                    :reason (:reason decision)
-                                    :path (:uri request)}})
-                  (forbidden request)))))))))
+        (or response
+            (let [caller (identity/from-claims claims)
+                  scope (scope-of caller action)
+                  descriptor (when (and scope resource) (resource request scope))]
+              (if (and scope resource (nil? descriptor))
+                (do (audit! request caller action :not-found {:scope scope :reason :no-such-resource} nil)
+                    (problem/response 404 {:detail "No such resource." :request request}))
+                (let [decision (authorize caller action descriptor)]
+                  (if (:allow? decision)
+                    (do (audit! request caller action :allowed decision descriptor)
+                        (handler (assoc request :identity caller :scope (:scope decision))))
+                    (do (audit! request caller action :denied decision descriptor)
+                        (forbidden request)))))))))))
 
 (defn- deny-all
   "What an endpoint without a valid `:authz` gets, in case `check-routes!` was not used."

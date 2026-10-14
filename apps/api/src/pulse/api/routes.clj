@@ -1,10 +1,11 @@
 (ns pulse.api.routes
   "The api's routes, as data: path, method, who may call it (`:authz`, see `pulse.api.authz`),
-  the shape of what it returns, and the handler. Reitit reads this one structure for routing,
-  authorization and response checking, so the three cannot drift apart. Handlers are built
-  from `deps`, the started components they need."
+  the shape of what it takes and returns, and the handler. Reitit reads this one structure for
+  routing, authorization and request and response checking, so they cannot drift apart. Handlers
+  are built from `deps`, the started components they need."
   (:require [pulse.api.health :as health]
-            [pulse.api.me :as me]))
+            [pulse.api.me :as me]
+            [pulse.api.patients :as patients]))
 
 (def ^:private readiness-schema
   [:map
@@ -13,7 +14,7 @@
 
 (defn routes
   "The route table. `deps` is `{:verifier v :fhir c}`."
-  [deps]
+  [{:keys [fhir] :as deps}]
   [["/healthz" {:get {:authz :public
                       :summary "Liveness: the process is up and serving"
                       :responses {200 {:body [:map [:status [:= "up"]]]}}
@@ -27,4 +28,16 @@
     ["/me" {:get {:authz {:action :identity/read}
                   :summary "The caller: identity, roles and the FHIR resource that is them"
                   :responses {200 {:body me/schema}}
-                  :handler (me/handler deps)}}]]])
+                  :handler (me/handler deps)}}]
+    ["/patients"
+     {:get {:authz {:action :patient/list}
+            :summary "The panel: the patients the caller may see, with filters, sorting and paging"
+            :parameters {:query patients/list-parameters}
+            :responses {200 {:body patients/list-schema}}
+            :handler (patients/list-handler deps)}}]
+    ["/patients/:id"
+     {:get {:authz {:action :patient/read :resource (patients/resolver fhir)}
+            :summary "One patient's demographics, as a FHIR Patient"
+            :parameters {:path [:map [:id :string]]}
+            :responses {200 {:body [:map-of :keyword :any]}}
+            :handler (patients/get-handler deps)}}]]])

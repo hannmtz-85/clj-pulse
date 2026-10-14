@@ -11,7 +11,8 @@
             [pulse.fhir.client.http :as http]
             [pulse.fhir.client.memory :as mem]
             [pulse.fhir.observation :as obs]
-            [pulse.fhir.resource :as r]))
+            [pulse.fhir.resource :as r]
+            [pulse.fhir.synthetic :as synthetic]))
 
 (def ^:private base-url (or (System/getenv "FHIR_BASE_URL") "http://localhost:8090/fhir"))
 
@@ -56,6 +57,28 @@
       (testing label
         (is (= (ids memory params) (ids hapi params)))
         (is (seq (ids hapi params)))))))
+
+(deftest ^:integration patient-searches-of-the-api-agree-on-the-demo-cohort
+  ;; The searches the api makes for a practitioner's panel and for the family-name filter, on
+  ;; the demo cohort (needs `bb seed`). The in-memory client is the "lite" profile's server.
+  (let [hapi (http/client {:base-url base-url})
+        memory (mem/memory-client (synthetic/generate (synthetic/cohort)))
+        patient-ids (fn [client params] (set (map :id (c/search client "Patient" params))))]
+    (doseq [[label params]
+            {"a practitioner's panel" {:general-practitioner "Practitioner/pr-rivera"}
+             "the other panel" {:general-practitioner "Practitioner/pr-okafor"}
+             "a family name prefix" {:family "Ch"}
+             "in any case" {:family "rOSS"}
+             "without the accent" {:family "Garcia"}
+             "with the accent" {:family "García"}
+             "a panel and a family name" {:general-practitioner "Practitioner/pr-okafor" :family "P"}
+             "no match" {:family "Zzz"}}]
+      (testing label
+        (is (= (patient-ids memory params) (patient-ids hapi params)))))
+    (testing "the answers are not all empty by accident"
+      (is (= #{"pt-ana" "pt-liam" "pt-omar" "pt-sofia"}
+             (patient-ids hapi {:general-practitioner "Practitioner/pr-rivera"})))
+      (is (= #{"pt-ana"} (patient-ids hapi {:family "Garcia"}))))))
 
 (deftest ^:integration paging-follows-hapi-next-links
   (let [hapi (http/client {:base-url base-url})

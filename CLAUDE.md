@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is under way: the access-token verifier, the HTTP mechanisms and the app skeleton are done (`/healthz`, `/readyz`, `/api/me`); the Annex A authorization matrix and the remaining Annex B endpoints are next.** The code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort), `libs/platform` (config, logging, token verification, HTTP mechanisms), `apps/api` and the infrastructure tooling in `tools/`.
+Pulse is a portfolio project built from scratch in phases. **Phases 0 to 3 are done (workstation, foundations, infrastructure, FHIR core and seed data); Phase 4, the `api` app, is under way: the access-token verifier, the HTTP mechanisms, the app skeleton, the Annex A authorization matrix and the patient endpoints are done (`/healthz`, `/readyz`, `/api/me`, `/api/patients`, `/api/patients/{id}`); the rest of Annex B (summary, observations, appointments, alerts, jobs), OpenAPI with Swagger UI, CORS and security headers are next.** The code so far is `libs/fhir` (FHIR data model, schemas, clients, synthetic cohort), `libs/platform` (config, logging, token verification, HTTP mechanisms), `apps/api` and the infrastructure tooling in `tools/`.
 
 ## Commands
 
@@ -24,7 +24,7 @@ Run from the repository root (any shell; quote the path, it has a space). Do not
 
 FHIR R4 resources are plain keyword-keyed maps. Portable `.cljc`: `reference`, `coding`, `terminology` (verified LOINC/ICD-10-CM/RxNorm catalogue), `units` (UCUM as data), `ranges`, `observation` (multimethod on `value[x]`), `resource` (builders), `schema` (malli, open maps), `outcome`, `bundle`, `time`. JVM/Babashka only: `client` (the `FhirClient` protocol and lazy paged search), `client.http`, `client.memory` (a faithful fake server for tests and the "lite" profile), `synthetic` (the deterministic cohort from `resources/pulse/seed/cohort.edn`). The same code runs in the apps, the tests and `bb` (see `bb.edn` `:paths`).
 
-Gotchas learned the hard way: malli `:re` uses `re-find`, so patterns need `^…$`; Babashka has no `StrictMath` (the generator's noise is additions only); `sequence`+`cat` and `mapcat` over `iteration` fetch extra pages (see `client/paged`); HAPI's validator runs out of its 768 MB heap under concurrent `$validate` calls (keep validation sequential).
+Gotchas learned the hard way: malli `:re` uses `re-find`, so patterns need `^…$`; Babashka has no `StrictMath` (the generator's noise is additions only); `sequence`+`cat` and `mapcat` over `iteration` fetch extra pages (see `client/paged`); HAPI's validator runs out of its 768 MB heap under concurrent `$validate` calls (keep validation sequential); FHIR string search ignores case and accents ("Garcia" finds "García"), and `client.memory` does too, which a contract test against HAPI keeps true.
 
 ## libs/platform
 
@@ -36,11 +36,13 @@ Gotchas learned the hard way: Nimbus 10 enables refresh-ahead caching by default
 
 ## apps/api
 
-Resource server and FHIR gateway on Ring + Jetty + Reitit. `pulse/api/config.edn` (classpath resource) is the Integrant system map, read by Aero and checked by `pulse.api.config/schema` (closed maps, so a misspelt key fails); profile `dev`, `lite` or `test`, chosen with `API_PROFILE`. `system` starts the components, `handler` assembles the pipeline, `routes` is the route table as data, `authz` holds the pure `authorize`, the `rules` per action and the middleware, `identity` turns verified claims into an identity (its role list must match the realm: a test compares it with the committed realm JSON).
+Resource server and FHIR gateway on Ring + Jetty + Reitit. `pulse/api/config.edn` (classpath resource) is the Integrant system map, read by Aero and checked by `pulse.api.config/schema` (closed maps, so a misspelt key fails); profile `dev`, `lite` or `test`, chosen with `API_PROFILE`. `system` starts the components, `handler` assembles the pipeline, `routes` is the route table as data, `identity` turns verified claims into an identity (its role list must match the realm: a test compares it with the committed realm JSON), `fhir` is how the api reads FHIR (any failure becomes a 502), and `patients` and `me` are the endpoints.
 
-Every endpoint declares `:authz` (`:public`, or `{:action a}` with a rule for `a` in `authz/rules`); `check-routes!` makes the start-up fail otherwise (deny by default, ADR-0004 and ADR-0011). To add an endpoint: route, schemas, `:authz`, rule, test.
+Authorization is `authz` ([ADR-0012](docs/adr/0012-authorization-by-scope.md)): `rules` is Annex A as data, each role's *scope* per action (`:own`, `:panel`, `:all`, `:identifiers`); `authorize`, `scope-of` and `permits?` are pure; the middleware authenticates, asks, audits (`:pulse.audit/access`) and attaches `:identity` and `:scope`. Every endpoint declares `:authz` (`:public`, or `{:action a}` with a rule for `a`, plus `:resource (fn [request scope])` on an endpoint for one resource); `check-routes!` makes the start-up fail otherwise (deny by default, ADR-0004 and ADR-0011). A collection endpoint restricts its own FHIR query to the scope; it never fetches everything and filters afterwards. To add an endpoint: route, schemas, `:authz`, a rule if the action is new, tests (the Annex A table is in `authz-test`).
 
-Gotchas learned the hard way: reitit-malli closes every `:map` schema and strips undeclared keys, so a FHIR resource in a response schema must be `[:map-of :keyword :any]` (a plain `:map` turned it into `{}`); Reitit adds an `OPTIONS` endpoint to every route unless `::ring/default-options-endpoint` is nil; query parameters are only parsed if `parameters-middleware` is in the chain; muuntaja is restricted to JSON.
+Tests: `apps/api/test-support` holds the harness (`pulse.api.test.harness`: fake identity provider, in-memory FHIR with the demo cohort, tokens for the demo people, `call`, a FHIR `spy`); `stack-test` runs the api against the real stack with `bb test:it`.
+
+Gotchas learned the hard way: reitit-malli closes every `:map` schema and strips undeclared keys, so a FHIR resource in a response schema must be `[:map-of :keyword :any]` (a plain `:map` turned it into `{}`); malli does not apply defaults to `:optional` keys, so a parameter with a default is declared required with `:default` on its value schema; Reitit adds an `OPTIONS` endpoint to every route unless `::ring/default-options-endpoint` is nil; query parameters are only parsed if `parameters-middleware` is in the chain; muuntaja is restricted to JSON.
 
 ## Local stack
 
