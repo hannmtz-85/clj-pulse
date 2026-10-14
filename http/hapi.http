@@ -63,3 +63,31 @@ Accept: application/fhir+json
 ### Appointments that are only proposed (asked for by the patient)
 GET {{fhir}}/Appointment?status=proposed
 Accept: application/fhir+json
+
+### Raise an alert by hand, so that GET /api/alerts has something to show
+# The cohort has none: the scheduler will raise them in Phase 5. Adjust the date of the period.
+PUT {{fhir}}/Flag/flag-demo-ana
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Flag",
+  "id": "flag-demo-ana",
+  "status": "active",
+  "category": [{ "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/flag-category", "code": "clinical", "display": "Clinical" }] }],
+  "code": { "text": "BP stage 2 (raised by hand)" },
+  "subject": { "reference": "Patient/pt-ana" },
+  "period": { "start": "2026-10-14T08:00:00Z" }
+}
+
+### A patient's alerts, newest first (R4 gives Flag no status search parameter)
+GET {{fhir}}/Flag?patient=Patient/pt-ana&_sort=-date
+Accept: application/fhir+json
+Cache-Control: no-cache
+
+### Several patients' alerts at once: a comma is OR, which is how the api asks for a panel's
+GET {{fhir}}/Flag?patient=Patient/pt-ana,Patient/pt-liam&_sort=-date
+Accept: application/fhir+json
+Cache-Control: no-cache
+
+### Remove it
+DELETE {{fhir}}/Flag/flag-demo-ana

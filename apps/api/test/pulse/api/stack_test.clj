@@ -4,9 +4,9 @@
   the headless authorization-code flow with PKCE that the SPA uses.
 
   Needs the stack and the demo cohort (`bb up`, `bb seed`) and runs with `bb test:it`. It only
-  reads, except `the-observations-against-the-real-stack` and `the-appointments-against-the-real-stack`,
-  which write two readings and one appointment in HAPI and delete them before they end, whatever
-  happens."
+  reads, except `the-observations-...`, `the-appointments-...` and `the-alerts-against-the-real-stack`,
+  which write two readings, an appointment and three alerts in HAPI and delete them before they
+  end, whatever happens."
   (:require [babashka.http-client :as http]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -17,7 +17,8 @@
             [pulse.fhir.client :as fc]
             [pulse.fhir.client.http :as fhir-http]
             [pulse.fhir.observation :as obs]
-            [pulse.fhir.outcome :as outcome])
+            [pulse.fhir.outcome :as outcome]
+            [pulse.fhir.resource :as r])
   (:import (java.time Duration Instant)
            (java.time.temporal ChronoUnit)))
 
@@ -43,6 +44,14 @@
     (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
 
 (defn- post-json [url body & opts] (apply write-json http/post url body opts))
+
+(defn- post-nothing
+  "POST to `url` with no body, as the acknowledgement of an alert is."
+  [url & {:keys [token]}]
+  (let [response (http/post url {:throw false
+                                 :headers (cond-> {"Accept" "application/json"}
+                                            token (assoc "Authorization" (str "Bearer " token)))})]
+    (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
 (defn- patch-json [url body & opts] (apply write-json http/patch url body opts))
 
 (defn- in-days
@@ -308,6 +317,60 @@
       (finally
         (doseq [id @created]
           (fc/delete! hapi "Appointment" id))))))
+
+(deftest ^:integration the-alerts-against-the-real-stack
+  ;; The cohort has no alerts (the scheduler raises them), so the test raises three in HAPI and
+  ;; removes them at the end. Only those whose id starts with `it-flag-` are looked at, so that
+  ;; alerts raised by anything else do not matter.
+  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+        raised (atom [])
+        raise! (fn [id patient text minutes-ago]
+                 (fc/put! hapi (r/flag {:id id :patient patient :text text :start (in-days 0 (- minutes-ago))}))
+                 (swap! raised conj id))
+        ours (fn [ids] (filterv #(str/starts-with? % "it-flag-") ids))]
+    (try
+      (with-running-api
+        (fn [base-url]
+          (let [token-of (memoize token-for)
+                list! (fn [who & [query]]
+                        (get-json (str base-url "/api/alerts" (when query (str "?" query))) :token (token-of who)))
+                ack! (fn [who id] (post-nothing (str base-url "/api/alerts/" id "/ack") :token (token-of who)))
+                ids (fn [response] (mapv :id (get-in response [:json :items])))]
+            (raise! "it-flag-ana" "pt-ana" "Integration alert (Ana)" 30)
+            (raise! "it-flag-liam" "pt-liam" "Integration alert (Liam)" 20)
+            (raise! "it-flag-maya" "pt-maya" "Integration alert (Maya)" 10)
+            (testing "each role sees the alerts of its panel, the newest first, from HAPI"
+              (is (= ["it-flag-liam" "it-flag-ana"] (ours (ids (list! "dr.rivera@pulse.test")))))
+              (is (= ["it-flag-maya"] (ours (ids (list! "dr.okafor@pulse.test")))))
+              (is (= ["it-flag-maya" "it-flag-liam" "it-flag-ana"] (ours (ids (list! "admin@pulse.test" "limit=100")))))
+              (is (= ["it-flag-ana" "it-flag-liam"] (ours (ids (list! "dr.rivera@pulse.test" "sort=since"))))
+                  "oldest first, when asked")
+              (is (= 403 (:status (list! "ana.garcia@pulse.test"))))
+              (is (= 403 (:status (list! "scheduler")))))
+            (testing "a practitioner acknowledges an alert of their panel: it is valid on HAPI"
+              (let [r (ack! "dr.rivera@pulse.test" "it-flag-ana")
+                    stored (fc/read-resource hapi "Flag" "it-flag-ana")
+                    validation (fc/validate hapi stored)]
+                (is (= 200 (:status r)))
+                (is (= "inactive" (get-in r [:json :status])))
+                (is (string? (get-in r [:json :until])))
+                (is (= "inactive" (:status stored)))
+                (is (= (get-in r [:json :until]) (get-in stored [:period :end])))
+                (is (not (outcome/error? validation)) (outcome/summary validation))))
+            (testing "the other doctor may not, and a second acknowledgement is a 409"
+              (is (= 403 (:status (ack! "dr.okafor@pulse.test" "it-flag-liam"))))
+              (is (= 409 (:status (ack! "dr.rivera@pulse.test" "it-flag-ana")))))
+            (testing "the inbox no longer has it, and the acknowledged ones are listed when asked for"
+              (is (= ["it-flag-liam"] (ours (ids (list! "dr.rivera@pulse.test")))))
+              (is (= ["it-flag-ana"] (ours (ids (list! "dr.rivera@pulse.test" "status=inactive"))))))
+            (testing "and the patient's summary does not show it either"
+              (let [summary (get-json (str base-url "/api/patients/pt-ana/summary") :token (token-of "ana.garcia@pulse.test"))]
+                (is (not-any? #(= "it-flag-ana" (:id %)) (get-in summary [:json :alerts])))))
+            (testing "an alert that does not exist"
+              (is (= 404 (:status (ack! "dr.rivera@pulse.test" "it-flag-ghost"))))))))
+      (finally
+        (doseq [id @raised]
+          (fc/delete! hapi "Flag" id))))))
 
 (deftest ^:integration the-api-against-the-real-stack
   (with-running-api

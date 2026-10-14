@@ -6,6 +6,7 @@
   Needs the stack (`bb up`) and runs with `bb test:it`. It writes only resources whose ids
   start with `it-` and deletes them afterwards, so the demo data is untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [pulse.fhir.alert :as alert]
             [pulse.fhir.appointment :as lifecycle]
             [pulse.fhir.bundle :as bundle]
             [pulse.fhir.client :as c]
@@ -23,12 +24,19 @@
 
 (def ^:private fixtures
   (into [(r/patient {:id patient-id :given "Integration" :family "Test" :gender "other"
-                     :birth-date "1990-01-01"})]
-        (map (fn [i]
-               (obs/quantity-observation
-                {:id (str "it-obs-" i) :patient patient-id :concept :heart-rate :value (+ 60 i)
-                 :unit "/min" :at (str "2026-01-0" (inc i) "T08:00:00Z")}))
-             (range 7))))
+                     :birth-date "1990-01-01"})
+         (r/patient {:id "it-pt-2" :given "Integration" :family "Second" :gender "other"
+                     :birth-date "1991-01-01"})]
+        (concat
+         (map (fn [i]
+                (obs/quantity-observation
+                 {:id (str "it-obs-" i) :patient patient-id :concept :heart-rate :value (+ 60 i)
+                  :unit "/min" :at (str "2026-01-0" (inc i) "T08:00:00Z")}))
+              (range 7))
+         ;; alerts of two patients, for the searches the api makes to list them
+         [(r/flag {:id "it-flag-1" :patient patient-id :text "Integration alert one" :start "2026-01-03T08:00:00Z"})
+          (r/flag {:id "it-flag-2" :patient "it-pt-2" :text "Integration alert two" :start "2026-01-05T08:00:00Z"})
+          (r/flag {:id "it-flag-3" :patient patient-id :text "Integration alert three" :start "2026-01-06T08:00:00Z"})])))
 
 (defn- cleanup! [client]
   (doseq [{:keys [resourceType id]} (reverse fixtures)]
@@ -200,6 +208,34 @@
             :let [result (c/validate hapi appointment)]]
       (testing label
         (is (not (outcome/error? result)) (outcome/summary result))))))
+
+(deftest ^:integration the-flag-searches-of-the-api-agree
+  ;; What the api asks for to list alerts (ADR-0016): the flags of several patients at once, as
+  ;; an OR list of references, newest first and in small pages. HAPI and the fake must agree.
+  (let [hapi (http/client {:base-url base-url})
+        memory (mem/memory-client fixtures)
+        ids-of (fn [client params] (mapv :id (c/search client "Flag" params)))]
+    (doseq [[label params expected]
+            [["one patient" {:patient "Patient/it-pt-1" :_sort "-date"} ["it-flag-3" "it-flag-1"]]
+             ["two patients, as an OR list" {:patient "Patient/it-pt-1,Patient/it-pt-2" :_sort "-date"}
+              ["it-flag-3" "it-flag-2" "it-flag-1"]]
+             ["a patient that has none in the list" {:patient "Patient/it-pt-2,Patient/it-pt-nobody" :_sort "-date"}
+              ["it-flag-2"]]
+             ["oldest first, in small pages" {:patient "Patient/it-pt-1,Patient/it-pt-2" :_sort "date" :_count 2}
+              ["it-flag-1" "it-flag-2" "it-flag-3"]]
+             ["nobody the list names has any" {:patient "Patient/it-pt-nobody,Patient/it-pt-ghost" :_sort "-date"} []]]]
+      (testing label
+        (is (= expected (ids-of hapi params)))
+        (is (= expected (ids-of memory params)))))))
+
+(deftest ^:integration an-acknowledged-alert-is-valid-on-hapi
+  ;; What `pulse.fhir.alert/acknowledge` makes of a Flag: inactive, its period ending.
+  (let [hapi (http/client {:base-url base-url})
+        raised (r/flag {:id "it-flag-ack" :patient patient-id :text "Integration alert" :start "2026-01-03T08:00:00Z"})
+        acknowledged (:ok (alert/acknowledge raised "2026-01-04T09:30:00Z"))
+        result (c/validate hapi acknowledged)]
+    (is (= "inactive" (:status acknowledged)))
+    (is (not (outcome/error? result)) (outcome/summary result))))
 
 (deftest ^:integration every-search-parameter-of-the-fake-exists-on-hapi
   ;; The fake must not accept what the real server rejects: R4 gave Flag no `status` parameter,

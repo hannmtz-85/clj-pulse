@@ -43,6 +43,11 @@
       (is (= 7 (count (ids {:patient "Patient/pt-ana"}))))
       (is (= 7 (count (ids {:patient "pt-ana"}))))
       (is (= #{"o-99"} (ids {:patient "pt-liam"}))))
+    (testing "by several patients at once: a comma is OR, as in FHIR"
+      (is (= 8 (count (ids {:patient "Patient/pt-ana,Patient/pt-liam"}))))
+      (is (= #{"o-99"} (ids {:patient "Patient/pt-liam,Patient/pt-nobody"})))
+      (is (= 7 (count (ids {:patient "Patient/pt-nobody,Patient/pt-ana"}))))
+      (is (empty? (ids {:patient "Patient/pt-nobody,Patient/pt-ghost"}))))
     (testing "by code, with and without the system"
       (is (= 8 (count (ids {:code "http://loinc.org|8867-4"}))))
       (is (= 8 (count (ids {:code "8867-4"}))))

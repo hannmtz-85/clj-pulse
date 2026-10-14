@@ -89,9 +89,11 @@
     (boolean (some #(str/starts-with? (fold %) wanted) values))))
 
 (defmethod matches? :reference [_ values v]
-  (boolean (some (fn [{:keys [reference]}]
-                   (or (= reference v) (str/ends-with? (str reference) (str "/" v))))
-                 values)))
+  ;; A comma is OR, as in FHIR: patient=Patient/a,Patient/b finds the resources of either.
+  (let [wanted (str/split v #",")]
+    (boolean (some (fn [{:keys [reference]}]
+                     (some (fn [w] (or (= reference w) (str/ends-with? (str reference) (str "/" w)))) wanted))
+                   values))))
 
 (defn- system+value [v]
   (if (str/includes? v "|")

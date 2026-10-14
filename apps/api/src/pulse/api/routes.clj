@@ -3,7 +3,8 @@
   the shape of what it takes and returns, and the handler. Reitit reads this one structure for
   routing, authorization and request and response checking, so they cannot drift apart. Handlers
   are built from `deps`, the started components they need."
-  (:require [pulse.api.appointments :as appointments]
+  (:require [pulse.api.alerts :as alerts]
+            [pulse.api.appointments :as appointments]
             [pulse.api.health :as health]
             [pulse.api.me :as me]
             [pulse.api.observations :as observations]
@@ -81,4 +82,16 @@
               :parameters {:path [:map [:id :string]]
                            :body appointments/change-body}
               :responses {200 {:body appointments/item-schema}}
-              :handler (appointments/change-handler deps)}}]]])
+              :handler (appointments/change-handler deps)}}]
+    ["/alerts"
+     {:get {:authz {:action :alert/read}
+            :summary "The alerts of the caller's panel (a practitioner's patients, or everyone's for the administrator), active unless asked for those that were acknowledged"
+            :parameters {:query alerts/list-parameters}
+            :responses {200 {:body alerts/list-schema}}
+            :handler (alerts/list-handler deps)}}]
+    ["/alerts/:id/ack"
+     {:post {:authz {:action :alert/ack :resource (alerts/resolver fhir)}
+             :summary "Acknowledge an alert: it becomes inactive and its period ends now"
+             :parameters {:path [:map [:id :string]]}
+             :responses {200 {:body alerts/item-schema}}
+             :handler (alerts/ack-handler deps)}}]]])

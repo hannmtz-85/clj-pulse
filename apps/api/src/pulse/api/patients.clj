@@ -19,6 +19,13 @@
   [request]
   (ref/parse (str "Patient/" (get-in request [:path-params :id]))))
 
+(defn describe
+  "The descriptor `authorize` judges for `patient`, a Patient resource: the reference to it and
+  the references of its general practitioners, which are its panel."
+  [patient]
+  {:patient (str "Patient/" (:id patient))
+   :practitioners (into #{} (keep :reference) (:generalPractitioner patient))})
+
 (defn resolver
   "The `:resource` function of the endpoints on a single patient: describes the patient for
   `authorize`. FHIR is read only for the panel scope, which needs the patient's practitioners;
@@ -26,12 +33,10 @@
   [fhir-client]
   (fn [request scope]
     (when-let [target (target-of request)]
-      (let [patient-ref (ref/->str target)]
-        (if (= :panel scope)
-          (when-let [patient (fhir/read-resource fhir-client (:type target) (:id target))]
-            {:patient patient-ref
-             :practitioners (into #{} (keep :reference) (:generalPractitioner patient))})
-          {:patient patient-ref})))))
+      (if (= :panel scope)
+        (when-let [patient (fhir/read-resource fhir-client (:type target) (:id target))]
+          (describe patient))
+        {:patient (ref/->str target)}))))
 
 (defn get-handler [{fhir-client :fhir}]
   (fn [request]
