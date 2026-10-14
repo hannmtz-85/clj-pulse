@@ -4,8 +4,9 @@
   the headless authorization-code flow with PKCE that the SPA uses.
 
   Needs the stack and the demo cohort (`bb up`, `bb seed`) and runs with `bb test:it`. It only
-  reads, except `the-observations-against-the-real-stack`, which records two readings in HAPI and
-  deletes them before it ends, whatever happens."
+  reads, except `the-observations-against-the-real-stack` and `the-appointments-against-the-real-stack`,
+  which write two readings and one appointment in HAPI and delete them before they end, whatever
+  happens."
   (:require [babashka.http-client :as http]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -16,7 +17,9 @@
             [pulse.fhir.client :as fc]
             [pulse.fhir.client.http :as fhir-http]
             [pulse.fhir.observation :as obs]
-            [pulse.fhir.outcome :as outcome]))
+            [pulse.fhir.outcome :as outcome])
+  (:import (java.time Duration Instant)
+           (java.time.temporal ChronoUnit)))
 
 (defn- token-for [who]
   (let [{:keys [exit out err]} (shell/sh "bb" "token" who)]
@@ -30,12 +33,23 @@
                                            token (assoc "Authorization" (str "Bearer " token)))})]
     (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
 
-(defn- post-json [url body & {:keys [token]}]
-  (let [response (http/post url {:throw false
-                                 :headers (cond-> {"Accept" "application/json" "Content-Type" "application/json"}
-                                            token (assoc "Authorization" (str "Bearer " token)))
-                                 :body (json/write-value-as-string body)})]
+(defn- write-json
+  "`send!` (`http/post` or `http/patch`) the JSON of `body` to `url`."
+  [send! url body & {:keys [token]}]
+  (let [response (send! url {:throw false
+                             :headers (cond-> {"Accept" "application/json" "Content-Type" "application/json"}
+                                        token (assoc "Authorization" (str "Bearer " token)))
+                             :body (json/write-value-as-string body)})]
     (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
+
+(defn- post-json [url body & opts] (apply write-json http/post url body opts))
+(defn- patch-json [url body & opts] (apply write-json http/patch url body opts))
+
+(defn- in-days
+  "The instant that is `days` and `minutes` from now, as the api takes it."
+  [days & [minutes]]
+  (str (.plus (.truncatedTo (Instant/now) ChronoUnit/SECONDS)
+              (Duration/ofMinutes (+ (* days 24 60) (or minutes 0))))))
 
 (defn- with-running-api [f]
   (let [cfg (-> (config/load-config {:profile :dev})
@@ -200,6 +214,100 @@
       (finally
         (doseq [id @recorded]
           (fc/delete! hapi "Observation" id))))))
+
+(deftest ^:integration the-appointments-against-the-real-stack
+  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+        created (atom [])]
+    (try
+      (with-running-api
+        (fn [base-url]
+          (let [token-of (memoize token-for)
+                url (str base-url "/api/appointments")
+                list! (fn [who & [query]] (get-json (str url (when query (str "?" query))) :token (token-of who)))
+                request! (fn [who body]
+                           (let [response (post-json url body :token (token-of who))]
+                             (when-let [new-id (get-in response [:json :id])]
+                               (swap! created conj new-id))
+                             response))
+                change! (fn [who id body] (patch-json (str url "/" id) body :token (token-of who)))
+                ids (fn [response] (set (map :id (get-in response [:json :items]))))]
+            (testing "each role lists what it should, from HAPI"
+              (is (= #{"appt-ana-1"} (ids (list! "ana.garcia@pulse.test"))))
+              (is (= #{"appt-ana-1" "appt-liam-1" "appt-sofia-1"} (ids (list! "dr.rivera@pulse.test"))))
+              (is (= #{"appt-maya-1" "appt-noah-1"} (ids (list! "dr.okafor@pulse.test"))))
+              (is (every? (ids (list! "admin@pulse.test" "limit=100"))
+                          ["appt-ana-1" "appt-liam-1" "appt-sofia-1" "appt-maya-1" "appt-noah-1"]))
+              (is (= 403 (:status (list! "scheduler")))))
+            (testing "the status filter and the sorting reach HAPI"
+              (is (= #{"appt-sofia-1"} (ids (list! "dr.rivera@pulse.test" "status=proposed"))))
+              (is (= ["appt-ana-1" "appt-liam-1"]
+                     (mapv :id (get-in (list! "dr.rivera@pulse.test" "status=booked") [:json :items])))
+                  "the soonest first")
+              (is (= ["appt-liam-1" "appt-ana-1"]
+                     (mapv :id (get-in (list! "dr.rivera@pulse.test" "status=booked&sort=-start") [:json :items])))))
+            (testing "a patient asks, a doctor confirms, moves and cancels: HAPI keeps it all, valid there"
+              (let [asked (request! "ana.garcia@pulse.test" {:description "Integration test: blood pressure review"
+                                                             :requestedStart (in-days 1)
+                                                             :requestedEnd (in-days 6)})
+                    id (get-in asked [:json :id])
+                    stored (fn [] (fc/read-resource hapi "Appointment" id))
+                    valid-on-hapi (fn []
+                                    (let [validation (fc/validate hapi (stored))]
+                                      (is (not (outcome/error? validation)) (outcome/summary validation))))]
+                (is (= 201 (:status asked)))
+                (is (= {:status "proposed" :practitioner "Practitioner/pr-rivera" :patient "Patient/pt-ana" :start nil}
+                       (select-keys (:json asked) [:status :practitioner :patient :start])))
+                (is (= ["Patient/pt-ana" "Practitioner/pr-rivera"]
+                       (map #(get-in % [:actor :reference]) (:participant (stored)))))
+                (valid-on-hapi)
+                (testing "the doctor sees it, and the other doctor does not"
+                  (is (contains? (ids (list! "dr.rivera@pulse.test" "status=proposed")) id))
+                  (is (not (contains? (ids (list! "dr.okafor@pulse.test")) id))))
+                (testing "the other doctor may not touch it"
+                  (is (= 403 (:status (change! "dr.okafor@pulse.test" id {:action "cancel"})))))
+                (testing "confirm"
+                  (let [r (change! "dr.rivera@pulse.test" id {:action "confirm" :start (in-days 2) :end (in-days 2 30)})]
+                    (is (= 200 (:status r)))
+                    (is (= "booked" (get-in r [:json :status])))
+                    (is (= "booked" (:status (stored))))
+                    (is (= 30 (:minutesDuration (stored))))
+                    (is (= ["accepted" "accepted"] (map :status (:participant (stored)))))
+                    (valid-on-hapi)))
+                (testing "reschedule, by the administrator"
+                  (let [r (change! "admin@pulse.test" id {:action "reschedule" :start (in-days 3) :end (in-days 3 45)})]
+                    (is (= 200 (:status r)))
+                    (is (= 45 (:minutesDuration (stored))))
+                    (valid-on-hapi)))
+                (testing "the patient sees it booked"
+                  (is (= ["booked"] (->> (get-in (list! "ana.garcia@pulse.test") [:json :items])
+                                         (filter #(= id (:id %)))
+                                         (map :status)))))
+                (testing "cancel, with a reason"
+                  (let [r (change! "dr.rivera@pulse.test" id {:action "cancel" :reason "Integration test"})]
+                    (is (= 200 (:status r)))
+                    (is (= {:text "Integration test"} (:cancelationReason (stored))))
+                    (valid-on-hapi)))
+                (testing "a cancelled appointment is final"
+                  (is (= 409 (:status (change! "dr.rivera@pulse.test" id
+                                               {:action "confirm" :start (in-days 4) :end (in-days 4 30)})))))
+                (testing "the patient's summary says so, with the reason"
+                  (let [summary (get-json (str base-url "/api/patients/pt-ana/summary")
+                                          :token (token-of "ana.garcia@pulse.test"))
+                        mine (first (filter #(= id (:id %)) (get-in summary [:json :appointments])))]
+                    (is (= "cancelled" (:status mine)))
+                    (is (= "Integration test" (:reason mine)))))))
+            (testing "what may not be asked is refused and creates nothing"
+              (let [before (count @created)]
+                (is (= 403 (:status (request! "dr.rivera@pulse.test"
+                                              {:description "x" :requestedStart (in-days 1) :requestedEnd (in-days 6)}))))
+                (let [r (request! "ana.garcia@pulse.test" {:description "" :requestedStart (in-days 6) :requestedEnd (in-days 1)})]
+                  (is (= 422 (:status r)))
+                  (is (= #{:description :requestedEnd} (set (keys (get-in r [:json :errors]))))))
+                (is (= 404 (:status (change! "dr.rivera@pulse.test" "appt-ghost" {:action "cancel"}))))
+                (is (= before (count @created)) "nothing was created"))))))
+      (finally
+        (doseq [id @created]
+          (fc/delete! hapi "Appointment" id))))))
 
 (deftest ^:integration the-api-against-the-real-stack
   (with-running-api

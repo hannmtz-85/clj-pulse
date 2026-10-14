@@ -40,14 +40,16 @@
 
 (defn write!
   "One event for a write the FHIR server has accepted: who, the action they were allowed, the
-  outcome (`:created`), the patient and the reference of the resource that was written, such as
-  \"Observation/obs-1\". Never what the resource holds."
-  [request caller {:keys [action outcome patient resource]}]
+  outcome (`:created` or `:updated`), the patient and the reference of the resource that was
+  written, such as \"Observation/obs-1\". When one action covers several things, `:change` names
+  which was done (`:confirm`, `:cancel`): a verb, never a value. Never what the resource holds."
+  [request caller {:keys [action outcome patient resource change]}]
   (t/event! :pulse.audit/write
             {:level :info
-             :data (merge {:actor (actor caller)
-                           :action action
-                           :outcome outcome
-                           :patient patient
-                           :resource resource}
-                          (about-request request))}))
+             :data (cond-> (merge {:actor (actor caller)
+                                   :action action
+                                   :outcome outcome
+                                   :patient patient
+                                   :resource resource}
+                                  (about-request request))
+                     change (assoc :change change))}))

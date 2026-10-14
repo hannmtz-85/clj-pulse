@@ -10,47 +10,18 @@
             [pulse.api.audit :as audit]
             [pulse.api.fhir :as fhir]
             [pulse.api.patients :as patients]
+            [pulse.api.times :as times]
             [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]
             [pulse.fhir.ranges :as ranges]
             [pulse.fhir.reference :as ref]
             [pulse.fhir.terminology :as terminology]
             [pulse.platform.http.problem :as problem])
-  (:import (java.time Clock DateTimeException Duration Instant LocalDate OffsetDateTime ZoneOffset)
+  (:import (java.time Clock Duration Instant)
            (java.time.temporal ChronoUnit)))
 
 ;; ---------------------------------------------------------------------------
-;; Times
-
-(def ^:private date-re #"\d{4}-\d{2}-\d{2}")
-(def ^:private instant-re #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})")
-
-(defn- parse-instant
-  "The Instant of `s`, a date and time with its offset such as 2026-10-13T08:00:00Z, or nil when
-  it is not one. Only years of four digits, which is what FHIR has."
-  [s]
-  (when (re-matches instant-re s)
-    (try (.toInstant (OffsetDateTime/parse s))
-         (catch DateTimeException _ nil))))
-
-(defn- parse-date
-  "The Instant at midnight UTC of the date `s`, such as 2026-10-13, or nil."
-  [s]
-  (when (re-matches date-re s)
-    (try (.toInstant (.atStartOfDay (LocalDate/parse s) ZoneOffset/UTC))
-         (catch DateTimeException _ nil))))
-
-(def ^:private earliest (Instant/parse "1900-01-01T00:00:00Z"))
-(def ^:private latest (Instant/parse "2200-01-01T00:00:00Z"))
-
-(defn- bound-instant
-  "The Instant of `s`, an end of the period asked for: a date (midnight UTC) or an instant with
-  its offset, in the years 1900 to 2199. Nil when it is not one: what lies outside is a mistake,
-  and FHIR could not be asked about it."
-  [s]
-  (when-let [^Instant i (or (parse-instant s) (parse-date s))]
-    (when (and (.isAfter i earliest) (.isBefore i latest))
-      i)))
+;; The time of a reading
 
 (def ^:private max-future-minutes
   "How far ahead of the server's clock a reading may claim to have been taken: clocks differ."
@@ -137,27 +108,15 @@
   "The names clients use, one for each measurement that can be recorded."
   (->> (keys measurement/measurements) (map name) sort vec))
 
-(def ^:private bound
-  [:and
-   [:string {:max 40}]
-   [:fn {:error/message "must be a date (2026-10-01) or an instant with its offset (2026-10-01T08:00:00Z), from 1900 to 2199"}
-    (fn [s] (some? (bound-instant s)))]])
-
 (def list-parameters
   ;; The two with a default are not `:optional`: malli's default-value transformer leaves
   ;; optional keys alone, so they would reach the handler as nil.
   [:map
    [:measurement (into [:enum] measurement-names)]
-   [:from {:optional true} bound]
-   [:to {:optional true} bound]
+   [:from {:optional true} times/bound]
+   [:to {:optional true} times/bound]
    [:sort [:enum {:default "-date"} "-date" "date"]]
    [:limit [:int {:min 1 :max 500 :default 100}]]])
-
-(def ^:private at-instant
-  [:and
-   [:string {:max 40}]
-   [:fn {:error/message "must be a date and time with its offset, such as 2026-10-13T08:00:00Z"}
-    (fn [s] (some? (parse-instant s)))]])
 
 (def ^:private unit-code [:string {:min 1 :max 16}])
 
@@ -172,13 +131,13 @@
      [:systolic number?]
      [:diastolic number?]
      [:unit {:optional true} unit-code]
-     [:at {:optional true} at-instant]]]
+     [:at {:optional true} times/instant]]]
    [::m/default
     [:map
      [:measurement (into [:enum] (remove #{"blood-pressure"}) measurement-names)]
      [:value number?]
      [:unit {:optional true} unit-code]
-     [:at {:optional true} at-instant]]]])
+     [:at {:optional true} times/instant]]]])
 
 ;; ---------------------------------------------------------------------------
 ;; The series
@@ -204,8 +163,8 @@
   (fn [request]
     (let [{:keys [limit] order :sort :as query} (get-in request [:parameters :query])
           kind (keyword (:measurement query))
-          from (some-> (:from query) bound-instant)
-          to (some-> (:to query) bound-instant)
+          from (some-> (:from query) times/parse-bound)
+          to (some-> (:to query) times/parse-bound)
           target (or (patients/target-of request) (throw (no-such-patient)))]
       (when (and from to (not (.isBefore ^Instant from ^Instant to)))
         (throw (bad-parameters {:to ["must be after from"]})))
@@ -243,7 +202,7 @@
       (let [body (get-in request [:parameters :body])
             kind (keyword (:measurement body))
             now (Instant/now clock)
-            at (or (some-> (:at body) parse-instant) (.truncatedTo now ChronoUnit/SECONDS))
+            at (or (some-> (:at body) times/parse-instant) (.truncatedTo now ChronoUnit/SECONDS))
             {:keys [ok errors]} (measurement/normalize (assoc body :measurement kind))
             problems (merge-with into (time-errors at now) errors)
             target (or (patients/target-of request) (throw (no-such-patient)))]

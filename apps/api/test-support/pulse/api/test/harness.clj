@@ -125,6 +125,18 @@
     (transact! [_ bundle] (fc/transact! client bundle))
     (validate [_ resource] (fc/validate client resource))))
 
+(defn failing-writes
+  "A FHIR client that answers reads and searches like `client` and refuses every write, as a server
+  that is up but cannot store would, with a message that says too much."
+  [client]
+  (reify fc/FhirClient
+    (read-resource [_ resource-type id] (fc/read-resource client resource-type id))
+    (search [_ resource-type params] (fc/search client resource-type params))
+    (put! [_ _] (refused))
+    (delete! [_ resource-type id] (fc/delete! client resource-type id))
+    (transact! [_ _] (refused))
+    (validate [_ resource] (fc/validate client resource))))
+
 (defn with-api
   "Calls `(f {:handler h :idp server})` with a fake identity provider and the api's handler
   wired to it. Options: `:fhir` (default: the demo cohort in memory), `:routes` (extra routes,

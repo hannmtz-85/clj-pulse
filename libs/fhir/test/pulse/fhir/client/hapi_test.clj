@@ -6,6 +6,7 @@
   Needs the stack (`bb up`) and runs with `bb test:it`. It writes only resources whose ids
   start with `it-` and deletes them afterwards, so the demo data is untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [pulse.fhir.appointment :as lifecycle]
             [pulse.fhir.bundle :as bundle]
             [pulse.fhir.client :as c]
             [pulse.fhir.client.http :as http]
@@ -158,6 +159,47 @@
     (testing "the answers are not all empty by accident"
       (is (= #{"cond-ana-1"} (ids hapi "Condition" {:patient "Patient/pt-ana" :clinical-status "active"})))
       (is (= #{"alg-sofia-1"} (ids hapi "AllergyIntolerance" {:patient "Patient/pt-sofia"}))))))
+
+(deftest ^:integration the-appointment-searches-of-the-api-agree-on-the-demo-cohort
+  ;; What the api asks for to list appointments (needs `bb seed`): a patient's, those a
+  ;; practitioner takes part in, by status, and all of them. Only the ids are compared: the times
+  ;; of the appointments are relative to the moment of seeding.
+  (let [hapi (http/client {:base-url base-url})
+        memory (mem/memory-client (synthetic/generate (synthetic/cohort)))
+        ids (fn [client params] (set (map :id (c/search client "Appointment" params))))]
+    (doseq [[label params] {"a patient's" {:patient "Patient/pt-ana"}
+                            "a practitioner's" {:actor "Practitioner/pr-rivera"}
+                            "the other practitioner's" {:actor "Practitioner/pr-okafor"}
+                            "a practitioner's, booked" {:actor "Practitioner/pr-rivera" :status "booked"}
+                            "a practitioner's, proposed" {:actor "Practitioner/pr-rivera" :status "proposed"}
+                            "those that are booked" {:status "booked"}
+                            "all of them" {}
+                            "a practitioner nobody knows" {:actor "Practitioner/pr-nobody"}}]
+      (testing label
+        (is (= (ids memory params) (ids hapi params)))))
+    (testing "the answers are not all empty by accident"
+      (is (= #{"appt-ana-1" "appt-liam-1" "appt-sofia-1"} (ids hapi {:actor "Practitioner/pr-rivera"})))
+      (is (= #{"appt-sofia-1"} (ids hapi {:actor "Practitioner/pr-rivera" :status "proposed"}))))))
+
+(deftest ^:integration every-appointment-the-api-can-build-is-valid-on-hapi
+  ;; A patient's request and what a clinician does to it, as `pulse.fhir.appointment` builds
+  ;; them. One at a time: HAPI's validator runs out of memory when it is called concurrently.
+  (let [hapi (http/client {:base-url base-url})
+        now "2026-10-14T12:00:00Z"
+        proposed (lifecycle/proposal {:id "it-appt-valid" :patient patient-id :practitioner "pr-rivera"
+                                      :description "Integration test"
+                                      :requestedStart "2026-10-20T00:00:00Z" :requestedEnd "2026-10-27T00:00:00Z"})
+        booked (:ok (lifecycle/change proposed {:action :confirm :start "2026-10-21T09:00:00Z" :end "2026-10-21T09:30:00Z"} now))
+        moved (:ok (lifecycle/change booked {:action :reschedule :start "2026-10-22T10:00:00Z" :end "2026-10-22T10:45:00Z"} now))]
+    (doseq [[label appointment] [["a request" proposed]
+                                 ["confirmed" booked]
+                                 ["rescheduled" moved]
+                                 ["a request, cancelled" (:ok (lifecycle/change proposed {:action :cancel} now))]
+                                 ["booked, then cancelled with a reason"
+                                  (:ok (lifecycle/change booked {:action :cancel :reason "The doctor is away that week"} now))]]
+            :let [result (c/validate hapi appointment)]]
+      (testing label
+        (is (not (outcome/error? result)) (outcome/summary result))))))
 
 (deftest ^:integration every-search-parameter-of-the-fake-exists-on-hapi
   ;; The fake must not accept what the real server rejects: R4 gave Flag no `status` parameter,

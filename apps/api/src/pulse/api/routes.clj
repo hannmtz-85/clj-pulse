@@ -3,7 +3,8 @@
   the shape of what it takes and returns, and the handler. Reitit reads this one structure for
   routing, authorization and request and response checking, so they cannot drift apart. Handlers
   are built from `deps`, the started components they need."
-  (:require [pulse.api.health :as health]
+  (:require [pulse.api.appointments :as appointments]
+            [pulse.api.health :as health]
             [pulse.api.me :as me]
             [pulse.api.observations :as observations]
             [pulse.api.patients :as patients]
@@ -62,4 +63,22 @@
              :parameters {:path [:map [:id :string]]
                           :body observations/record-body}
              :responses {201 {:body observations/item-schema}}
-             :handler (observations/record-handler deps)}}]]])
+             :handler (observations/record-handler deps)}}]
+    ["/appointments"
+     {:get {:authz {:action :appointment/read}
+            :summary "The appointments the caller may see: a patient's own, those a practitioner takes part in, or all"
+            :parameters {:query appointments/list-parameters}
+            :responses {200 {:body appointments/list-schema}}
+            :handler (appointments/list-handler deps)}
+      :post {:authz {:action :appointment/request}
+             :summary "Ask for an appointment with your doctor: why, and the window in which you would like a time"
+             :parameters {:body appointments/request-body}
+             :responses {201 {:body appointments/item-schema}}
+             :handler (appointments/request-handler deps)}}]
+    ["/appointments/:id"
+     {:patch {:authz {:action :appointment/manage :resource (appointments/resolver fhir)}
+              :summary "Confirm, reschedule or cancel an appointment"
+              :parameters {:path [:map [:id :string]]
+                           :body appointments/change-body}
+              :responses {200 {:body appointments/item-schema}}
+              :handler (appointments/change-handler deps)}}]]])

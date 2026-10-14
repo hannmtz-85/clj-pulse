@@ -7,7 +7,8 @@
   one that is empty (`[]`, or a vital sign that is `null` and not listed).
 
   Who may read which patient is decided before this namespace runs (`pulse.api.authz`)."
-  (:require [pulse.api.fhir :as fhir]
+  (:require [pulse.api.appointments :as appointments]
+            [pulse.api.fhir :as fhir]
             [pulse.api.observations :as observations]
             [pulse.api.patients :as patients]
             [pulse.fhir.coding :as coding]
@@ -41,24 +42,6 @@
    :criticality (:criticality allergy)
    :reaction (get-in allergy [:reaction 0 :manifestation 0 :text])
    :recordedDate (:recordedDate allergy)})
-
-(defn- practitioner-of
-  "The reference of the practitioner taking part in `appointment`."
-  [appointment]
-  (some (fn [{:keys [actor]}]
-          (when (= "Practitioner" (:type (ref/target actor)))
-            (:reference actor)))
-        (:participant appointment)))
-
-(defn- appointment-view [appointment]
-  {:id (:id appointment)
-   :status (:status appointment)
-   :description (:description appointment)
-   :start (:start appointment)
-   :end (:end appointment)
-   :requestedStart (get-in appointment [:requestedPeriod 0 :start])
-   :requestedEnd (get-in appointment [:requestedPeriod 0 :end])
-   :practitioner (practitioner-of appointment)})
 
 (defn- alert-view [flag]
   {:id (:id flag)
@@ -142,7 +125,7 @@
      :medications (listing :medications medication-view #(or (:display %) ""))
      :allergies (listing :allergies allergy-view #(or (:display %) ""))
      :vitals vitals
-     :appointments (listing :appointments appointment-view #(or (:start %) (:requestedStart %) ""))
+     :appointments (listing :appointments appointments/view #(or (:start %) (:requestedStart %) ""))
      :alerts (when (loaded? :alerts)
                (->> (value :alerts)
                     (filter #(= "active" (:status %)))
@@ -181,10 +164,7 @@
              [:glucose reading-schema]
              [:spo2 reading-schema]
              [:weight reading-schema]]]
-   [:appointments [:maybe [:vector [:map [:id :string] [:status nullable-string] [:description nullable-string]
-                                    [:start nullable-string] [:end nullable-string]
-                                    [:requestedStart nullable-string] [:requestedEnd nullable-string]
-                                    [:practitioner nullable-string]]]]]
+   [:appointments [:maybe [:vector appointments/view-schema]]]
    [:alerts [:maybe [:vector [:map [:id :string] [:text nullable-string] [:status nullable-string]
                               [:since nullable-string]]]]]
    [:unavailable [:vector :string]]])

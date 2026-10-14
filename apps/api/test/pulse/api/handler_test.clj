@@ -220,6 +220,29 @@
           (testing "authentication still comes first"
             (is (= 401 (:status (call api :get "/api/chart"))))))))))
 
+(deftest the-descriptor-the-route-built-reaches-the-handler
+  ;; What the `:resource` function made, and whatever else it put in the map, is on the request: an
+  ;; endpoint that changes the resource works on the version the decision was about (ADR-0015).
+  (let [described (atom 0)]
+    (with-api {:routes [["/api/things/:id"
+                         {:get {:authz {:action :patient/read
+                                        :resource (fn [request _scope]
+                                                    (swap! described inc)
+                                                    {:patient (str "Patient/" (get-in request [:path-params :id]))
+                                                     :thing {:size 3}})}
+                                :handler (fn [request] {:status 200 :body {:descriptor (:descriptor request)}})}}]
+                        ["/api/whoami" {:get {:authz {:action :identity/read}
+                                              :handler (fn [request] {:status 200 :body {:descriptor (:descriptor request)}})}}]]}
+      (fn [api]
+        (let [r (call api :get "/api/things/pt-ana" :token (h/token-for :admin))]
+          (is (= 200 (:status r)))
+          (is (= {:patient "Patient/pt-ana" :thing {:size 3}} (get-in r [:json :descriptor])))
+          (is (= 1 @described) "described once, for the decision and for the handler together"))
+        (testing "an endpoint with no :resource function gets no descriptor"
+          (let [r (call api :get "/api/whoami" :token (h/token-for :admin))]
+            (is (= 200 (:status r)))
+            (is (nil? (get-in r [:json :descriptor])))))))))
+
 (deftest an-endpoint-without-authz-does-not-even-build
   (let [e (try (handler/ring-handler [["/open" {:get {:handler (constantly {:status 200})}}]]
                                      {:verifier nil :realm "pulse-api" :quiet-paths #{}})

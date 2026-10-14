@@ -11,8 +11,8 @@
   `rules` is Annex A of the plan as data: for each action, the scope each role has. `authorize`
   is a pure function of the caller, the action and a description of the resource. The
   middleware built by `middleware` authenticates the request, asks `authorize`, audits the
-  decision and either passes the request on, with `:identity` and `:scope` attached, or answers
-  401, 403, 404 or 503.
+  decision and either passes the request on, with `:identity`, `:scope` and the `:descriptor` of
+  the resource attached, or answers 401, 403, 404 or 503.
 
   The default is no. An endpoint with no valid `:authz` makes `check-routes!` fail at start-up,
   and should one be reached anyway, it answers 403 to everybody."
@@ -148,8 +148,10 @@
 (defn- protect
   "Middleware for an endpoint that needs `action`: authenticate, find the caller's scope, build
   the resource descriptor if the endpoint has one (only when the caller has a scope at all, so
-  nobody triggers a lookup they have no right to), authorize, audit, and attach `:identity` and
-  `:scope` to the request."
+  nobody triggers a lookup they have no right to), authorize, audit, and attach `:identity`, `:scope`
+  and the `:descriptor` to the request. The descriptor is what the endpoint's `:resource` function
+  built, and it may carry more than `authorize` looks at, such as the resource itself, so that an
+  endpoint that changes it works on the very version the decision was about."
   [auth-deps {:keys [action resource]}]
   (fn [handler]
     (fn [request]
@@ -164,7 +166,7 @@
                 (let [decision (authorize caller action descriptor)]
                   (if (:allow? decision)
                     (do (audit/access! request caller action :allowed decision descriptor)
-                        (handler (assoc request :identity caller :scope (:scope decision))))
+                        (handler (assoc request :identity caller :scope (:scope decision) :descriptor descriptor)))
                     (do (audit/access! request caller action :denied decision descriptor)
                         (forbidden request)))))))))))
 

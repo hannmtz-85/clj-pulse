@@ -83,6 +83,44 @@ Content-Type: application/json
 
 {"measurement": "heart-rate"}
 
+### The appointments the caller may see: a patient's own, those a practitioner takes part in, all for the admin
+# status is proposed, booked or cancelled; sort is start or -start (a request with no time yet counts from the start of its window).
+GET {{api}}/api/appointments?status=proposed&sort=start&limit=20&offset=0
+Authorization: Bearer {{token}}
+
+### A patient asks for an appointment with their general practitioner
+# They say why and when they would like a time: a window of at most 30 days, as instants with an
+# offset (a bare date is refused: whether "to 25 October" includes the 25th is not for the server to
+# guess). The window must still be open, and start within 180 days. Dates here are examples: adjust.
+POST {{api}}/api/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"description": "Blood pressure review", "requestedStart": "2026-10-20T00:00:00Z", "requestedEnd": "2026-10-27T00:00:00Z"}
+
+### A clinician confirms a request with a time (a practitioner takes part in it, or the admin)
+# Replace the id with the one the request answered. A time lasts 5 minutes to 4 hours and is not in the past.
+PATCH {{api}}/api/appointments/appt-sofia-1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"action": "confirm", "start": "2026-10-21T09:00:00Z", "end": "2026-10-21T09:30:00Z"}
+
+### ... moves a booked one
+PATCH {{api}}/api/appointments/appt-sofia-1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"action": "reschedule", "start": "2026-10-22T10:00:00Z", "end": "2026-10-22T10:45:00Z"}
+
+### ... or cancels a proposed or a booked one, for a reason the patient can read
+# A cancelled appointment is over: whatever is asked next is a 409 that names the status.
+PATCH {{api}}/api/appointments/appt-sofia-1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"action": "cancel", "reason": "The doctor is away that week"}
+
 ### A patient that does not exist: 404 for staff, 403 for a patient (no way to probe)
 GET {{api}}/api/patients/pt-ghost
 Authorization: Bearer {{token}}
