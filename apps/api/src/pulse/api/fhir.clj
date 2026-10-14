@@ -34,6 +34,13 @@
   [fhir resource-type params]
   (guarded #(fc/find-one fhir resource-type params)))
 
+(defn put!
+  "Creates or replaces `resource` at its own type and id; returns what the server stored. A
+  server that refuses what the api built is no more the caller's doing than one that is down,
+  so it is a 502 as well, and the server's own words stay in the log."
+  [fhir resource]
+  (guarded #(fc/put! fhir resource)))
+
 (defn search
   "The resources matching `params`, as a vector of at most `:limit` (default 1000: a search
   that matches more than that is a mistake to find out about, not memory to spend). It is

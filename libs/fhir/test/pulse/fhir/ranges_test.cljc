@@ -18,7 +18,11 @@
     (is (= :very-high (ranges/classify :glucose 15.0 "mmol/L")))
     (is (= :fever (ranges/classify :body-temperature 100.4 "[degF]"))))
   (testing "untracked measurements"
-    (is (nil? (ranges/classify :body-weight 70)))))
+    (is (nil? (ranges/classify :body-weight 70))))
+  (testing "a unit it cannot convert from is not classified, and is not an error"
+    (is (nil? (ranges/classify :glucose 5.0 "kg")))
+    (is (nil? (ranges/classify :glucose 5.0 "no-such-unit")))
+    (is (nil? (ranges/classify :systolic 120 "")))))
 
 (deftest bands-are-contiguous
   (doseq [[measurement {:keys [bands]}] ranges/measurements]

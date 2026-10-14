@@ -1,8 +1,9 @@
 (ns pulse.fhir.synthetic-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
+            [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]
             [pulse.fhir.ranges :as ranges]
             [pulse.fhir.schema :as schema]
@@ -24,6 +25,22 @@
           ;; Ana 5 readings/day, Liam 4, Sofía 4, Omar 5, Maya 5, Noah 0; 30 days each
           "Observation" (* 30 (+ 5 4 4 5 5))}
          (synthetic/counts resources))))
+
+(deftest the-cohort-and-the-catalogue-of-measurements-agree
+  (testing "every signal of the cohort is a measurement that can be recorded"
+    (let [signals (set (for [patient (:patients cohort) signal (:signals patient)] (:signal signal)))]
+      (is (seq signals))
+      (is (every? #(contains? measurement/measurements %) signals))))
+  (testing "what was generated is in the unit the catalogue stores that measurement in, so a
+            series of seeded readings and recorded ones is in one unit"
+    (let [by-concept (into {} (map (fn [[_ m]] [(:concept m) m])) measurement/measurements)]
+      (doseq [o (of-type "Observation")
+              :let [m (some (fn [[concept m]] (when (obs/concept? o concept) m)) by-concept)
+                    quantities (if (contains? (:channels m) :value)
+                                 [(obs/value o)]
+                                 [(obs/component-value o :systolic) (obs/component-value o :diastolic)])]]
+        (is (some? m) (str (:id o) " is a measurement of the catalogue"))
+        (is (every? #(= (:unit m) (:unit %)) quantities) (:id o))))))
 
 (deftest generation-is-deterministic
   (is (= resources (generate end)))

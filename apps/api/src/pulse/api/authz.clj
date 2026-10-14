@@ -16,7 +16,7 @@
 
   The default is no. An endpoint with no valid `:authz` makes `check-routes!` fail at start-up,
   and should one be reached anyway, it answers 403 to everybody."
-  (:require [clojure.string :as str]
+  (:require [pulse.api.audit :as audit]
             [pulse.api.identity :as identity]
             [pulse.fhir.reference :as ref]
             [pulse.platform.http.auth :as auth]
@@ -145,29 +145,6 @@
 (defn- forbidden [request]
   (problem/response 403 {:detail "You are not allowed to do this." :request request}))
 
-(def ^:private unaudited
-  "Actions that are not about clinical data."
-  #{:identity/read})
-
-(defn- audit!
-  "One event per decision on clinical data, allowed or not (ADR-0012): who, what, on which
-  patient, with what outcome. Nothing from the record itself."
-  [request caller action outcome {:keys [scope reason]} descriptor]
-  (when-not (contains? unaudited action)
-    (t/event! :pulse.audit/access
-              {:level (if (= :allowed outcome) :info :warn)
-               :data (cond-> {:actor {:subject (:subject caller)
-                                      :username (:username caller)
-                                      :roles (vec (sort (map name (:roles caller))))
-                                      :client (:client caller)}
-                              :action action
-                              :outcome outcome
-                              :method (some-> (:request-method request) name str/upper-case)
-                              :path (:uri request)}
-                       (:patient descriptor) (assoc :patient (:patient descriptor))
-                       scope (assoc :scope scope)
-                       reason (assoc :reason reason))})))
-
 (defn- protect
   "Middleware for an endpoint that needs `action`: authenticate, find the caller's scope, build
   the resource descriptor if the endpoint has one (only when the caller has a scope at all, so
@@ -182,13 +159,13 @@
                   scope (scope-of caller action)
                   descriptor (when (and scope resource) (resource request scope))]
               (if (and scope resource (nil? descriptor))
-                (do (audit! request caller action :not-found {:scope scope :reason :no-such-resource} nil)
+                (do (audit/access! request caller action :not-found {:scope scope :reason :no-such-resource} nil)
                     (problem/response 404 {:detail "No such resource." :request request}))
                 (let [decision (authorize caller action descriptor)]
                   (if (:allow? decision)
-                    (do (audit! request caller action :allowed decision descriptor)
+                    (do (audit/access! request caller action :allowed decision descriptor)
                         (handler (assoc request :identity caller :scope (:scope decision))))
-                    (do (audit! request caller action :denied decision descriptor)
+                    (do (audit/access! request caller action :denied decision descriptor)
                         (forbidden request)))))))))))
 
 (defn- deny-all

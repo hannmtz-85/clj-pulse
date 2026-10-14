@@ -19,6 +19,22 @@
   (is (= [{:reference "Patient/pt-ana"}] (:performer bp))
       "home measurements are performed by the patient"))
 
+(deftest who-took-the-reading
+  (testing "a practitioner entering a reading is named instead of the patient"
+    (let [by-doctor {:id "obs-3" :patient "pt-ana" :at "2026-10-13T08:00:00Z" :performer "Practitioner/pr-rivera"}
+          hr (obs/quantity-observation (assoc by-doctor :concept :heart-rate :value 72 :unit "/min"))
+          bp (obs/blood-pressure-observation (assoc by-doctor :systolic 128 :diastolic 82))]
+      (is (= [{:reference "Practitioner/pr-rivera"}] (:performer hr)))
+      (is (= [{:reference "Practitioner/pr-rivera"}] (:performer bp)))
+      (is (= "Patient/pt-ana" (-> hr :subject :reference)) "the subject is still the patient")
+      (is (schema/valid? hr))
+      (is (schema/valid? bp))))
+  (testing "nobody, when the performer is explicitly nil"
+    (let [anonymous (obs/quantity-observation {:id "obs-4" :patient "pt-ana" :concept :heart-rate :value 72
+                                               :unit "/min" :at "2026-10-13T08:00:00Z" :performer nil})]
+      (is (not (contains? anonymous :performer)))
+      (is (schema/valid? anonymous)))))
+
 (deftest value-x-is-polymorphic
   (testing "quantity"
     (is (= {:kind :quantity :value 72 :unit "/min"} (obs/value heart-rate))))

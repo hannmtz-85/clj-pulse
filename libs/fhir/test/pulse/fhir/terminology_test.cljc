@@ -24,6 +24,15 @@
   (is (thrown? #?(:clj Exception :cljs js/Error) (t/coding :not-a-concept))
       "a typo in a concept key fails loudly"))
 
+(deftest search-token
+  (is (= "http://loinc.org|8867-4" (t/token :heart-rate)))
+  (is (= "http://hl7.org/fhir/sid/icd-10-cm|I10" (t/token :hypertension)))
+  (doseq [k (keys t/concepts)
+          :let [token (t/token k)
+                {:keys [system code]} (t/coding k)]]
+    (is (= (str system "|" code) token) (str k)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (t/token :not-a-concept))))
+
 (deftest codeable-concept-helpers
   (let [cc (t/codeable-concept :systolic)]
     (is (coding/has-code? cc :loinc "8480-6"))

@@ -5,6 +5,7 @@
   are built from `deps`, the started components they need."
   (:require [pulse.api.health :as health]
             [pulse.api.me :as me]
+            [pulse.api.observations :as observations]
             [pulse.api.patients :as patients]
             [pulse.api.summary :as summary]))
 
@@ -14,7 +15,8 @@
    [:checks [:map-of :string [:enum "up" "down"]]]])
 
 (defn routes
-  "The route table. `deps` is `{:verifier v :fhir c :summary-timeout-ms n}`."
+  "The route table. `deps` is `{:verifier v :fhir c :summary-timeout-ms n :clock clock}`; the
+  last two are optional."
   [{:keys [fhir] :as deps}]
   [["/healthz" {:get {:authz :public
                       :summary "Liveness: the process is up and serving"
@@ -47,4 +49,17 @@
             :summary "One screen about a patient: conditions, medication, allergies, latest vital signs, appointments and alerts"
             :parameters {:path [:map [:id :string]]}
             :responses {200 {:body summary/schema}}
-            :handler (summary/handler deps)}}]]])
+            :handler (summary/handler deps)}}]
+    ["/patients/:id/observations"
+     {:get {:authz {:action :observation/read :resource (patients/resolver fhir)}
+            :summary "A patient's readings of one measurement over a period, newest first"
+            :parameters {:path [:map [:id :string]]
+                         :query observations/list-parameters}
+            :responses {200 {:body observations/list-schema}}
+            :handler (observations/list-handler deps)}
+      :post {:authz {:action :observation/record :resource (patients/resolver fhir)}
+             :summary "Record a reading: the unit is converted and the value checked; the patient and who took it are decided by the server"
+             :parameters {:path [:map [:id :string]]
+                          :body observations/record-body}
+             :responses {201 {:body observations/item-schema}}
+             :handler (observations/record-handler deps)}}]]])

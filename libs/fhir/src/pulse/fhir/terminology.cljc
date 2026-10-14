@@ -59,6 +59,13 @@
       (throw (ex-info "Unknown concept" {:concept k})))
     {:system (get systems system) :code code :display display}))
 
+(defn token
+  "The search token of catalogue concept `k`, system and code as a FHIR `token` parameter takes
+  them: (token :heart-rate) is \"http://loinc.org|8867-4\". Throws on an unknown concept."
+  [k]
+  (let [{:keys [system code]} (coding k)]
+    (str system "|" code)))
+
 (defn codeable-concept
   "The FHIR CodeableConcept of catalogue concept `k`; `text` defaults to its display."
   ([k] (codeable-concept k nil))

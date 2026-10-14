@@ -18,36 +18,48 @@
                               "laboratory" "Laboratory"
                               code))]})
 
+(defn- with-performer
+  "`observation` with the `performer` element for the options `m` it was built from: the
+  patient, since home measurements are taken by the patient themselves, unless `:performer`
+  says otherwise. That is a reference such as \"Practitioner/pr-rivera\", or nil when nobody is
+  to be named."
+  [observation {:keys [patient] :as m}]
+  (let [performer (if (contains? m :performer) (:performer m) (str "Patient/" patient))]
+    (cond-> observation
+      performer (assoc :performer [{:reference performer}]))))
+
 (defn quantity-observation
   "An Observation holding one Quantity. `concept` is a catalogue key such as :heart-rate;
-  `at` is the effective dateTime; `category` is \"vital-signs\" (default) or \"laboratory\"."
-  [{:keys [id patient concept value unit at category] :or {category "vital-signs"}}]
-  {:resourceType "Observation"
-   :id id
-   :status "final"
-   :category [(category-concept category)]
-   :code (t/codeable-concept concept)
-   :subject (ref/reference "Patient" patient)
-   :effectiveDateTime at
-   ;; Home measurements are taken by the patient themselves.
-   :performer [(ref/reference "Patient" patient)]
-   :valueQuantity (units/quantity value unit)})
+  `at` is the effective dateTime; `category` is \"vital-signs\" (default) or \"laboratory\".
+  `performer` is who took the reading: the patient unless given (a reference, or nil for
+  nobody)."
+  [{:keys [id patient concept value unit at category] :or {category "vital-signs"} :as m}]
+  (-> {:resourceType "Observation"
+       :id id
+       :status "final"
+       :category [(category-concept category)]
+       :code (t/codeable-concept concept)
+       :subject (ref/reference "Patient" patient)
+       :effectiveDateTime at
+       :valueQuantity (units/quantity value unit)}
+      (with-performer m)))
 
 (defn blood-pressure-observation
-  "A blood pressure panel (LOINC 85354-9) with systolic and diastolic components."
-  [{:keys [id patient systolic diastolic at]}]
-  {:resourceType "Observation"
-   :id id
-   :status "final"
-   :category [(category-concept "vital-signs")]
-   :code (t/codeable-concept :bp-panel)
-   :subject (ref/reference "Patient" patient)
-   :effectiveDateTime at
-   :performer [(ref/reference "Patient" patient)]
-   :component [{:code (t/codeable-concept :systolic)
-                :valueQuantity (units/quantity systolic "mm[Hg]")}
-               {:code (t/codeable-concept :diastolic)
-                :valueQuantity (units/quantity diastolic "mm[Hg]")}]})
+  "A blood pressure panel (LOINC 85354-9) with systolic and diastolic components. `performer`
+  as in `quantity-observation`."
+  [{:keys [id patient systolic diastolic at] :as m}]
+  (-> {:resourceType "Observation"
+       :id id
+       :status "final"
+       :category [(category-concept "vital-signs")]
+       :code (t/codeable-concept :bp-panel)
+       :subject (ref/reference "Patient" patient)
+       :effectiveDateTime at
+       :component [{:code (t/codeable-concept :systolic)
+                    :valueQuantity (units/quantity systolic "mm[Hg]")}
+                   {:code (t/codeable-concept :diastolic)
+                    :valueQuantity (units/quantity diastolic "mm[Hg]")}]}
+      (with-performer m)))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading value[x]

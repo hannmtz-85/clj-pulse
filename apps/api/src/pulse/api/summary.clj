@@ -8,10 +8,10 @@
 
   Who may read which patient is decided before this namespace runs (`pulse.api.authz`)."
   (:require [pulse.api.fhir :as fhir]
+            [pulse.api.observations :as observations]
             [pulse.api.patients :as patients]
             [pulse.fhir.coding :as coding]
-            [pulse.fhir.observation :as obs]
-            [pulse.fhir.ranges :as ranges]
+            [pulse.fhir.measurement :as measurement]
             [pulse.fhir.reference :as ref]
             [pulse.fhir.terminology :as terminology]
             [pulse.platform.fanout :as fanout]
@@ -67,43 +67,12 @@
    :since (get-in flag [:period :start])})
 
 (def ^:private vital-signs
-  "The vital signs shown: the key in the answer, the catalogue concept to search for, and the
-  measurement of `pulse.fhir.ranges` that classifies it (nil: no reference band)."
-  [[:blood-pressure :bp-panel nil]
-   [:heart-rate :heart-rate :heart-rate]
-   [:glucose :glucose :glucose]
-   [:spo2 :spo2 :spo2]
-   [:weight :body-weight nil]])
-
-(defn- band-name [band]
-  (some-> band name))
-
-(defn- vital-view
-  "A reading as `{id at value unit band}`, or for blood pressure `{id at systolic diastolic unit band}`
-  with the band of the worse of the two."
-  [vital measurement observation]
-  (let [base {:id (:id observation) :at (:effectiveDateTime observation)}]
-    (if (= :blood-pressure vital)
-      (let [{:keys [systolic diastolic]} (obs/blood-pressure observation)]
-        (assoc base
-               :systolic systolic
-               :diastolic diastolic
-               :unit "mm[Hg]"
-               :band (band-name (ranges/worst (keep identity [(some->> systolic (ranges/classify :systolic))
-                                                              (some->> diastolic (ranges/classify :diastolic))])))))
-      (let [{:keys [value unit]} (obs/value observation)]
-        (assoc base
-               :value value
-               :unit unit
-               :band (when (and measurement value)
-                       (band-name (ranges/classify measurement value unit))))))))
+  "The vital signs shown, by the name of their measurement in `pulse.fhir.measurement`: what to
+  search for and how to classify each comes from there."
+  [:blood-pressure :heart-rate :glucose :spo2 :weight])
 
 ;; ---------------------------------------------------------------------------
 ;; The queries
-
-(defn- loinc-token [concept]
-  (let [{:keys [system code]} (get terminology/concepts concept)]
-    (str (terminology/system-uri system) "|" code)))
 
 (def ^:private alert-limit
   "R4 gives Flag no `status` search parameter, so the newest alerts are fetched and the active
@@ -123,9 +92,10 @@
     :alerts #(fhir/search fhir-client "Flag" {:patient patient-ref :_sort "-date" :_count alert-limit}
                           {:limit alert-limit})}
    (into {}
-         (for [[vital concept] vital-signs]
+         (for [vital vital-signs
+               :let [code (terminology/token (get-in measurement/measurements [vital :concept]))]]
            [[:vital vital] #(fhir/find-one fhir-client "Observation"
-                                           {:patient patient-ref :code (loinc-token concept) :_sort "-date"})]))))
+                                           {:patient patient-ref :code code :_sort "-date"})]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Assembling the answer
@@ -163,10 +133,10 @@
                   (when (loaded? k)
                     (vec (sort-by order (map view (value k))))))
         vitals (into {}
-                     (for [[vital _ measurement] vital-signs
+                     (for [vital vital-signs
                            :let [k [:vital vital]]]
                        [vital (when-let [observation (and (loaded? k) (value k))]
-                                (vital-view vital measurement observation))]))]
+                                (observations/reading-view vital observation))]))]
     {:patient (patients/summary patient)
      :conditions (listing :conditions condition-view #(or (:display %) ""))
      :medications (listing :medications medication-view #(or (:display %) ""))

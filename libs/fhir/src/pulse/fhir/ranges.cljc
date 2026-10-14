@@ -26,13 +26,15 @@
 
 (defn classify
   "The band label (e.g. :normal, :very-high) of a measurement, or nil when the
-  measurement is not tracked. `unit` is converted to the measurement's own unit first;
-  it defaults to that unit."
+  measurement is not tracked, or when `unit` is not one it can be converted from: a reading
+  that cannot be classified is no reason to fail the one that shows it. `unit` is converted to
+  the measurement's own unit first; it defaults to that unit."
   ([measurement value] (classify measurement value nil))
   ([measurement value unit]
    (when-let [{base-unit :unit :keys [bands]} (get measurements measurement)]
-     (let [v (if (and unit (not= unit base-unit)) (units/convert value unit base-unit) value)]
-       (some (fn [band] (when (in-band? v band) (first band))) bands)))))
+     (when (or (nil? unit) (= unit base-unit) (units/compatible? unit base-unit))
+       (let [v (if (and unit (not= unit base-unit)) (units/convert value unit base-unit) value)]
+         (some (fn [band] (when (in-band? v band) (first band))) bands))))))
 
 (def severity
   "How far from normal each band label is, 0 being normal. It lets a caller pick the worse of

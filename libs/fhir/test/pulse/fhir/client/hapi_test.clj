@@ -10,7 +10,9 @@
             [pulse.fhir.client :as c]
             [pulse.fhir.client.http :as http]
             [pulse.fhir.client.memory :as mem]
+            [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]
+            [pulse.fhir.outcome :as outcome]
             [pulse.fhir.resource :as r]
             [pulse.fhir.synthetic :as synthetic]))
 
@@ -53,10 +55,53 @@
              "date lower bound" {:patient patient-id :date "ge2026-01-04T00:00:00Z" :_sort "date"}
              "date range" {:patient patient-id :date ["ge2026-01-02T00:00:00Z" "lt2026-01-06T00:00:00Z"] :_sort "date"}
              "newest first" {:patient patient-id :_sort "-date"}
-             "small pages" {:patient patient-id :_sort "date" :_count 2}}]
+             "small pages" {:patient patient-id :_sort "date" :_count 2}
+             "a series: one code, a period, newest first, in small pages"
+             {:patient patient-id :code "http://loinc.org|8867-4"
+              :date ["ge2026-01-02T00:00:00Z" "lt2026-01-06T00:00:00Z"] :_sort "-date" :_count 2}}]
       (testing label
         (is (= (ids memory params) (ids hapi params)))
         (is (seq (ids hapi params)))))))
+
+(deftest ^:integration the-edges-of-a-period-are-where-the-api-says-they-are
+  ;; The api asks for `from` as `ge` and for `to` as `lt`, both as UTC instants (ADR-0014): a
+  ;; reading exactly at `from` is in and one exactly at `to` is out. HAPI and the fake must agree
+  ;; on that to the second. The fixtures are at 08:00 UTC on 1-7 January 2026, 60 + day of beats.
+  (let [hapi (http/client {:base-url base-url})
+        memory (mem/memory-client fixtures)
+        series {:patient patient-id :code "http://loinc.org|8867-4" :_sort "-date"}]
+    (doseq [[label date expected]
+            [["from and to both on a reading" ["ge2026-01-02T08:00:00Z" "lt2026-01-05T08:00:00Z"]
+              ["it-obs-3" "it-obs-2" "it-obs-1"]]
+             ["a second after those readings" ["ge2026-01-02T08:00:01Z" "lt2026-01-05T08:00:01Z"]
+              ["it-obs-4" "it-obs-3" "it-obs-2"]]
+             ["only from" ["ge2026-01-06T08:00:00Z"] ["it-obs-6" "it-obs-5"]]
+             ["only to" ["lt2026-01-02T08:00:00Z"] ["it-obs-0"]]
+             ["nothing in the period" ["ge2026-01-04T00:00:00Z" "lt2026-01-04T08:00:00Z"] []]]]
+      (testing label
+        (is (= expected (ids hapi (assoc series :date date))))
+        (is (= expected (ids memory (assoc series :date date))))))))
+
+(deftest ^:integration every-reading-the-api-can-record-is-a-valid-observation-on-hapi
+  ;; What `pulse.fhir.measurement/observation` builds for each measurement, as it is recorded by
+  ;; the patient, by a clinician and by nobody. One at a time: HAPI's validator runs out of
+  ;; memory when it is called concurrently.
+  (let [hapi (http/client {:base-url base-url})
+        submissions [{:measurement :blood-pressure :systolic 150 :diastolic 95}
+                     {:measurement :heart-rate :value 72}
+                     {:measurement :spo2 :value 97}
+                     {:measurement :glucose :value 6.1 :unit "mmol/L"}
+                     {:measurement :weight :value 160 :unit "[lb_av]"}
+                     {:measurement :temperature :value 98.6 :unit "[degF]"}]]
+    (doseq [submission submissions
+            [label options] {"by the patient" {} "by a clinician" {:performer "Practitioner/pr-rivera"} "by nobody" {:performer nil}}
+            :let [observation (measurement/observation (:ok (measurement/normalize submission))
+                                                       (merge {:id "it-obs-valid" :patient patient-id
+                                                               :at "2026-10-14T08:00:00Z"}
+                                                              options))
+                  result (c/validate hapi observation)]]
+      (testing (str (name (:measurement submission)) " " label)
+        (is (not (outcome/error? result)) (outcome/summary result))))))
 
 (deftest ^:integration patient-searches-of-the-api-agree-on-the-demo-cohort
   ;; The searches the api makes for a practitioner's panel and for the family-name filter, on

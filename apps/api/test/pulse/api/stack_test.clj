@@ -4,14 +4,19 @@
   the headless authorization-code flow with PKCE that the SPA uses.
 
   Needs the stack and the demo cohort (`bb up`, `bb seed`) and runs with `bb test:it`. It only
-  reads."
+  reads, except `the-observations-against-the-real-stack`, which records two readings in HAPI and
+  deletes them before it ends, whatever happens."
   (:require [babashka.http-client :as http]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
             [pulse.api.config :as config]
-            [pulse.api.system :as system]))
+            [pulse.api.system :as system]
+            [pulse.fhir.client :as fc]
+            [pulse.fhir.client.http :as fhir-http]
+            [pulse.fhir.observation :as obs]
+            [pulse.fhir.outcome :as outcome]))
 
 (defn- token-for [who]
   (let [{:keys [exit out err]} (shell/sh "bb" "token" who)]
@@ -23,6 +28,13 @@
   (let [response (http/get url {:throw false
                                 :headers (cond-> {"Accept" "application/json"}
                                            token (assoc "Authorization" (str "Bearer " token)))})]
+    (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
+
+(defn- post-json [url body & {:keys [token]}]
+  (let [response (http/post url {:throw false
+                                 :headers (cond-> {"Accept" "application/json" "Content-Type" "application/json"}
+                                            token (assoc "Authorization" (str "Bearer " token)))
+                                 :body (json/write-value-as-string body)})]
     (assoc response :json (json/read-value (:body response) json/keyword-keys-object-mapper))))
 
 (defn- with-running-api [f]
@@ -105,6 +117,89 @@
           (is (= 403 (:status (summary "dr.rivera@pulse.test" "pt-maya"))))
           (is (= 403 (:status (summary "scheduler" "pt-ana"))))
           (is (= 404 (:status (summary "dr.rivera@pulse.test" "pt-ghost")))))))))
+
+(deftest ^:integration the-observations-against-the-real-stack
+  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+        recorded (atom [])]
+    (try
+      (with-running-api
+        (fn [base-url]
+          (let [token-of (memoize token-for)
+                series (fn [who id query]
+                         (get-json (str base-url "/api/patients/" id "/observations?" query) :token (token-of who)))
+                record! (fn [who id body]
+                          (let [response (post-json (str base-url "/api/patients/" id "/observations") body
+                                                    :token (token-of who))]
+                            (when-let [new-id (get-in response [:json :id])]
+                              (swap! recorded conj new-id))
+                            response))
+                items (fn [response] (get-in response [:json :items]))]
+            (testing "a series of the demo readings, read from HAPI"
+              (let [r (series "dr.rivera@pulse.test" "pt-ana" "measurement=blood-pressure&limit=500")
+                    ats (mapv :at (items r))]
+                (is (= 200 (:status r)))
+                (is (seq ats))
+                (is (= (vec (reverse (sort ats))) ats) "newest first")
+                (is (every? #(= "mm[Hg]" (:unit %)) (items r)))
+                (is (every? #(= "Patient/pt-ana" (:by %)) (items r)))
+                (is (= false (get-in r [:json :truncated])))))
+            (testing "a period and a limit reach HAPI and come back right"
+              (let [all (items (series "dr.rivera@pulse.test" "pt-ana" "measurement=heart-rate&limit=500"))
+                    ids (mapv :id all)
+                    at (fn [i] (:at (nth all i)))
+                    period (series "dr.rivera@pulse.test" "pt-ana"
+                                   (str "measurement=heart-rate&limit=500&from=" (at 4) "&to=" (at 1)))
+                    cut (series "dr.rivera@pulse.test" "pt-ana" "measurement=heart-rate&limit=3")]
+                (is (= (subvec ids 2 5) (mapv :id (items period))) "from is inclusive and to exclusive")
+                (is (= (subvec ids 0 3) (mapv :id (items cut))))
+                (is (= true (get-in cut [:json :truncated])))))
+            (testing "a patient with no readings has an empty series"
+              (is (= {:items [] :truncated false}
+                     (:json (series "dr.okafor@pulse.test" "pt-noah" "measurement=heart-rate")))))
+            (testing "who may read a series"
+              (is (= 403 (:status (series "ana.garcia@pulse.test" "pt-liam" "measurement=heart-rate"))))
+              (is (= 403 (:status (series "dr.rivera@pulse.test" "pt-maya" "measurement=heart-rate"))))
+              (is (= 200 (:status (series "admin@pulse.test" "pt-maya" "measurement=weight"))))
+              (is (= 200 (:status (series "scheduler" "pt-maya" "measurement=weight"))))
+              (is (= 404 (:status (series "dr.rivera@pulse.test" "pt-ghost" "measurement=heart-rate")))))
+            (testing "a patient records a reading for themselves: converted, stored in HAPI and valid there"
+              (let [r (record! "ana.garcia@pulse.test" "pt-ana" {:measurement "glucose" :value 6.1 :unit "mmol/L"})
+                    id (get-in r [:json :id])
+                    stored (when id (fc/read-resource hapi "Observation" id))]
+                (is (= 201 (:status r)))
+                (is (= {:measurement "glucose" :value 110 :unit "mg/dL" :band "normal" :by "Patient/pt-ana"}
+                       (select-keys (:json r) [:measurement :value :unit :band :by])))
+                (is (some? stored))
+                (is (= {:kind :quantity :value 110 :unit "mg/dL"} (obs/value stored)))
+                (is (= [{:reference "Patient/pt-ana"}] (:performer stored)))
+                (let [validation (fc/validate hapi stored)]
+                  (is (not (outcome/error? validation)) (outcome/summary validation)))
+                (is (= id (:id (first (items (series "dr.rivera@pulse.test" "pt-ana" "measurement=glucose&limit=1")))))
+                    "and it is the newest glucose reading there is")))
+            (testing "a clinician records a pressure in kPa for a patient of their panel"
+              (let [r (record! "dr.rivera@pulse.test" "pt-ana" {:measurement "blood-pressure" :systolic 20 :diastolic 12 :unit "kPa"})
+                    id (get-in r [:json :id])
+                    stored (when id (fc/read-resource hapi "Observation" id))
+                    summary (get-json (str base-url "/api/patients/pt-ana/summary") :token (token-of "dr.rivera@pulse.test"))]
+                (is (= 201 (:status r)))
+                (is (= {:systolic 150 :diastolic 90 :unit "mm[Hg]" :band "high" :by "Practitioner/pr-rivera"}
+                       (select-keys (:json r) [:systolic :diastolic :unit :band :by])))
+                (is (= [{:reference "Practitioner/pr-rivera"}] (:performer stored)))
+                (let [validation (fc/validate hapi stored)]
+                  (is (not (outcome/error? validation)) (outcome/summary validation)))
+                (is (= id (get-in summary [:json :vitals :blood-pressure :id])) "the newest pressure of the summary")))
+            (testing "what may not be recorded is refused and writes nothing"
+              (let [before (count @recorded)]
+                (is (= 403 (:status (record! "ana.garcia@pulse.test" "pt-liam" {:measurement "heart-rate" :value 70}))))
+                (is (= 403 (:status (record! "admin@pulse.test" "pt-ana" {:measurement "heart-rate" :value 70}))))
+                (is (= 404 (:status (record! "scheduler" "pt-ghost" {:measurement "heart-rate" :value 70}))))
+                (let [r (record! "ana.garcia@pulse.test" "pt-ana" {:measurement "temperature" :value 98.6 :unit "Cel"})]
+                  (is (= 422 (:status r)))
+                  (is (contains? (get-in r [:json :errors]) :value)))
+                (is (= before (count @recorded)) "nothing was created"))))))
+      (finally
+        (doseq [id @recorded]
+          (fc/delete! hapi "Observation" id))))))
 
 (deftest ^:integration the-api-against-the-real-stack
   (with-running-api

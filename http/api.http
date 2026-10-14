@@ -36,6 +36,53 @@ Authorization: Bearer {{token}}
 GET {{api}}/api/patients/pt-ana/summary
 Authorization: Bearer {{token}}
 
+### A series: the readings of one measurement, newest first
+# measurement is one of blood-pressure, heart-rate, spo2, glucose, weight, temperature. There is
+# no offset and no total: "truncated" says the answer was cut at "limit" (default 100, at most 500).
+GET {{api}}/api/patients/pt-ana/observations?measurement=blood-pressure&limit=10
+Authorization: Bearer {{token}}
+
+### A period: "from" is inclusive, "to" is exclusive, a date means midnight UTC
+# The demo readings cover the 30 days before you seeded: adjust the dates. In a query string a
+# plain + means a space, so an offset is written %2B02:00 (or use Z).
+GET {{api}}/api/patients/pt-ana/observations?measurement=heart-rate&from=2026-10-01&to=2026-10-15&sort=date
+Authorization: Bearer {{token}}
+
+### Going further back: ask again with "to" set to the "at" of the oldest reading received
+GET {{api}}/api/patients/pt-ana/observations?measurement=heart-rate&limit=5&to=2026-10-12T08:00:00Z
+Authorization: Bearer {{token}}
+
+### Record a reading: a patient for themselves, a clinician for their panel, the rules engine for anyone
+# The unit is converted to the one the measurement is stored in (here mmol/L to mg/dL), and the
+# time defaults to now. The patient, who took it and the id are decided by the server.
+POST {{api}}/api/patients/pt-ana/observations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"measurement": "glucose", "value": 6.1, "unit": "mmol/L"}
+
+### A blood pressure is two numbers; "at" is a time with its offset, at most 30 days ago
+POST {{api}}/api/patients/pt-ana/observations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"measurement": "blood-pressure", "systolic": 128, "diastolic": 82, "at": "2026-10-14T08:00:00Z"}
+
+### A reading that cannot be right: 422, with the fields that are wrong
+# A Fahrenheit value labelled as Celsius is what the plausible limits are for.
+POST {{api}}/api/patients/pt-ana/observations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"measurement": "temperature", "value": 98.6, "unit": "Cel"}
+
+### A body of the wrong shape: 400, with the fields that are wrong
+POST {{api}}/api/patients/pt-ana/observations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"measurement": "heart-rate"}
+
 ### A patient that does not exist: 404 for staff, 403 for a patient (no way to probe)
 GET {{api}}/api/patients/pt-ghost
 Authorization: Bearer {{token}}
