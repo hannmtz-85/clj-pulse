@@ -140,6 +140,29 @@ Authorization: Bearer {{token}}
 GET {{api}}/api/me
 Authorization: Bearer not.a.token
 
+### The description of the api: OpenAPI 3.1, generated from the routes. Public
+# Swagger UI draws it at http://localhost:4000/docs/ (open that in a browser: Authorize signs in as
+# a demo user with Authorization Code + PKCE, and Try it out sends the token).
+GET {{api}}/openapi.json
+
+### CORS: the preflight a browser sends before a PATCH from the clinical workspace. Needs no token
+# 204 with the origin, methods and headers allowed. Origins come from API_CORS_ORIGINS (default: the workspace only).
+OPTIONS {{api}}/api/appointments/appt-sofia-1
+Origin: http://localhost:3000
+Access-Control-Request-Method: PATCH
+Access-Control-Request-Headers: authorization, content-type
+
+### ... and the refusal of an origin that is not on the list: 403, with the reason, and no CORS headers
+OPTIONS {{api}}/api/me
+Origin: http://evil.example
+Access-Control-Request-Method: GET
+
+### A request from the workspace: the answer names that origin and exposes X-Request-Id and WWW-Authenticate
+# Any other origin gets the same answer without Access-Control-Allow-Origin: the browser will not show it to the page.
+GET {{api}}/api/me
+Origin: http://localhost:3000
+Authorization: Bearer {{token}}
+
 ### A request id of your own comes back on the response and in the logs
 GET {{api}}/healthz
 X-Request-Id: my-trace-1

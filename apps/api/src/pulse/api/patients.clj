@@ -88,12 +88,12 @@
 (def row-schema
   [:map
    [:id :string]
-   [:name :string]
+   [:name {:description "Given names and family name, as one text."} :string]
    [:family [:maybe :string]]
    [:given [:vector :string]]
-   [:birthDate [:maybe :string]]
+   [:birthDate {:description "A date, such as `1968-03-14`."} [:maybe :string]]
    [:gender [:maybe :string]]
-   [:identifier [:maybe :string]]])
+   [:identifier {:description "The patient's first identifier, such as a medical record number."} [:maybe :string]]])
 
 (defn- identifiers-only [patient]
   {:id (:id patient) :identifier (identifier-of patient)})
@@ -112,17 +112,17 @@
   ;; The three with a default are not `:optional`: malli's default-value transformer leaves
   ;; optional keys alone, so they would reach the handler as nil.
   [:map
-   [:family {:optional true} [:string {:min 1 :max 64}]]
-   [:sort [:enum {:default "family"} "family" "-family" "birthDate" "-birthDate"]]
-   [:limit [:int {:min 1 :max 100 :default 20}]]
-   [:offset [:int {:min 0 :default 0}]]])
+   [:family {:optional true :description "Only the patients whose family name starts with this text. Case and accents do not matter."} [:string {:min 1 :max 64}]]
+   [:sort {:description "The order: `family` or `birthDate`, with a `-` in front for the reverse. Ties are broken by name and id, so a page is always the same."} [:enum {:default "family"} "family" "-family" "birthDate" "-birthDate"]]
+   [:limit {:description "How many patients to return, at most."} [:int {:min 1 :max 100 :default 20}]]
+   [:offset {:description "How many patients to skip: the start of the page."} [:int {:min 0 :default 0}]]])
 
 (def list-schema
   [:map
-   [:total :int]
+   [:total {:description "How many patients the caller may see that match, whatever the page."} :int]
    [:offset :int]
    [:limit :int]
-   [:items [:vector [:map-of :keyword :any]]]])
+   [:items {:description "The page. For the rules engine, `id` and `identifier` only."} [:vector [:map-of :keyword :any]]]])
 
 (defn list-handler
   "GET /api/patients. A practitioner gets their panel, an administrator everyone, the rules

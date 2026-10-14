@@ -9,4 +9,12 @@
         metosin/reitit-ring {:mvn/version "0.11.0"}
         metosin/reitit-malli {:mvn/version "0.11.0"}
         metosin/reitit-middleware {:mvn/version "0.11.0"}
+        ;; The API description (OpenAPI 3) is generated from the same route data, and Swagger UI,
+        ;; packaged as a jar, is how it is read and tried out (ADR-0017). The OpenAPI module is
+        ;; published under the group `fi.metosin`; the Swagger UI one, under `metosin`.
+        fi.metosin/reitit-openapi {:mvn/version "0.11.0"}
+        metosin/reitit-swagger-ui {:mvn/version "0.11.0"}
+        ;; Pinned above what reitit-swagger-ui pulls (5.32.11): that release of the jar lacks
+        ;; oauth2-redirect.js, the page the sign-in comes back to.
+        metosin/ring-swagger-ui {:mvn/version "5.33.0"}
         metosin/muuntaja {:mvn/version "0.6.12"}}}

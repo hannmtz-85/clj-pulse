@@ -6,8 +6,7 @@
   lifecycle, what an appointment can become and within which limits, is `pulse.fhir.appointment`.
   This namespace is the HTTP side: the shape of the requests, the FHIR queries, the views, the
   writes and their audit."
-  (:require [malli.core :as m]
-            [pulse.api.audit :as audit]
+  (:require [pulse.api.audit :as audit]
             [pulse.api.fhir :as fhir]
             [pulse.api.times :as times]
             [pulse.fhir.appointment :as lifecycle]
@@ -51,20 +50,20 @@
 (def view-schema
   [:map
    [:id :string]
-   [:status nullable-string]
-   [:description nullable-string]
-   [:start nullable-string]
+   [:status {:description "`proposed` (asked for, no time yet), `booked` or `cancelled`."} nullable-string]
+   [:description {:description "Why the patient asked for it."} nullable-string]
+   [:start {:description "The time it is booked at; null until a clinician confirms it."} nullable-string]
    [:end nullable-string]
-   [:requestedStart nullable-string]
+   [:requestedStart {:description "The window in which the patient asked to be given a time."} nullable-string]
    [:requestedEnd nullable-string]
-   [:practitioner nullable-string]
-   [:reason nullable-string]])
+   [:practitioner {:description "The practitioner, as a FHIR reference."} nullable-string]
+   [:reason {:description "Why it was cancelled, if it was and a reason was given."} nullable-string]])
 
-(def item-schema (conj view-schema [:patient nullable-string]))
+(def item-schema (conj view-schema [:patient {:description "The patient, as a FHIR reference."} nullable-string]))
 
 (def list-schema
   [:map
-   [:total :int]
+   [:total {:description "How many appointments the caller may see that match, whatever the page."} :int]
    [:offset :int]
    [:limit :int]
    [:items [:vector item-schema]]])
@@ -111,10 +110,10 @@
   ;; The three with a default are not `:optional`: malli's default-value transformer leaves
   ;; optional keys alone, so they would reach the handler as nil.
   [:map
-   [:status {:optional true} [:enum "proposed" "booked" "cancelled"]]
-   [:sort [:enum {:default "start"} "start" "-start"]]
-   [:limit [:int {:min 1 :max 100 :default 50}]]
-   [:offset [:int {:min 0 :default 0}]]])
+   [:status {:optional true :description "Only the appointments in this status."} [:enum "proposed" "booked" "cancelled"]]
+   [:sort {:description "By the time they are, or are asked to be: `start` (the soonest first) or `-start`. Ties are broken by id."} [:enum {:default "start"} "start" "-start"]]
+   [:limit {:description "How many appointments to return, at most."} [:int {:min 1 :max 100 :default 50}]]
+   [:offset {:description "How many appointments to skip: the start of the page."} [:int {:min 0 :default 0}]]])
 
 (defn list-handler
   "GET /api/appointments. A patient gets their own, a practitioner those they take part in, the
@@ -143,9 +142,10 @@
   "What a patient asks for: why, and the window in which they would like to be given a time. The
   limits on all three are those of `pulse.fhir.appointment`, which answers with a 422."
   [:map
-   [:description [:string {:max 1000}]]
-   [:requestedStart times/instant]
-   [:requestedEnd times/instant]])
+   [:description {:description (str "Why the patient asks for an appointment: 1 to " (:text-length lifecycle/limits) " characters.")}
+    [:string {:max 1000 :json-schema/maxLength (:text-length lifecycle/limits)}]]
+   [:requestedStart {:description "When the window begins: a date and time with its offset."} times/instant]
+   [:requestedEnd {:description "When the window ends. It must be in the future."} times/instant]])
 
 (defn- unprocessable [message errors]
   (problem/ex 422 message {:extra {:errors errors}}))
@@ -191,12 +191,24 @@
 
 (def change-body
   "What a clinician does to an appointment: confirm it or move it (`start` and `end`), or cancel
-  it, for a `reason` if they like. The shape depends on the action, which is why this is a `:multi`."
-  [:multi {:dispatch :action}
-   ["confirm" [:map [:action [:= "confirm"]] [:start times/instant] [:end times/instant]]]
-   ["reschedule" [:map [:action [:= "reschedule"]] [:start times/instant] [:end times/instant]]]
-   ["cancel" [:map [:action [:= "cancel"]] [:reason {:optional true} [:string {:max 1000}]]]]
-   [::m/default [:map [:action [:enum "confirm" "reschedule" "cancel"]]]]])
+  it, for a `reason` if they like. The shape depends on the action, which is why this is a `:multi`.
+  A body that names no action is an error of the `action` field, worded as for an enum of the
+  three: the message is the `:multi`'s own, so that no branch of the schema exists only for it
+  (it would overlap the others in the description of the api)."
+  [:multi {:dispatch :action
+           :error/message "should be either \"confirm\", \"reschedule\" or \"cancel\""}
+   ["confirm" [:map
+               [:action [:= "confirm"]]
+               [:start {:description "When the appointment begins."} times/instant]
+               [:end {:description "When it ends."} times/instant]]]
+   ["reschedule" [:map
+                  [:action [:= "reschedule"]]
+                  [:start {:description "When the appointment now begins."} times/instant]
+                  [:end {:description "When it now ends."} times/instant]]]
+   ["cancel" [:map
+              [:action [:= "cancel"]]
+              [:reason {:optional true :description (str "Why it is cancelled: 1 to " (:text-length lifecycle/limits) " characters.")}
+               [:string {:max 1000 :json-schema/maxLength (:text-length lifecycle/limits)}]]]]])
 
 (defn change-handler
   "PATCH /api/appointments/{id}: applies the action to the appointment that authorization read, so

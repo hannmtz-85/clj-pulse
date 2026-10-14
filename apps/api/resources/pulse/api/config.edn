@@ -44,6 +44,13 @@
   :verifier #ig/ref :pulse.api/verifier
   :fhir #ig/ref :pulse.api/fhir
   :realm "pulse-api"
+  ;; The identity provider as a browser reaches it: the sign-in of Swagger UI goes there, and the
+  ;; page of Swagger UI may call it (ADR-0017)
+  :issuer #ref [:pulse.api/verifier :issuer]
+  ;; The browser applications that may call the api from another origin (ADR-0018): exact origins,
+  ;; separated by commas, never *. The clinical workspace (spa) is the only one so far; an empty
+  ;; API_CORS_ORIGINS allows none.
+  :cors {:allowed-origins #csv #or [#env API_CORS_ORIGINS "http://localhost:3000"]}
   :quiet-paths #{"/healthz" "/readyz"}
   ;; The summary of a patient asks FHIR about a dozen things at once and waits this long for all
   ;; of them: what is late is left out and named in the answer (ADR-0013)

@@ -7,14 +7,14 @@
 
 (def schema
   [:map
-   [:subject :string]
+   [:subject {:description "The `sub` claim of the token: the id of the user in the identity provider."} :string]
    [:username [:maybe :string]]
-   [:client [:maybe :string]]
-   [:roles [:vector :string]]
-   [:fhirUser [:maybe :string]]
+   [:client {:description "The client the token was issued to (`azp`)."} [:maybe :string]]
+   [:roles {:description "The application roles of the caller, which decide what they may do."} [:vector :string]]
+   [:fhirUser {:description "The FHIR resource that is the caller, such as `Patient/pt-ana`; null for someone who is not in FHIR, like the administrator."} [:maybe :string]]
    ;; A FHIR resource is open data, so not a `:map`: reitit-malli closes every `:map` schema
    ;; and strips the keys it does not declare, which would reduce the resource to {}.
-   [:resource [:maybe [:map-of :keyword :any]]]])
+   [:resource {:description "That resource, as the FHIR server has it."} [:maybe [:map-of :keyword :any]]]])
 
 (defn handler [{fhir-client :fhir}]
   (fn [{caller :identity}]

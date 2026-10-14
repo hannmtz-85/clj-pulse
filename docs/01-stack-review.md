@@ -51,13 +51,14 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | ring-defaults / anti-forgery | 0.5.0 / 1.3.1 | 0.7.1 / 1.4.0 | Upgrade | |
 | Reitit | 0.7.1 / 0.7.2 | **0.11.0** (2026-09-18) | Upgrade | Breaking changes that touch us little: Java 11+ (0.8), file-handler redirects (0.8), `:responses <status>` vs `:default` (0.9), OpenAPI 3.2 by default (0.11) |
 | malli | none | 0.20.3 | Add | Validation, coercion, generators and OpenAPI through `reitit-malli` |
+| reitit-openapi, reitit-swagger-ui, ring-swagger-ui | none | 0.11.0, 0.11.0, 5.33.0 | Add | The OpenAPI document generated from the route data, pinned to 3.1.0 (the library's default is 3.2.0), and Swagger UI from a jar. `ring-swagger-ui` 5.32.11, which `reitit-swagger-ui` pulls, lacks `oauth2-redirect.js`, so 5.33.0 is a direct dependency. The OpenAPI artifact is `fi.metosin/reitit-openapi`. [ADR-0017](adr/0017-api-documentation-openapi-and-swagger-ui.md) |
 | muuntaja + jsonista | none | 0.6.12 / 1.0.2 | Add | Content negotiation (JSON, EDN, Transit, `application/fhir+json`) |
 | ring-json, cheshire, clj-json | 0.5.1, 5.13.0, 0.5.3 | cheshire 6.2.0; clj-json: 2012 | Remove | A single JSON stack (jsonista) |
 | clj-time | 0.15.2 | last release 2019 | Remove | `java.time` (+ `tick` 1.0.2 if needed) |
 | clj-http | 3.13.0 | 3.13.1 | Replace | `babashka.http-client` 0.4.25: JDK client with the same API in bb and on the JVM, so `bb seed` and the apps share one FHIR client. Alternative: hato 1.0.0 |
 | buddy-auth / sign / core | 3.0.1 / 3.5.351 / none | 3.0.323 (2022-01) / 3.6.1-359 (2024-07) / 1.12.0-430 (2024-07) | Replace (JWT) | Maintenance mode. JWT/JWKS with Nimbus JOSE+JWT 10.10 (active, 2026-09) behind a thin Clojure facade |
 | ring-oauth2 | 0.3.0 | 0.3.0 (2024-07) | Keep | Supports `:pkce? true`. ⚠ Token refresh is not documented: spike in Phase 7 |
-| ring-cors | 0.1.13 | last release 2019 | Replace | Minimal, tested in-house middleware |
+| ring-cors | 0.1.13 | last release 2019 | Replace | Minimal, tested in-house middleware: an allow-list of exact origins, with the security headers beside it ([ADR-0018](adr/0018-cors-and-security-headers.md)) |
 | hiccup | 2.0.0-RC3 | 2.0.0 (2025-06) | Upgrade | |
 | chime | 0.3.3 | 0.3.3 (2021-06) | Replace | In-house scheduler: pure `next-run` function + `ScheduledExecutorService` |
 | core.async | 1.6.681 | 1.9.865 | Upgrade | |

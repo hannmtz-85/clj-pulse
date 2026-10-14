@@ -3,9 +3,11 @@
   checked with a malli schema before anything starts, so a bad configuration fails at once
   and says what is wrong.
 
-  The file is the Integrant system map itself. Aero's `#env`, `#or`, `#profile` and `#long`
-  work as usual, and `#ig/ref` is added here so components can point at each other. Reading
-  from the classpath rather than a file path keeps the apps startable from any directory."
+  The file is the Integrant system map itself. Aero's `#env`, `#or`, `#profile`, `#long` and
+  `#ref` work as usual, and two tags are added here: `#ig/ref`, so components can point at each
+  other, and `#csv`, which turns a comma separated string (an environment variable, say) into a
+  set of its trimmed, non-empty parts. Reading from the classpath rather than a file path keeps
+  the apps startable from any directory."
   (:require [aero.core :as aero]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -15,6 +17,9 @@
 
 (defmethod aero/reader 'ig/ref [_ _ value]
   (ig/ref value))
+
+(defmethod aero/reader 'csv [_ _ value]
+  (into #{} (comp (map str/trim) (remove str/blank?)) (str/split (str value) #",")))
 
 (def ref-schema
   "For a slot that holds an Integrant `#ig/ref` in the file and the started component later."

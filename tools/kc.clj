@@ -109,12 +109,38 @@
 
 (def ^:private app-roles (set (map :name realm/roles)))
 
-(defn- person-checks [{:keys [role fhir-user]} claims]
-  [;; least privilege: exactly the expected application role, no other
-   ["role" (= #{role} (set (filter app-roles (get-in claims [:realm_access :roles]))))]
-   ["fhirUser" (= fhir-user (:fhirUser claims))]
-   ["audience" (contains? (audiences claims) realm/audience)]
-   ["azp" (= "pulse-spa" (:azp claims))]])
+(defn- person-checks
+  "What a token of a demo user must say, for the client `azp` it was issued to."
+  ([person claims] (person-checks person claims "pulse-spa"))
+  ([{:keys [role fhir-user]} claims azp]
+   [;; least privilege: exactly the expected application role, no other
+    ["role" (= #{role} (set (filter app-roles (get-in claims [:realm_access :roles]))))]
+    ["fhirUser" (= fhir-user (:fhirUser claims))]
+    ["audience" (contains? (audiences claims) realm/audience)]
+    ["azp" (= azp (:azp claims))]]))
+
+(def ^:private docs-redirect
+  "Where Swagger UI of the api returns to after the sign-in (`pulse-docs` allows `/docs/*`)."
+  "http://localhost:4000/docs/oauth2-redirect.html")
+
+(defn- docs-client-checks
+  "The sign-in of Swagger UI, without a browser: `pulse-docs` gives a practitioner a token the api
+  accepts, and refuses a return address outside `/docs/`."
+  [password]
+  (let [person (first (filter #(= "practitioner" (:role %)) realm/people))
+        username (:username person)
+        label (str "Swagger UI client pulse-docs, as " username)]
+    [(try
+       (let [claims (-> (login {:username username :password password
+                                :client-id "pulse-docs" :redirect-uri docs-redirect})
+                        :access_token decode-jwt)]
+         [label (person-checks person claims "pulse-docs")])
+       (catch Exception e [label [["sign-in" false] ["error" (ex-message e)]]]))
+     (try
+       (login {:username username :password password
+               :client-id "pulse-docs" :redirect-uri "http://localhost:4000/api/me"})
+       ["pulse-docs refuses a return address outside /docs/" [["rejected" false]]]
+       (catch Exception _ ["pulse-docs refuses a return address outside /docs/" [["rejected" true]]]))]))
 
 (defn smoke
   "Signs in as every demo user and as the scheduler service account, and checks the claims
@@ -128,6 +154,7 @@
                        (let [claims (-> (login {:username label :password password}) :access_token decode-jwt)]
                          [label (person-checks person claims)])
                        (catch Exception e [label [["sign-in" false] ["error" (ex-message e)]]]))))
+                 (docs-client-checks password)
                  [(try
                     (let [claims (-> (client-credentials "pulse-scheduler" (env/get-var "SCHEDULER_CLIENT_SECRET"))
                                      :access_token decode-jwt)]
@@ -150,12 +177,17 @@
       (println "All sign-ins and claims verified"))))
 
 (defn print-token
-  "Prints an access token for `who`: a demo user's username, or `scheduler` for its service account."
-  [who]
-  (when (str/blank? who)
-    (println "usage: bb token <username | scheduler>")
-    (System/exit 2))
-  (println (:access_token
-            (if (= who "scheduler")
-              (client-credentials "pulse-scheduler" (env/get-var "SCHEDULER_CLIENT_SECRET"))
-              (login {:username who :password (env/get-var "DEMO_USER_PASSWORD")})))))
+  "Prints an access token for `who`: a demo user's username, or `scheduler` for its service account.
+  A user's token is the one the clinical workspace gets (client `pulse-spa`), or with `pulse-docs` as
+  `client`, the one Swagger UI gets."
+  ([who] (print-token who nil))
+  ([who client]
+   (when (or (str/blank? who) (not (contains? #{nil "pulse-spa" "pulse-docs"} client)))
+     (println "usage: bb token <username | scheduler> [pulse-docs]")
+     (System/exit 2))
+   (println (:access_token
+             (cond
+               (= who "scheduler") (client-credentials "pulse-scheduler" (env/get-var "SCHEDULER_CLIENT_SECRET"))
+               (= client "pulse-docs") (login {:username who :password (env/get-var "DEMO_USER_PASSWORD")
+                                               :client-id "pulse-docs" :redirect-uri docs-redirect})
+               :else (login {:username who :password (env/get-var "DEMO_USER_PASSWORD")}))))))

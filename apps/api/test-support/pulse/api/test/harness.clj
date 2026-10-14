@@ -137,22 +137,30 @@
     (transact! [_ _] (refused))
     (validate [_ resource] (fc/validate client resource))))
 
+(def spa-origin
+  "The origin of the clinical workspace, the browser application that calls the api."
+  "http://localhost:3000")
+
 (defn with-api
   "Calls `(f {:handler h :idp server})` with a fake identity provider and the api's handler
   wired to it. Options: `:fhir` (default: the demo cohort in memory), `:routes` (extra routes,
-  added to the api's), `:summary-timeout-ms` (the deadline of a patient summary) and `:clock` (a
-  `java.time.Clock`, to say what time it is when a reading is recorded)."
-  [{:keys [fhir routes summary-timeout-ms clock]} f]
+  added to the api's), `:summary-timeout-ms` (the deadline of a patient summary), `:clock` (a
+  `java.time.Clock`, to say what time it is when a reading is recorded) and `:cors-origins`
+  (the origins CORS lets in, a set; the workspace's by default)."
+  [{:keys [fhir routes summary-timeout-ms clock cors-origins]} f]
   (let [server (idp/start! [signing-key])
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (jwt/verifier {:jwks-source source :issuer issuer :audience "pulse-api" :token-type "Bearer"})
         api-routes (routes/routes {:verifier verifier :fhir (or fhir (demo-cohort))
+                                   :issuer issuer
                                    :summary-timeout-ms summary-timeout-ms
                                    :clock clock})]
     (try
       (f {:handler (handler/ring-handler (into api-routes routes)
                                          {:verifier verifier :realm "pulse-api"
-                                          :quiet-paths #{"/healthz" "/readyz"}})
+                                          :quiet-paths #{"/healthz" "/readyz"}
+                                          :issuer issuer
+                                          :cors {:allowed-origins (or cors-origins #{spa-origin})}})
           :idp server})
       (finally
         (jwt/close! source)

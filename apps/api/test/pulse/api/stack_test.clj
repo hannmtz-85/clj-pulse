@@ -22,10 +22,13 @@
   (:import (java.time Duration Instant)
            (java.time.temporal ChronoUnit)))
 
-(defn- token-for [who]
-  (let [{:keys [exit out err]} (shell/sh "bb" "token" who)]
+(defn- token-for
+  "An access token for `who`, issued to the client of the workspace or, with `client`, to another
+  (`pulse-docs`, the one Swagger UI signs in with)."
+  [who & [client]]
+  (let [{:keys [exit out err]} (apply shell/sh "bb" "token" who (when client [client]))]
     (when-not (zero? exit)
-      (throw (ex-info "`bb token` failed: is the stack up (`bb up`)?" {:who who :err err})))
+      (throw (ex-info "`bb token` failed: is the stack up (`bb up`)?" {:who who :client client :err err})))
     (str/trim out)))
 
 (defn- get-json [url & {:keys [token]}]
@@ -67,6 +70,41 @@
         running (system/start cfg)]
     (try (f (str "http://127.0.0.1:" (system/port running)))
          (finally (system/stop running)))))
+
+(deftest ^:integration the-document-and-the-sign-in-of-swagger-ui-against-the-real-stack
+  (with-running-api
+    (fn [base-url]
+      (let [doc (:json (get-json (str base-url "/openapi.json")))
+            flow (get-in doc [:components :securitySchemes :pulse-sso :flows :authorizationCode])
+            discovery (:json (get-json "http://localhost:8080/realms/pulse/.well-known/openid-configuration"))
+            docs-token (token-for "dr.rivera@pulse.test" "pulse-docs")]
+        (testing "the document is served and the sign-in goes where Keycloak says its endpoints are"
+          (is (= "3.1.0" (:openapi doc)))
+          (is (some? (:authorization_endpoint discovery)))
+          (is (= (:authorization_endpoint discovery) (:authorizationUrl flow)))
+          (is (= (:token_endpoint discovery) (:tokenUrl flow))))
+        (testing "a token that the client of Swagger UI gets is one the api accepts, and means what it says"
+          (let [me (get-json (str base-url "/api/me") :token docs-token)
+                panel (get-json (str base-url "/api/patients") :token docs-token)]
+            (is (= 200 (:status me)))
+            (is (= "pulse-docs" (get-in me [:json :client])))
+            (is (= ["practitioner"] (get-in me [:json :roles])))
+            (is (= "Practitioner/pr-rivera" (get-in me [:json :fhirUser])))
+            (is (= #{"pt-ana" "pt-liam" "pt-sofia" "pt-omar"} (set (map :id (get-in panel [:json :items])))))))
+        (testing "the page, under a policy that lets it call Keycloak"
+          (let [page (http/get (str base-url "/docs/") {:throw false})]
+            (is (= 200 (:status page)))
+            (is (str/includes? (get-in page [:headers "content-security-policy"]) "connect-src 'self' http://localhost:8080;"))))
+        (testing "the preflight of the clinical workspace, and the refusal of another origin"
+          (let [allowed (http/request {:method :options :uri (str base-url "/api/patients") :throw false
+                                       :headers {"Origin" "http://localhost:3000" "Access-Control-Request-Method" "GET"
+                                                 "Access-Control-Request-Headers" "authorization"}})
+                refused (http/request {:method :options :uri (str base-url "/api/patients") :throw false
+                                       :headers {"Origin" "http://evil.example" "Access-Control-Request-Method" "GET"}})]
+            (is (= 204 (:status allowed)))
+            (is (= "http://localhost:3000" (get-in allowed [:headers "access-control-allow-origin"])))
+            (is (= 403 (:status refused)))
+            (is (nil? (get-in refused [:headers "access-control-allow-origin"])))))))))
 
 (deftest ^:integration the-patient-endpoints-against-the-real-stack
   (with-running-api

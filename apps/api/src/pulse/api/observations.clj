@@ -23,11 +23,11 @@
 ;; ---------------------------------------------------------------------------
 ;; The time of a reading
 
-(def ^:private max-future-minutes
+(def max-future-minutes
   "How far ahead of the server's clock a reading may claim to have been taken: clocks differ."
   5)
 
-(def ^:private max-age-days
+(def max-age-days
   "How long ago a reading may claim to have been taken: a mistyped year should not rewrite a chart."
   30)
 
@@ -87,19 +87,19 @@
 (def item-schema
   [:map
    [:id :string]
-   [:measurement :string]
-   [:at nullable-string]
-   [:value {:optional true} [:maybe number?]]
-   [:systolic {:optional true} [:maybe number?]]
-   [:diastolic {:optional true} [:maybe number?]]
-   [:unit nullable-string]
-   [:band nullable-string]
-   [:by nullable-string]])
+   [:measurement {:description "Which measurement it is a reading of."} :string]
+   [:at {:description "When it was taken."} nullable-string]
+   [:value {:optional true :description "The number, for every measurement but blood pressure."} [:maybe number?]]
+   [:systolic {:optional true :description "Blood pressure only."} [:maybe number?]]
+   [:diastolic {:optional true :description "Blood pressure only."} [:maybe number?]]
+   [:unit {:description "The UCUM unit of the number or numbers."} nullable-string]
+   [:band {:description "Where it falls in the didactic reference bands (not clinical advice), such as `normal`, `elevated` or `very-high`; for blood pressure the worse of the two numbers. Null when the measurement has no bands."} nullable-string]
+   [:by {:description "Who took it: the patient themselves or the clinician who entered it, as a FHIR reference."} nullable-string]])
 
 (def list-schema
   [:map
    [:items [:vector item-schema]]
-   [:truncated :boolean]])
+   [:truncated {:description "Whether there were more readings than `limit`, left out."} :boolean]])
 
 ;; ---------------------------------------------------------------------------
 ;; What a request may say
@@ -112,11 +112,11 @@
   ;; The two with a default are not `:optional`: malli's default-value transformer leaves
   ;; optional keys alone, so they would reach the handler as nil.
   [:map
-   [:measurement (into [:enum] measurement-names)]
-   [:from {:optional true} times/bound]
-   [:to {:optional true} times/bound]
-   [:sort [:enum {:default "-date"} "-date" "date"]]
-   [:limit [:int {:min 1 :max 500 :default 100}]]])
+   [:measurement {:description "Which measurement to read."} (into [:enum] measurement-names)]
+   [:from {:optional true :description "The start of the period, inclusive: a date (midnight UTC) or a date and time with its offset."} times/bound]
+   [:to {:optional true :description "The end of the period, exclusive, written as `from`. It must be after `from`."} times/bound]
+   [:sort {:description "`-date`, the newest first, or `date`, the oldest first."} [:enum {:default "-date"} "-date" "date"]]
+   [:limit {:description "How many readings to return, at most. `truncated` says whether there were more."} [:int {:min 1 :max 500 :default 100}]]])
 
 (def ^:private unit-code [:string {:min 1 :max 16}])
 
@@ -128,16 +128,16 @@
    ["blood-pressure"
     [:map
      [:measurement [:= "blood-pressure"]]
-     [:systolic number?]
-     [:diastolic number?]
-     [:unit {:optional true} unit-code]
-     [:at {:optional true} times/instant]]]
+     [:systolic {:description "The systolic pressure."} number?]
+     [:diastolic {:description "The diastolic pressure."} number?]
+     [:unit {:optional true :description "The UCUM unit the numbers are in. Omitted, it is the unit the measurement is stored in; another that fits it is converted."} unit-code]
+     [:at {:optional true :description "When the reading was taken. Omitted, now."} times/instant]]]
    [::m/default
     [:map
-     [:measurement (into [:enum] (remove #{"blood-pressure"}) measurement-names)]
-     [:value number?]
-     [:unit {:optional true} unit-code]
-     [:at {:optional true} times/instant]]]])
+     [:measurement {:description "Which measurement the reading is of."} (into [:enum] (remove #{"blood-pressure"}) measurement-names)]
+     [:value {:description "The number."} number?]
+     [:unit {:optional true :description "The UCUM unit the number is in. Omitted, it is the unit the measurement is stored in; another that fits it is converted."} unit-code]
+     [:at {:optional true :description "When the reading was taken. Omitted, now."} times/instant]]]])
 
 ;; ---------------------------------------------------------------------------
 ;; The series

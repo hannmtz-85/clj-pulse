@@ -3,10 +3,15 @@
   satisfy. Maps are closed, so a misspelt key is an error instead of a setting that silently
   does nothing."
   (:require [pulse.platform.config :as config :refer [ref-schema]]
+            [pulse.platform.http.cors :as cors]
             [pulse.platform.log :as log]))
 
 (def ^:private http-url
   [:re {:error/message "should be an http(s) URL"} #"^https?://\S+$"])
+
+(def ^:private origin
+  [:fn {:error/message "should be an exact origin such as http://localhost:3000: no wildcard, no path, no trailing slash"}
+   cors/origin?])
 
 (def ^:private level (into [:enum] log/levels))
 
@@ -45,6 +50,9 @@
      [:verifier ref-schema]
      [:fhir ref-schema]
      [:realm [:string {:min 1}]]
+     [:issuer http-url]
+     [:cors [:map {:closed true}
+             [:allowed-origins [:set origin]]]]
      [:quiet-paths [:set :string]]
      [:summary-timeout-ms [:int {:min 100 :max 60000}]]]]
    [:pulse.api/server

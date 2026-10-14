@@ -1,5 +1,7 @@
 (ns pulse.api.config-test
-  (:require [clojure.string :as str]
+  (:require [clojure.data.json :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [integrant.core :as ig]
@@ -53,6 +55,24 @@
 (deftest the-api-checks-the-audience-of-the-realm
   (is (= "pulse-api" (get-in (config/load-config) [:pulse.api/verifier :audience]))))
 
+(deftest the-sign-in-of-the-docs-goes-where-the-tokens-come-from
+  ;; Keycloak puts its own address in `iss`, and that is the address a browser reaches it at.
+  (doseq [profile [:dev :lite :test]]
+    (let [cfg (config/load-config {:profile profile})]
+      (is (= (get-in cfg [:pulse.api/verifier :issuer]) (get-in cfg [:pulse.api/handler :issuer]))
+          (str profile))))
+  (testing "which is the realm that tools/realm.clj generates"
+    (let [realm (with-open [rdr (io/reader (io/file "infra/keycloak/realm/pulse-realm.json"))]
+                  (json/read rdr :key-fn keyword))]
+      (is (str/ends-with? (get-in (config/load-config) [:pulse.api/handler :issuer])
+                          (str "/realms/" (:realm realm)))))))
+
+(deftest only-the-clinical-workspace-may-call-the-api-from-a-browser-by-default
+  (doseq [profile [:dev :lite :test]]
+    (is (= #{"http://localhost:3000"}
+           (get-in (config/load-config {:profile profile}) [:pulse.api/handler :cors :allowed-origins]))
+        (str profile))))
+
 (defn- problems-with
   "The lines that validation reports for the test profile changed by `f`."
   [f]
@@ -84,6 +104,26 @@
   (testing "an unknown log level"
     (is (mentions? (problems-with #(assoc-in % [:pulse.api/logging :level] :loud))
                    ":pulse.api/logging :level")))
+  (testing "an origin for CORS that is a wildcard, has a path or ends in a slash"
+    (doseq [bad ["*" "http://localhost:3000/" "http://localhost:3000/app" "localhost:3000" "http://*.example.com"]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :cors :allowed-origins] #{bad}))
+                     ":pulse.api/handler :cors :allowed-origins" "exact origin")
+          bad))
+    (is (not (mentions? (problems-with #(assoc-in % [:pulse.api/handler :cors :allowed-origins] #{"hunter2-s3cret"}))
+                        "hunter2-s3cret"))
+        "what was written is not repeated: a setting may be a secret"))
+  (testing "origins that are not a set"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :cors :allowed-origins] ["http://localhost:3000"]))
+                   ":pulse.api/handler :cors :allowed-origins")))
+  (testing "a misspelt CORS key"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :cors] {:allowed-origin #{}}))
+                   ":pulse.api/handler :cors :allowed-origin" "disallowed")))
+  (testing "no CORS setting at all, or no issuer for the docs"
+    (is (mentions? (problems-with #(update % :pulse.api/handler dissoc :cors)) ":pulse.api/handler :cors"))
+    (is (mentions? (problems-with #(update % :pulse.api/handler dissoc :issuer)) ":pulse.api/handler :issuer")))
+  (testing "an issuer for the docs that is not a URL"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.api/handler :issuer] "pulse"))
+                   ":pulse.api/handler :issuer" "URL")))
   (testing "a FHIR server of an unknown kind"
     (is (seq (problems-with #(assoc % :pulse.api/fhir {:kind :carrier-pigeon})))))
   (testing "an HTTP FHIR server needs its URL"

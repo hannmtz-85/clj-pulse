@@ -10,7 +10,10 @@
                     [:port [:int {:min 0 :max 65535}]]
                     [:host :string]
                     [:limit pos-int?]
-                    [:level [:enum :debug :info]]]]
+                    [:level [:enum :debug :info]]
+                    [:origins [:set :string]]
+                    [:nobody [:set :string]]
+                    [:same-host :string]]]
    [:sample/client [:map {:closed true}
                     [:server config/ref-schema]]]])
 
@@ -23,6 +26,11 @@
       (is (= "localhost" (get-in cfg [:sample/server :host])))
       (is (= 25 (get-in cfg [:sample/server :limit])))
       (is (= :info (get-in cfg [:sample/server :level]))))
+    (testing "#csv makes a set of the trimmed, non-empty parts, and an empty string is the empty set"
+      (is (= #{"http://a.test" "http://b.test"} (get-in cfg [:sample/server :origins])))
+      (is (= #{} (get-in cfg [:sample/server :nobody]))))
+    (testing "#ref copies another value of the file, before anything starts"
+      (is (= "localhost" (get-in cfg [:sample/server :same-host]))))
     (testing "#ig/ref gives an Integrant reference"
       (is (ig/ref? (get-in cfg [:sample/client :server])))
       (is (= :sample/server (:key (get-in cfg [:sample/client :server])))))))

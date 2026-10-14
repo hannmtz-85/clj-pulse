@@ -3,7 +3,10 @@
  {:port #profile {:default 8080 :test 0}
   :host #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET "localhost"]
   :limit #long #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET 25]
-  :level #keyword #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET "info"]}
+  :level #keyword #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET "info"]
+  :origins #csv #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET " http://a.test , http://b.test,, "]
+  :nobody #csv #or [#env PULSE_SAMPLE_VARIABLE_THAT_IS_NEVER_SET ""]
+  :same-host #ref [:sample/server :host]}
 
  :sample/client
  {:server #ig/ref :sample/server}}

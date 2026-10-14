@@ -3,6 +3,7 @@
   `test` profile, pointed at a fake identity provider), Jetty listens on a free port, and the
   tests talk to it over HTTP."
   (:require [babashka.http-client :as http]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
             [pulse.api.config :as config]
@@ -17,7 +18,9 @@
   (let [server (idp/start! [k1])
         cfg (-> (config/load-config {:profile :test})
                 (assoc-in [:pulse.api/jwks :uri] (:uri server))
-                (assoc-in [:pulse.api/verifier :issuer] "http://idp.test/realms/pulse"))
+                (assoc-in [:pulse.api/verifier :issuer] "http://idp.test/realms/pulse")
+                ;; the same address, as in the configuration file, where one refers to the other
+                (assoc-in [:pulse.api/handler :issuer] "http://idp.test/realms/pulse"))
         running (system/start cfg)]
     (try
       (f (str "http://127.0.0.1:" (system/port running)))
@@ -37,6 +40,50 @@
                   :azp "pulse-spa" :preferred_username "ana.garcia@pulse.test"
                   :iat now :exp (+ now 300) :fhirUser "Patient/pt-ana"
                   :realm_access {:roles ["patient"]}})))
+
+(deftest the-document-the-page-and-the-headers-arrive-over-a-real-socket
+  (with-system
+    (fn [base-url]
+      (testing "the document of the api"
+        (let [r (get-json (str base-url "/openapi.json"))]
+          (is (= 200 (:status r)))
+          (is (= "3.1.0" (get-in r [:json :openapi])))
+          (is (= "http://idp.test/realms/pulse/protocol/openid-connect/auth"
+                 (get-in r [:json :components :securitySchemes :pulse-sso :flows :authorizationCode :authorizationUrl])))))
+      (testing "the page of Swagger UI, with its own policy"
+        (let [r (http/get (str base-url "/docs/") {:throw false})]
+          (is (= 200 (:status r)))
+          (is (str/includes? (get-in r [:headers "content-type"]) "text/html"))
+          (is (str/includes? (get-in r [:headers "content-security-policy"]) "connect-src 'self' http://idp.test;"))
+          (is (nil? (get-in r [:headers "cache-control"])))
+          (is (str/includes? (:body r) "swagger-initializer.js")))
+        (let [r (http/get (str base-url "/docs/swagger-initializer.js") {:throw false})]
+          (is (= 200 (:status r)))
+          (is (str/includes? (:body r) "pulse-docs"))))
+      (testing "the security headers, on a success and on an error"
+        (doseq [path ["/healthz" "/api/me" "/nope"]]
+          (let [r (get-json (str base-url path))]
+            (is (= "nosniff" (get-in r [:headers "x-content-type-options"])) path)
+            (is (= "no-store" (get-in r [:headers "cache-control"])) path)
+            (is (= "default-src 'none'; frame-ancestors 'none'" (get-in r [:headers "content-security-policy"])) path))))
+      (testing "the preflight of the clinical workspace, answered with no token"
+        (let [r (http/request {:method :options
+                               :uri (str base-url "/api/appointments/appt-1")
+                               :throw false
+                               :headers {"Origin" "http://localhost:3000"
+                                         "Access-Control-Request-Method" "PATCH"
+                                         "Access-Control-Request-Headers" "authorization, content-type"}})]
+          (is (= 204 (:status r)))
+          (is (= "http://localhost:3000" (get-in r [:headers "access-control-allow-origin"])))
+          (is (= "GET, POST, PATCH" (get-in r [:headers "access-control-allow-methods"])))))
+      (testing "and the refusal of another origin"
+        (let [r (http/request {:method :options
+                               :uri (str base-url "/api/me")
+                               :throw false
+                               :headers {"Origin" "http://evil.example"
+                                         "Access-Control-Request-Method" "GET"}})]
+          (is (= 403 (:status r)))
+          (is (nil? (get-in r [:headers "access-control-allow-origin"]))))))))
 
 (deftest the-system-starts-serves-and-stops
   (let [url (atom nil)]

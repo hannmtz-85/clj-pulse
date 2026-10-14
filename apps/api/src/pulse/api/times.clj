@@ -34,9 +34,13 @@
     (when (and (.isAfter i earliest) (.isBefore i latest))
       i)))
 
+;; `:json-schema` is what the document of the api (pulse.api.docs) says about the field: malli would
+;; write the `:fn` as an empty schema, which tells a reader nothing.
+
 (def instant
   "The schema of a field that holds a time: a date and time with its offset."
   [:and
+   {:json-schema {:type "string" :format "date-time" :maxLength 40 :examples ["2026-10-13T08:00:00Z"]}}
    [:string {:max 40}]
    [:fn {:error/message "must be a date and time with its offset, such as 2026-10-13T08:00:00Z"}
     (fn [s] (some? (parse-instant s)))]])
@@ -44,6 +48,7 @@
 (def bound
   "The schema of a field that holds an end of a period: a date or an instant."
   [:and
+   {:json-schema {:type "string" :maxLength 40 :examples ["2026-10-01" "2026-10-01T08:00:00Z"]}}
    [:string {:max 40}]
    [:fn {:error/message "must be a date (2026-10-01) or an instant with its offset (2026-10-01T08:00:00Z), from 1900 to 2199"}
     (fn [s] (some? (parse-bound s)))]])

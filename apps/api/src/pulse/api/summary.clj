@@ -148,26 +148,37 @@
   [:maybe [:map [:id :string] [:at nullable-string] [:value [:maybe number?]]
            [:unit nullable-string] [:band nullable-string]]])
 
+(def ^:private unloaded
+  "What every section that can be missing says about it."
+  "Null when this section could not be loaded in time: it is then named in `unavailable`.")
+
 (def schema
   [:map
    [:patient patients/row-schema]
-   [:conditions [:maybe [:vector [:map [:id :string] [:display nullable-string] [:code nullable-string]
-                                  [:status nullable-string] [:onset nullable-string]]]]]
-   [:medications [:maybe [:vector [:map [:id :string] [:display nullable-string] [:dosage nullable-string]
-                                   [:status nullable-string] [:authoredOn nullable-string]]]]]
-   [:allergies [:maybe [:vector [:map [:id :string] [:display nullable-string] [:criticality nullable-string]
-                                 [:reaction nullable-string] [:recordedDate nullable-string]]]]]
-   [:vitals [:map
-             [:blood-pressure [:maybe [:map [:id :string] [:at nullable-string] [:systolic [:maybe number?]]
-                                       [:diastolic [:maybe number?]] [:unit :string] [:band nullable-string]]]]
-             [:heart-rate reading-schema]
-             [:glucose reading-schema]
-             [:spo2 reading-schema]
-             [:weight reading-schema]]]
-   [:appointments [:maybe [:vector appointments/view-schema]]]
-   [:alerts [:maybe [:vector [:map [:id :string] [:text nullable-string] [:status nullable-string]
-                              [:since nullable-string]]]]]
-   [:unavailable [:vector :string]]])
+   [:conditions {:description (str "The patient's conditions. " unloaded)}
+    [:maybe [:vector [:map [:id :string] [:display nullable-string] [:code nullable-string]
+                      [:status nullable-string] [:onset nullable-string]]]]]
+   [:medications {:description (str "The patient's medication. " unloaded)}
+    [:maybe [:vector [:map [:id :string] [:display nullable-string] [:dosage nullable-string]
+                      [:status nullable-string] [:authoredOn nullable-string]]]]]
+   [:allergies {:description (str "The patient's allergies and intolerances. " unloaded)}
+    [:maybe [:vector [:map [:id :string] [:display nullable-string] [:criticality nullable-string]
+                      [:reaction nullable-string] [:recordedDate nullable-string]]]]]
+   [:vitals {:description "The latest reading of each vital sign, each null when there is none or it could not be loaded."}
+    [:map
+     [:blood-pressure [:maybe [:map [:id :string] [:at nullable-string] [:systolic [:maybe number?]]
+                               [:diastolic [:maybe number?]] [:unit :string] [:band nullable-string]]]]
+     [:heart-rate reading-schema]
+     [:glucose reading-schema]
+     [:spo2 reading-schema]
+     [:weight reading-schema]]]
+   [:appointments {:description (str "The patient's appointments, the soonest first. " unloaded)}
+    [:maybe [:vector appointments/view-schema]]]
+   [:alerts {:description (str "The patient's active alerts, the newest first. " unloaded)}
+    [:maybe [:vector [:map [:id :string] [:text nullable-string] [:status nullable-string]
+                      [:since nullable-string]]]]]
+   [:unavailable {:description "The sections that could not be loaded in time, by name. Empty when the summary is complete."}
+    [:vector :string]]])
 
 (def ^:private default-timeout-ms 4000)
 

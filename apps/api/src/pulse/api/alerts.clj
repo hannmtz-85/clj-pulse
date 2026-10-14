@@ -40,15 +40,15 @@
 (def item-schema
   [:map
    [:id :string]
-   [:patient nullable-string]
-   [:text nullable-string]
-   [:status nullable-string]
-   [:since nullable-string]
-   [:until nullable-string]])
+   [:patient {:description "The patient it is about, as a FHIR reference."} nullable-string]
+   [:text {:description "What was raised."} nullable-string]
+   [:status {:description "`active` until someone acknowledges it, then `inactive`."} nullable-string]
+   [:since {:description "When it was raised."} nullable-string]
+   [:until {:description "When it was acknowledged; null while it is active."} nullable-string]])
 
 (def list-schema
   [:map
-   [:total :int]
+   [:total {:description "How many alerts the caller may see that match, whatever the page."} :int]
    [:offset :int]
    [:limit :int]
    [:items [:vector item-schema]]])
@@ -113,10 +113,10 @@
   ;; The four with a default are not `:optional`: malli's default-value transformer leaves
   ;; optional keys alone, so they would reach the handler as nil.
   [:map
-   [:status [:enum {:default "active"} "active" "inactive"]]
-   [:sort [:enum {:default "-since"} "-since" "since"]]
-   [:limit [:int {:min 1 :max 100 :default 50}]]
-   [:offset [:int {:min 0 :default 0}]]])
+   [:status {:description "`active`, the alerts still to be acted on, or `inactive`, those that were acknowledged."} [:enum {:default "active"} "active" "inactive"]]
+   [:sort {:description "By when they were raised: `-since`, the newest first, or `since`. Ties are broken by id."} [:enum {:default "-since"} "-since" "since"]]
+   [:limit {:description "How many alerts to return, at most."} [:int {:min 1 :max 100 :default 50}]]
+   [:offset {:description "How many alerts to skip: the start of the page."} [:int {:min 0 :default 0}]]])
 
 (defn list-handler
   "GET /api/alerts: the alerts of the caller's scope that are `active` (or `inactive`: those that
