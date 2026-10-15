@@ -1,10 +1,13 @@
 (ns pulse.platform.test.idp
   "A fake identity provider for tests, shared by every suite that needs signed tokens: throwaway
   RSA keys, a function that mints tokens, and a small HTTP server that serves a key set at
-  /jwks. The server can be told to serve other keys, to fail, and it counts the requests it got,
-  which is what lets key caching, rotation and outages be tested for real.
+  /jwks and answers token requests at /token. The server can be told to serve other keys, to fail,
+  and it counts the requests it got, which is what lets key caching, rotation and outages be
+  tested for real. At /token it records every request (method, headers, body), gives a different
+  access token to each, and can be told to answer something else or to be slow.
 
   Test code only: it is on the classpath of the `:test` alias and nowhere else."
+  (:require [clojure.string :as str])
   (:import (com.nimbusds.jose JOSEObjectType JWSAlgorithm JWSHeader$Builder)
            (com.nimbusds.jose.crypto RSASSASigner)
            (com.nimbusds.jose.jwk JWK JWKSet KeyUse RSAKey)
@@ -58,11 +61,35 @@
   [keys]
   (.toString (JWKSet. ^List (mapv #(.toPublicJWK ^JWK %) keys))))
 
+(defn- token-handler
+  "The handler of /token: it records the request, waits if it was told to, and answers what it was
+  told to, which is by default a new access token for each request."
+  [state]
+  (reify HttpHandler
+    (handle [_ ex]
+      (let [^HttpExchange ex ex
+            request {:method (.getRequestMethod ex)
+                     :headers (into {} (map (fn [[k v]] [(str/lower-case k) (first v)])) (.getRequestHeaders ex))
+                     :body (slurp (.getRequestBody ex))}
+            {:keys [token-requests token]} (swap! state update :token-requests conj request)
+            {:keys [status delay-ms ^String body]} token
+            body (or body (format "{\"access_token\":\"fake-token-%d\",\"expires_in\":300,\"token_type\":\"Bearer\"}"
+                                  (count token-requests)))
+            payload (.getBytes body StandardCharsets/UTF_8)]
+        (when (pos? delay-ms) (Thread/sleep (long delay-ms)))
+        (.add (.getResponseHeaders ex) "Content-Type" "application/json")
+        (.sendResponseHeaders ex (int status) (long (alength payload)))
+        (with-open [out (.getResponseBody ex)] (.write out payload))
+        (.close ex)))))
+
 (defn start!
-  "Starts a fake identity provider on a random local port. Its /jwks serves `keys`. Returns a
-  map with `:uri` (the JWKS URL) for the other functions here."
+  "Starts a fake identity provider on a random local port. Its /jwks serves `keys`, and /token
+  answers token requests. Returns a map with `:uri` (the JWKS URL) and `:token-uri` for the other
+  functions here."
   [keys]
-  (let [state (atom {:body (jwks-json keys) :status 200 :hits 0})
+  (let [state (atom {:body (jwks-json keys) :status 200 :hits 0
+                     :token {:status 200 :delay-ms 0 :body nil}
+                     :token-requests []})
         server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
     (.createContext server "/jwks"
                     (reify HttpHandler
@@ -76,10 +103,13 @@
                           (when ok?
                             (with-open [out (.getResponseBody ex)] (.write out payload)))
                           (.close ex)))))
+    (.createContext server "/token" (token-handler state))
     (.start server)
-    {:server server
-     :state state
-     :uri (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/jwks")}))
+    (let [base (str "http://127.0.0.1:" (.getPort (.getAddress server)))]
+      {:server server
+       :state state
+       :uri (str base "/jwks")
+       :token-uri (str base "/token")})))
 
 (defn stop! [idp]
   (.stop ^HttpServer (:server idp) 0))
@@ -98,3 +128,15 @@
   "How many requests the key set endpoint has received."
   [idp]
   (:hits @(:state idp)))
+
+(defn serve-token!
+  "From now on, answer token requests with `:status` (200), the JSON text `:body` (by default a new
+  access token each time) and after `:delay-ms` (0)."
+  [idp {:keys [status body delay-ms] :or {status 200 delay-ms 0}}]
+  (swap! (:state idp) assoc :token {:status status :body body :delay-ms delay-ms}))
+
+(defn token-requests
+  "The requests the token endpoint has received, oldest first, each `{:method :headers :body}`
+  with the header names in lower case."
+  [idp]
+  (:token-requests @(:state idp)))

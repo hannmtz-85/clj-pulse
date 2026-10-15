@@ -41,7 +41,7 @@
         (is (= {:status "up"} (:json live)))
         (is (= "application/json" (content-type live)))
         (is (= 200 (:status ready)))
-        (is (= {:status "ready" :checks {:keycloak "up" :executor "up"}} (:json ready)))))))
+        (is (= {:status "ready" :checks {:keycloak "up" :executor "up" :token "up"}} (:json ready)))))))
 
 (deftest readiness-names-the-dependency-that-is-down
   (testing "the identity provider's keys"
@@ -50,14 +50,32 @@
         (idp/break! (:idp api))
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
-          (is (= {:status "unready" :checks {:keycloak "down" :executor "up"}} (:json ready)))))))
+          (is (= {:status "unready" :checks {:keycloak "down" :executor "up" :token "up"}} (:json ready)))))))
   (testing "the executor, once it is stopped"
     (with-scheduler {}
       (fn [api]
         (executor/stop! (:executor api))
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
-          (is (= {:status "unready" :checks {:keycloak "up" :executor "down"}} (:json ready))))))))
+          (is (= {:status "unready" :checks {:keycloak "up" :executor "down" :token "up"}} (:json ready)))))))
+  (testing "the scheduler's own token, which Keycloak will not give: a wrong secret shows here"
+    (with-scheduler {:token-fetch (fn [] (throw (ex-info "refused" {:type :pulse.platform.token/unavailable
+                                                                    :reason :rejected :status 401})))}
+      (fn [api]
+        (let [ready (call api :get "/readyz")]
+          (is (= 503 (:status ready)))
+          (is (= {:status "unready" :checks {:keycloak "up" :executor "up" :token "down"}} (:json ready)))
+          (is (not (str/includes? (:text ready) "refused")) "and the reason is not told"))))))
+
+(deftest readiness-asks-for-the-token-once-and-then-uses-the-one-it-has
+  (let [asked (atom 0)]
+    (with-scheduler {:token-fetch (fn [] (swap! asked inc) {:access-token "t" :expires-in 300})}
+      (fn [api]
+        (dotimes [_ 5] (call api :get "/readyz"))
+        (is (= 1 @asked) "a probe that is polled all day does not ask Keycloak each time")
+        (time/advance! (:world api) 240000)
+        (call api :get "/readyz")
+        (is (= 2 @asked) "until the token is near its end")))))
 
 (deftest public-endpoints-ignore-credentials
   (with-scheduler {}

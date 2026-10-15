@@ -11,6 +11,7 @@
    [:pulse.scheduler/logging system/logging-schema]
    [:pulse.scheduler/jwks system/jwks-schema]
    [:pulse.scheduler/verifier system/verifier-schema]
+   [:pulse.scheduler/token (system/token-source-schema "set SCHEDULER_CLIENT_SECRET (it is in .env)")]
    [:pulse.scheduler/jobs [:map {:closed true}]]
    [:pulse.scheduler/executor
     [:map {:closed true}
@@ -21,6 +22,7 @@
      [:logging ref-schema]
      [:verifier ref-schema]
      [:executor ref-schema]
+     [:token ref-schema]
      [:realm [:string {:min 1}]]
      [:quiet-paths [:set :string]]]]
    [:pulse.scheduler/server system/server-schema]])

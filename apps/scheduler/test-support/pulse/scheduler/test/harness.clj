@@ -9,6 +9,7 @@
             [jsonista.core :as json]
             [pulse.platform.jwt :as jwt]
             [pulse.platform.test.idp :as idp]
+            [pulse.platform.token :as token]
             [pulse.scheduler.executor :as executor]
             [pulse.scheduler.handler :as handler]
             [pulse.scheduler.routes :as routes]
@@ -57,12 +58,13 @@
     (access-token (merge (dissoc person :roles) (apply roles-claim roles) overrides))))
 
 (defn with-scheduler
-  "Calls `(f {:handler h :idp server :executor e :world w})` with a fake identity provider, an
-  executor in a world of fake time that begins at `:start`, and the scheduler's handler wired to
-  them, and stops it all afterwards. Options: `:jobs` (none by default), `:workers` (run on the
-  spot by default), `:start` (an ISO instant, as in `pulse.scheduler.test.time/world`) and
-  `:routes` (extra routes, added to the scheduler's)."
-  [{:keys [jobs workers start routes] :or {start "2026-10-15T10:02:13Z"}} f]
+  "Calls `(f {:handler h :idp server :executor e :token t :world w})` with a fake identity provider,
+  an executor in a world of fake time that begins at `:start`, the keeper of the scheduler's own
+  token, and the scheduler's handler wired to them, and stops it all afterwards. Options: `:jobs`
+  (none by default), `:workers` (run on the spot by default), `:start` (an ISO instant, as in
+  `pulse.scheduler.test.time/world`), `:token-fetch` (what the token endpoint does: by default it
+  gives a token of 5 minutes) and `:routes` (extra routes, added to the scheduler's)."
+  [{:keys [jobs workers start routes token-fetch] :or {start "2026-10-15T10:02:13Z"}} f]
   (let [server (idp/start! [signing-key])
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (jwt/verifier {:jwks-source source :issuer issuer :audience audience :token-type "Bearer"})
@@ -70,13 +72,17 @@
         running (executor/start (or jobs []) {:clock (:clock world)
                                               :scheduler (:scheduler world)
                                               :workers (or workers (time/direct-workers))
-                                              :grace-ms 100})]
+                                              :grace-ms 100})
+        own-token (token/source {:fetch (or token-fetch (fn [] {:access-token "the-schedulers-token" :expires-in 300}))
+                                 :clock (:clock world)
+                                 :client-id "pulse-scheduler"})]
     (try
-      (f {:handler (handler/ring-handler (into (routes/routes {:verifier verifier :executor running}) routes)
+      (f {:handler (handler/ring-handler (into (routes/routes {:verifier verifier :executor running :token own-token}) routes)
                                          {:verifier verifier :realm "pulse-scheduler"
                                           :quiet-paths #{"/healthz" "/readyz"}})
           :idp server
           :executor running
+          :token own-token
           :world world})
       (finally
         (executor/stop! running)

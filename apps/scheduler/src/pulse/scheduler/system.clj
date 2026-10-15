@@ -10,12 +10,14 @@
             [pulse.scheduler.job :as job]
             [pulse.scheduler.jobs :as jobs]))
 
-;; Logging, the key cache, the verifier and the server start and stop as in every Pulse service:
-;; the methods are in pulse.platform.system, and these keys are those components.
+;; Logging, the key cache, the verifier, the server and the keeper of the service's own token start
+;; and stop as in every Pulse service: the methods are in pulse.platform.system, and these keys are
+;; those components.
 (derive :pulse.scheduler/logging :pulse.platform/logging)
 (derive :pulse.scheduler/jwks :pulse.platform/jwks)
 (derive :pulse.scheduler/verifier :pulse.platform/verifier)
 (derive :pulse.scheduler/server :pulse.platform/server)
+(derive :pulse.scheduler/token :pulse.platform/token-source)
 
 (defmethod ig/init-key :pulse.scheduler/jobs [_ options]
   (job/check! (jobs/catalogue options)))

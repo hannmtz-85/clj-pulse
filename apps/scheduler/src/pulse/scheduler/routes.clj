@@ -6,6 +6,7 @@
   (:require [pulse.platform.http.health :as health]
             [pulse.platform.http.problem :as problem]
             [pulse.platform.jwt :as jwt]
+            [pulse.platform.token :as token]
             [pulse.scheduler.executor :as executor]
             [pulse.scheduler.job :as job]))
 
@@ -76,11 +77,14 @@
   {:status 200 :body {:status "up"}})
 
 (defn- readiness
-  "Readiness asks for the identity provider's keys, without which no token can be checked, and
-  that the executor is running."
-  [{:keys [verifier executor]}]
+  "Readiness asks for the identity provider's keys, without which no token can be checked, that the
+  executor is running, and that the scheduler can identify itself: that it can get its own access
+  token, from the cache or from Keycloak (ADR-0021). A wrong secret shows here and not as jobs that
+  fail."
+  [{:keys [verifier executor] own-token :token}]
   (let [checks {:keycloak #(jwt/keys-available? (:jwks-source verifier))
-                :executor #(executor/running? executor)}]
+                :executor #(executor/running? executor)
+                :token #(token/available? own-token)}]
     (fn [_request]
       (health/readiness-response (health/run-checks checks {})))))
 
@@ -98,7 +102,8 @@
         :stopped (problem/response 503 {:detail "The scheduler is stopping." :request request})))))
 
 (defn routes
-  "The route table. `deps` is `{:verifier v :executor e}`."
+  "The route table. `deps` is `{:verifier v :executor e :token t}`: the verifier of access tokens,
+  the executor of the jobs and the keeper of the scheduler's own token."
   [deps]
   [["/healthz" {:get {:authz :public
                       :responses {200 {:body [:map [:status [:= "up"]]]}}

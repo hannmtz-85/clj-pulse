@@ -9,4 +9,9 @@
   :same-host #ref [:sample/server :host]}
 
  :sample/client
- {:server #ig/ref :sample/server}}
+ {:server #ig/ref :sample/server}
+
+ ;; a secret is read as a Secret; a variable that is not set gives no secret at all
+ :sample/auth
+ {:secret #secret #or [#env PULSE_SAMPLE_SECRET_THAT_IS_NEVER_SET "s3cret-value"]
+  :unset #secret #env PULSE_SAMPLE_SECRET_THAT_IS_NEVER_SET}}

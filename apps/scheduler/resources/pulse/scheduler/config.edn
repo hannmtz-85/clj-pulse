@@ -30,6 +30,22 @@
   :leeway-s 30
   :token-type "Bearer"}
 
+ ;; The scheduler's own access token, for the services it calls as a client (ADR-0021): a service
+ ;; account of the confidential client pulse-scheduler. Nothing is asked of Keycloak until a token
+ ;; is needed. The secret is the one Keycloak imported with the realm (SCHEDULER_CLIENT_SECRET in
+ ;; .env, which is git-ignored); it is read as a #secret, which prints as #secret[REDACTED].
+ :pulse.scheduler/token
+ {:token-uri #or [#env KEYCLOAK_TOKEN_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/token"]
+  :client-id "pulse-scheduler"
+  :client-secret #profile {:default #secret #env SCHEDULER_CLIENT_SECRET
+                           :test #secret "test-secret"}
+  ;; Renewed this long before it expires, or at half of its life if that is shorter
+  :renew-before-ms 60000
+  ;; After a failure, nobody asks again for this long
+  :retry-delay-ms 5000
+  :timeout-ms 5000
+  :connect-timeout-ms 2000}
+
  ;; The catalogue of jobs is built by pulse.scheduler.jobs from what it needs; there are none yet
  :pulse.scheduler/jobs
  {}
@@ -43,6 +59,7 @@
  {:logging #ig/ref :pulse.scheduler/logging ; only to start logging before everything else
   :verifier #ig/ref :pulse.scheduler/verifier
   :executor #ig/ref :pulse.scheduler/executor
+  :token #ig/ref :pulse.scheduler/token
   :realm "pulse-scheduler"
   :quiet-paths #{"/healthz" "/readyz"}}
 

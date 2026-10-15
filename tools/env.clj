@@ -25,6 +25,13 @@
   [k]
   (or (System/getenv k) (get (load-env) k)))
 
+(defn vars
+  "The variables of `names` that are set, from the process environment or ./.env, as a map: what a
+  process that a task starts needs to be given (`.env` is read by compose and by `bb`, and by
+  nothing else)."
+  [names]
+  (into {} (keep (fn [k] (when-let [v (get-var k)] [k v]))) names))
+
 (defn- random-secret
   "32 URL-safe characters from 24 random bytes."
   []
