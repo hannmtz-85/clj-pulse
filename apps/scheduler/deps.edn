@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        ;; Configuration, lifecycle, logging and malli come with the platform library.
+        pulse/platform {:local/root "../../libs/platform"}}}

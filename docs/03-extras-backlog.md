@@ -48,6 +48,7 @@
 | X-21 | Real notification channel | Reminders sent through SMTP (MailHog in compose) or web push instead of a `Communication` record only | Needs extra services | Phase 5 | M |
 | X-22 | Device gateway simulation | Measurements arriving over MQTT or HTTP from a separate simulated gateway instead of the in-process simulator | In-process simulator is simpler | Phase 5 | M |
 | X-23 | Server-Sent Events for alerts | Push new alerts from `api` to the SPA (and to `web` through the htmx SSE extension) | Polling is enough | Phases 4, 8 | M |
+| X-24 | Calendar schedules | Weekdays, days of the month and "last Friday" for the `scheduler`, as one more type of schedule next to `:interval` and `:daily` (`{:type :weekly :days #{:mon :thu} ...}`), with the same pure `next-run` and the same kind of property tests; or a cron expression parsed into that data (ADR-0019) | Every job of the MVP is an interval or a time of day | Phase 5 | S |
 
 ## D. UX and product
 

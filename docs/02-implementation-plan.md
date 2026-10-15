@@ -266,7 +266,7 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 
 ### Phase 5 · `scheduler`: rules and simulator (M)
 
-- [ ] Jobs as data (`{:id … :schedule … :handler …}`) and a pure `next-run` (intervals and daily-at with a time zone), with property tests.
+- [x] Jobs as data (`{:id … :schedule … :handler …}`) and a pure `next-run` (intervals and daily-at with a time zone), with property tests. ([ADR-0019](adr/0019-scheduler-jobs-as-data-and-a-pure-next-run.md): `pulse.scheduler.schedule` and `pulse.scheduler.job`; the daily case is checked against an oracle that walks the minutes, in zones that change their clocks at midnight, by half an hour and by three quarters.)
 - [ ] Integrant executor on `ScheduledExecutorService` with orderly shutdown; protected `GET /jobs` and `POST /jobs/:id/run` (`clinic-admin`).
 - [ ] `GET /api/admin/jobs` in `api` (Annex B, the action `:jobs/read` already has its rule): the scheduler's status through the api. It was left out of Phase 4 because it proxies a service that did not exist, and how the api authenticates to it needs its own ADR first: forwarding the caller's token fails the scheduler's `aud` check, so it is the api's own service-account token, or a token exchange. It will appear in the OpenAPI document by itself.
 - [ ] Client-credentials token cached with early renewal.

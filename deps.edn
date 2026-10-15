@@ -8,6 +8,7 @@
         :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                      pulse/platform {:local/root "libs/platform"}
                      pulse/api {:local/root "apps/api"}
+                     pulse/scheduler {:local/root "apps/scheduler"}
                      integrant/repl {:mvn/version "0.5.1"}
                      nrepl/nrepl {:mvn/version "1.8.0"}
                      cider/cider-nrepl {:mvn/version "0.63.1"}}}
@@ -19,6 +20,7 @@
          :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                       pulse/platform {:local/root "libs/platform"}
                       pulse/api {:local/root "apps/api"}
+                      pulse/scheduler {:local/root "apps/scheduler"}
                       lambdaisland/kaocha {:mvn/version "1.91.1392"}
                       org.clojure/test.check {:mvn/version "1.1.3"}
                       nubank/matcher-combinators {:mvn/version "3.11.0"}}
