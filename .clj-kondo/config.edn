@@ -2,6 +2,9 @@
            :unused-namespace {:level :warning}
            :unused-referred-var {:level :warning}
            :redundant-do {:level :warning}
-           :missing-docstring {:level :off}}
- :lint-as {clojure.test.check.clojure-test/defspec clojure.core/def}
+           :missing-docstring {:level :off}
+           ;; the names a condition of `defrule` may use (pulse.scheduler.rules/rule-types)
+           :unresolved-symbol {:exclude [(pulse.scheduler.rules/defrule [value systolic diastolic baseline])]}}
+ :lint-as {clojure.test.check.clojure-test/defspec clojure.core/def
+           pulse.scheduler.rules/defrule clojure.core/def}
  :output {:exclude-files ["node_modules" ".shadow-cljs"]}}

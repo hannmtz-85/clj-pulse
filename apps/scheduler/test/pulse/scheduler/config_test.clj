@@ -10,6 +10,7 @@
 
 (def ^:private components
   #{:pulse.scheduler/logging :pulse.scheduler/jwks :pulse.scheduler/verifier :pulse.scheduler/token
+    :pulse.scheduler/api :pulse.scheduler/fhir
     :pulse.scheduler/jobs :pulse.scheduler/executor :pulse.scheduler/handler :pulse.scheduler/server})
 
 (def ^:private dev-secret "a-secret-for-the-dev-profile")
@@ -109,6 +110,57 @@
     (is (< (:timeout-ms token) 10000) "a request to Keycloak is given up on well before a job is")))
 
 ;; ---------------------------------------------------------------------------
+;; What the rules engine reads from and writes to (ADR-0022)
+
+(deftest the-engine-reads-through-the-api-with-the-schedulers-token
+  (let [cfg (load-config)
+        api (:pulse.scheduler/api cfg)]
+    (is (= "http://localhost:4000" (:base-url api)) "the port of the api")
+    (is (= (ig/ref :pulse.scheduler/token) (:token api)) "its own token, the one that carries the role rules-engine")
+    (is (< (:connect-timeout-ms api) (:timeout-ms api)))
+    (testing "and the test profile points at the same place until a test says otherwise"
+      (is (= (:base-url api) (get-in (load-config :test) [:pulse.scheduler/api :base-url]))))))
+
+(deftest the-engine-writes-alerts-to-the-fhir-server-of-the-api
+  (let [dev (load-config)]
+    (is (= {:kind :http :base-url "http://localhost:8090/fhir" :timeout-ms 10000 :connect-timeout-ms 3000}
+           (:pulse.scheduler/fhir dev)))
+    (testing "the tests have a server in memory"
+      (is (= {:kind :memory} (:pulse.scheduler/fhir (load-config :test)))))))
+
+(deftest the-rules-are-evaluated-every-half-minute-locally-and-never-by-the-tests
+  (is (= {:enabled? true :schedule {:type :interval :every-ms 30000}}
+         (get-in (load-config) [:pulse.scheduler/jobs :evaluate-rules]))
+      "an alert is there within a minute of a reading")
+  (testing "a deployment says how often, with a variable"
+    (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
+                                      "SCHEDULER_EVALUATE_EVERY_MS" "300000"}]
+      (is (= {:type :interval :every-ms 300000}
+             (get-in (config/load-config {:profile :dev}) [:pulse.scheduler/jobs :evaluate-rules :schedule])))))
+  (testing "which the tests run by hand, and do not want to run by itself"
+    (is (= false (get-in (load-config :test) [:pulse.scheduler/jobs :evaluate-rules :enabled?])))
+    (is (= (get-in (load-config) [:pulse.scheduler/jobs :evaluate-rules :schedule])
+           (get-in (load-config :test) [:pulse.scheduler/jobs :evaluate-rules :schedule])))))
+
+(deftest a-variable-that-is-not-a-sound-number-of-milliseconds-stops-the-start-up
+  (doseq [bad ["often" "0" "-5" "99999999999"]]
+    (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
+                                      "SCHEDULER_EVALUATE_EVERY_MS" bad}]
+      (let [e (try (config/load-config {:profile :dev}) nil (catch Exception e e))]
+        (is (some? e) (str bad " was accepted"))
+        (is (not (str/includes? (str (ex-message e)) dev-secret)) bad)
+        (when (not= "often" bad)
+          (is (platform/invalid-config? e) (str bad " is a number, and the schedule says it is not sound"))
+          (is (str/includes? (ex-message e) ":pulse.scheduler/jobs :evaluate-rules :schedule :every-ms") bad))))))
+
+(deftest the-catalogue-and-the-readiness-probe-use-the-same-clients
+  (let [cfg (load-config)]
+    (is (= (ig/ref :pulse.scheduler/api) (get-in cfg [:pulse.scheduler/jobs :api])
+           (get-in cfg [:pulse.scheduler/handler :api])))
+    (is (= (ig/ref :pulse.scheduler/fhir) (get-in cfg [:pulse.scheduler/jobs :fhir])
+           (get-in cfg [:pulse.scheduler/handler :fhir])))))
+
+;; ---------------------------------------------------------------------------
 ;; Mistakes
 
 (defn- problems-with
@@ -144,9 +196,35 @@
   (testing "an unknown log level"
     (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/logging :level] :loud))
                    ":pulse.scheduler/logging :level")))
-  (testing "a setting for a job catalogue that takes none"
-    (is (mentions? (problems-with #(assoc % :pulse.scheduler/jobs {:every-ms 5}))
+  (testing "a setting the job catalogue does not know"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :every-ms] 5))
                    ":pulse.scheduler/jobs :every-ms" "disallowed")))
+  (testing "a job that is misspelt, or switched on without saying when"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :evaluate-rule] {:enabled? true}))
+                   ":pulse.scheduler/jobs :evaluate-rule" "disallowed"))
+    (is (mentions? (problems-with #(update-in % [:pulse.scheduler/jobs :evaluate-rules] dissoc :schedule))
+                   ":pulse.scheduler/jobs :evaluate-rules :schedule"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :evaluate-rules :enabled?] "yes"))
+                   ":pulse.scheduler/jobs :evaluate-rules :enabled?")))
+  (testing "a schedule that is not one"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :evaluate-rules :schedule] {:type :interval :every-ms 0}))
+                   ":pulse.scheduler/jobs :evaluate-rules :schedule"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :evaluate-rules :schedule] {:type :hourly}))
+                   ":pulse.scheduler/jobs :evaluate-rules :schedule")))
+  (testing "the api and FHIR at addresses that are not URLs"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/api :base-url] "localhost:4000"))
+                   ":pulse.scheduler/api :base-url" "URL"))
+    (is (mentions? (problems-with #(assoc % :pulse.scheduler/fhir {:kind :http :base-url "hapi" :timeout-ms 1000 :connect-timeout-ms 1000}))
+                   ":pulse.scheduler/fhir :base-url" "URL")))
+  (testing "a kind of FHIR server that does not exist"
+    (is (mentions? (problems-with #(assoc % :pulse.scheduler/fhir {:kind :tape}))
+                   ":pulse.scheduler/fhir")))
+  (testing "times that are absurd, for the api"
+    (doseq [k [:timeout-ms :connect-timeout-ms]
+            bad [0 100000000]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/api k] bad))
+                     (str ":pulse.scheduler/api " k))
+          (str k " " bad))))
   (testing "a component that is not the scheduler's"
     (is (mentions? (problems-with #(assoc % :pulse.api/fhir {:kind :memory}))
                    ":pulse.api/fhir" "disallowed")))

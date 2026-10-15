@@ -14,6 +14,7 @@
   stops taking requests before the key cache and the logging go away."
   (:require [integrant.core :as ig]
             [pulse.platform.config :as config :refer [ref-schema]]
+            [pulse.platform.http.client :as client]
             [pulse.platform.jwt :as jwt]
             [pulse.platform.log :as log]
             [pulse.platform.token :as token]
@@ -43,6 +44,14 @@
 ;; Keycloak does, and there is nothing to stop.
 (defmethod ig/init-key :pulse.platform/token-source [_ options]
   (token/source options))
+
+;; The client of another service, which sends the caller's own token (its `:token` is the started
+;; keeper, a `:pulse.platform/token-source`).
+(defmethod ig/init-key :pulse.platform/service-client [_ options]
+  (client/client options))
+
+(defmethod ig/halt-key! :pulse.platform/service-client [_ service-client]
+  (client/close! service-client))
 
 (defmethod ig/init-key :pulse.platform/server [_ {:keys [handler host port]}]
   (jetty/run-jetty handler
@@ -96,6 +105,14 @@
    [:handler ref-schema]
    [:host [:string {:min 1}]]
    [:port [:int {:min 0 :max 65535}]]])
+
+(def service-client-schema
+  "The schema of a client of another service (see `pulse.platform.http.client`)."
+  [:map {:closed true}
+   [:base-url http-url]
+   [:token ref-schema]
+   [:timeout-ms [:int {:min 100 :max 120000}]]
+   [:connect-timeout-ms [:int {:min 100 :max 60000}]]])
 
 (defn token-source-schema
   "The schema of a token source's configuration (see `pulse.platform.token`). The secret must be a

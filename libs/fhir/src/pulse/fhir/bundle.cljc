@@ -8,12 +8,27 @@
   {:resource resource
    :request {:method "PUT" :url (str resourceType "/" id)}})
 
+(defn transaction-of
+  "A transaction Bundle of `entries`."
+  [entries]
+  {:resourceType "Bundle"
+   :type "transaction"
+   :entry (vec entries)})
+
 (defn transaction
   "A transaction Bundle that PUTs every resource: idempotent, because ids are chosen by us."
   [resources]
-  {:resourceType "Bundle"
-   :type "transaction"
-   :entry (mapv put-entry resources)})
+  (transaction-of (map put-entry resources)))
+
+(defn conditional-create-entry
+  "A transaction entry that creates `resource` unless the server already has a resource of its type
+  that matches `if-none-exist`, a search query string such as \"identifier=http://system|value\"
+  (a conditional create). Unlike a `PUT`, it never writes over what is there, which makes it the
+  way to say \"raise this once\". The server gives the new resource its id, since a create may not
+  name one: the `:id` of `resource` is dropped."
+  [resource if-none-exist]
+  {:resource (dissoc resource :id)
+   :request {:method "POST" :url (:resourceType resource) :ifNoneExist if-none-exist}})
 
 (defn transactions
   "Splits `resources` (in dependency order) into transaction Bundles of at most `n` entries."
@@ -44,6 +59,14 @@
   "The HTTP status strings of the entries of a transaction-response Bundle."
   [bundle]
   (keep (comp :status :response) (:entry bundle)))
+
+(defn location-id
+  "The id in a `location` of a transaction response, such as \"Flag/123/_history/1\" or \"Flag/123\":
+  `[\"Flag\" \"123\"]`, or nil when it is not one."
+  [location]
+  (when (string? location)
+    (when-let [[_ resource-type id] (re-find #"(?:^|/)([A-Z][A-Za-z]+)/([A-Za-z0-9\-.]{1,64})(?:/_history/[^/]+)?$" location)]
+      [resource-type id])))
 
 (defn all-succeeded?
   "True when every entry of a transaction-response Bundle has a 2xx status."

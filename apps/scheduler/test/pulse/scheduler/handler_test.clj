@@ -41,7 +41,10 @@
         (is (= {:status "up"} (:json live)))
         (is (= "application/json" (content-type live)))
         (is (= 200 (:status ready)))
-        (is (= {:status "ready" :checks {:keycloak "up" :executor "up" :token "up"}} (:json ready)))))))
+        (is (= {:status "ready" :checks {:keycloak "up" :executor "up" :token "up" :api "up" :fhir "up"}}
+               (:json ready)))))))
+
+(def ^:private all-up {:keycloak "up" :executor "up" :token "up" :api "up" :fhir "up"})
 
 (deftest readiness-names-the-dependency-that-is-down
   (testing "the identity provider's keys"
@@ -50,22 +53,46 @@
         (idp/break! (:idp api))
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
-          (is (= {:status "unready" :checks {:keycloak "down" :executor "up" :token "up"}} (:json ready)))))))
+          (is (= {:status "unready" :checks (assoc all-up :keycloak "down")} (:json ready)))))))
   (testing "the executor, once it is stopped"
     (with-scheduler {}
       (fn [api]
         (executor/stop! (:executor api))
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
-          (is (= {:status "unready" :checks {:keycloak "up" :executor "down" :token "up"}} (:json ready)))))))
+          (is (= {:status "unready" :checks (assoc all-up :executor "down")} (:json ready)))))))
   (testing "the scheduler's own token, which Keycloak will not give: a wrong secret shows here"
     (with-scheduler {:token-fetch (fn [] (throw (ex-info "refused" {:type :pulse.platform.token/unavailable
                                                                     :reason :rejected :status 401})))}
       (fn [api]
         (let [ready (call api :get "/readyz")]
           (is (= 503 (:status ready)))
-          (is (= {:status "unready" :checks {:keycloak "up" :executor "up" :token "down"}} (:json ready)))
-          (is (not (str/includes? (:text ready) "refused")) "and the reason is not told"))))))
+          ;; with no token there is nothing to ask the api with either
+          (is (= {:status "unready" :checks (assoc all-up :token "down" :api "down")} (:json ready)))
+          (is (not (str/includes? (:text ready) "refused")) "and the reason is not told")))))
+  (testing "the api, when it says that it is not ready"
+    (with-scheduler {}
+      (fn [api]
+        (reset! (:api-answer api) {:status 503 :body "{\"status\":\"unready\",\"checks\":{\"fhir\":\"down\"}}"})
+        (let [ready (call api :get "/readyz")]
+          (is (= 503 (:status ready)))
+          (is (= {:status "unready" :checks (assoc all-up :api "down")} (:json ready)))))))
+  (testing "FHIR, when it cannot be reached"
+    (with-scheduler {:fhir h/unreachable-fhir}
+      (fn [api]
+        (let [ready (call api :get "/readyz")]
+          (is (= 503 (:status ready)))
+          (is (= {:status "unready" :checks (assoc all-up :fhir "down")} (:json ready)))
+          (is (not (str/includes? (:text ready) "secret-host")) "and the reason is not told"))))))
+
+(deftest readiness-asks-the-api-for-its-own-readiness-as-the-scheduler
+  (with-scheduler {}
+    (fn [api]
+      (call api :get "/readyz")
+      (let [[request :as requests] @(:api-requests api)]
+        (is (= 1 (count requests)))
+        (is (= ["GET" "/readyz"] ((juxt :method :path) request)))
+        (is (= "Bearer the-schedulers-token" (get-in request [:headers "authorization"])))))))
 
 (deftest readiness-asks-for-the-token-once-and-then-uses-the-one-it-has
   (let [asked (atom 0)]
@@ -218,6 +245,14 @@
                 :durationMs 0 :outcome "failed" :error "clojure.lang.ExceptionInfo"}
                (get-in r [:json 0 :lastRun])))
         (is (not (str/includes? (:text r) "hunter2")))))))
+
+(deftest the-result-of-a-job-is-shown-with-its-keys-written-as-the-rest-of-the-view
+  (with-scheduler {:jobs [(a-job :counting every-minute (fn [_] {:already-raised 2 :still-active 1 :failed 0 :note :done}))]}
+    (fn [api]
+      (time/advance! (:world api) 47000)
+      (let [r (call api :get "/jobs" :token (h/token-for :admin))]
+        (is (= {:alreadyRaised 2 :stillActive 1 :failed 0 :note "done"}
+               (get-in r [:json 0 :lastRun :result])))))))
 
 (deftest no-jobs-is-an-empty-list
   (with-scheduler {}

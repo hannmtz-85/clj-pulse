@@ -46,9 +46,38 @@
   :timeout-ms 5000
   :connect-timeout-ms 2000}
 
- ;; The catalogue of jobs is built by pulse.scheduler.jobs from what it needs; there are none yet
+ ;; The api, where the rules engine reads the patients and their readings (ADR-0022), with the
+ ;; scheduler's own token: the api lets the role rules-engine read them and nothing else. It is a
+ ;; client of the api as any other, so the api checks the token as it checks every token.
+ :pulse.scheduler/api
+ {:base-url #or [#env API_BASE_URL "http://localhost:4000"]
+  :token #ig/ref :pulse.scheduler/token
+  ;; A request that takes longer is abandoned, and so is a connection that takes longer to make
+  :timeout-ms 10000
+  :connect-timeout-ms 3000}
+
+ ;; The FHIR server, where the rules engine reads the conditions of a patient and writes the alerts
+ ;; it raises (the api has no way to write an alert). The test profile has a server in memory.
+ :pulse.scheduler/fhir
+ #profile {:default {:kind :http
+                     :base-url #or [#env FHIR_BASE_URL "http://localhost:8090/fhir"]
+                     :timeout-ms 10000
+                     :connect-timeout-ms 3000}
+           :test {:kind :memory}}
+
+ ;; The catalogue of jobs is built by pulse.scheduler.jobs from the components it needs and the
+ ;; settings of each job
  :pulse.scheduler/jobs
- {}
+ {:api #ig/ref :pulse.scheduler/api
+  :fhir #ig/ref :pulse.scheduler/fhir
+  ;; The rules of Annex C over the latest readings (ADR-0022). The shortest window of a rule is a
+  ;; day, so every five minutes (SCHEDULER_EVALUATE_EVERY_MS=300000) is quick enough to alert while
+  ;; it matters and of no weight to the api; the default is quicker, to see an alert appear within
+  ;; a minute of a reading when running it locally. The tests switch the job off: they run it by hand.
+  :evaluate-rules {:enabled? #profile {:default true
+                                       :test false}
+                   :schedule {:type :interval
+                              :every-ms #long #or [#env SCHEDULER_EVALUATE_EVERY_MS 30000]}}}
 
  :pulse.scheduler/executor
  {:jobs #ig/ref :pulse.scheduler/jobs
@@ -60,6 +89,9 @@
   :verifier #ig/ref :pulse.scheduler/verifier
   :executor #ig/ref :pulse.scheduler/executor
   :token #ig/ref :pulse.scheduler/token
+  ;; Readiness asks whether the api and FHIR, which the jobs need, answer
+  :api #ig/ref :pulse.scheduler/api
+  :fhir #ig/ref :pulse.scheduler/fhir
   :realm "pulse-scheduler"
   :quiet-paths #{"/healthz" "/readyz"}}
 

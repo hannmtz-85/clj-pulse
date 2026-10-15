@@ -37,6 +37,7 @@
 
 (defn create
   "The scheduler's Ring handler. `options` is the `:pulse.scheduler/handler` component:
-  `:verifier`, `:executor`, `:token`, `:realm` and `:quiet-paths`."
-  [{:keys [verifier executor token] :as options}]
-  (ring-handler (routes/routes {:verifier verifier :executor executor :token token}) options))
+  `:verifier`, `:executor`, `:token`, `:api`, `:fhir`, `:realm` and `:quiet-paths`."
+  [{:keys [verifier executor token api fhir] :as options}]
+  (ring-handler (routes/routes {:verifier verifier :executor executor :token token :api api :fhir fhir})
+                options))

@@ -4,7 +4,8 @@
   does nothing. The components it shares with the other services have their schemas in
   `pulse.platform.system`."
   (:require [pulse.platform.config :as config :refer [ref-schema]]
-            [pulse.platform.system :as system]))
+            [pulse.platform.system :as system :refer [http-url]]
+            [pulse.scheduler.schedule :as schedule]))
 
 (def schema
   [:map {:closed true}
@@ -12,7 +13,23 @@
    [:pulse.scheduler/jwks system/jwks-schema]
    [:pulse.scheduler/verifier system/verifier-schema]
    [:pulse.scheduler/token (system/token-source-schema "set SCHEDULER_CLIENT_SECRET (it is in .env)")]
-   [:pulse.scheduler/jobs [:map {:closed true}]]
+   [:pulse.scheduler/api system/service-client-schema]
+   [:pulse.scheduler/fhir
+    [:multi {:dispatch :kind}
+     [:http [:map {:closed true}
+             [:kind [:= :http]]
+             [:base-url http-url]
+             [:timeout-ms [:int {:min 100 :max 120000}]]
+             [:connect-timeout-ms [:int {:min 100 :max 60000}]]]]
+     [:memory [:map {:closed true} [:kind [:= :memory]]]]]]
+   [:pulse.scheduler/jobs
+    [:map {:closed true}
+     [:api ref-schema]
+     [:fhir ref-schema]
+     [:evaluate-rules
+      [:map {:closed true}
+       [:enabled? :boolean]
+       [:schedule schedule/schema]]]]]
    [:pulse.scheduler/executor
     [:map {:closed true}
      [:jobs ref-schema]
@@ -23,6 +40,8 @@
      [:verifier ref-schema]
      [:executor ref-schema]
      [:token ref-schema]
+     [:api ref-schema]
+     [:fhir ref-schema]
      [:realm [:string {:min 1}]]
      [:quiet-paths [:set :string]]]]
    [:pulse.scheduler/server system/server-schema]])

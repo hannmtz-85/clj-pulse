@@ -154,15 +154,21 @@
       (sort-by :id resources))
     (sort-by :id resources)))
 
+(defn- matching-resources
+  "The resources of `resource-type` in `state` that satisfy every one of `filters`, pairs of a
+  search parameter and its value."
+  [state resource-type filters]
+  (->> state
+       (keep (fn [[[t _] r]] (when (= t resource-type) r)))
+       (filter (fn [r] (every? #(matches-param? resource-type r %) filters)))))
+
 (defn- search-page
   "The searchset Bundle found at relative `url`."
   [state default-page-size url]
   (let [{resource-type :type pairs :pairs} (parse-url url)
         control (into {} (filter (comp control-params first)) pairs)
         filters (remove (comp control-params first) pairs)
-        matching (->> @state
-                      (keep (fn [[[t _] r]] (when (= t resource-type) r)))
-                      (filter (fn [r] (every? #(matches-param? resource-type r %) filters)))
+        matching (->> (matching-resources @state resource-type filters)
                       (sort-resources resource-type (get control "_sort")))
         total (count matching)]
     (if (= "count" (get control "_summary"))
@@ -193,15 +199,40 @@
   (let [k [(:resourceType resource) (:id resource)]]
     [(assoc state k resource) (if (contains? state k) "200 OK" "201 Created")]))
 
+(defn- location [resource]
+  (str (:resourceType resource) "/" (:id resource) "/_history/1"))
+
+(defn- create
+  "Returns [new-state response-entry] after creating `resource` under a new id."
+  [state resource]
+  (let [resource (assoc resource :id (str (random-uuid)))]
+    (check-valid! resource)
+    [(first (store state resource))
+     {:response {:status "201 Created" :location (location resource)}}]))
+
+(defn- create-unless-matching
+  "A conditional create, as HAPI does it: a resource that matches `if-none-exist` (a search query
+  string) is left as it is and answered with a 200 and its location, whatever its status, and
+  none matching is a create. More than one match is a 412, since the condition does not say which."
+  [state resource if-none-exist]
+  (let [{:keys [pairs]} (parse-url (str (:resourceType resource) "?" if-none-exist))
+        found (vec (matching-resources state (:resourceType resource) pairs))]
+    (case (count found)
+      0 (create state resource)
+      1 [state {:response {:status "200 OK" :location (location (first found))}}]
+      (throw (c/fhir-error (str "Multiple resources match the condition of a create of "
+                                (:resourceType resource))
+                           412 nil)))))
+
 (defn- apply-entry [[state responses] {:keys [resource request]}]
   (case (:method request)
     "PUT" (do (check-valid! resource)
               (let [[state' status] (store state resource)]
                 [state' (conj responses {:response {:status status}})]))
-    "POST" (let [resource (assoc resource :id (str (random-uuid)))]
-             (check-valid! resource)
-             (let [[state' _] (store state resource)]
-               [state' (conj responses {:response {:status "201 Created"}})]))
+    "POST" (let [[state' response] (if-let [if-none-exist (:ifNoneExist request)]
+                                     (create-unless-matching state resource if-none-exist)
+                                     (create state resource))]
+             [state' (conj responses response)])
     "DELETE" (let [[type id] (str/split (:url request) #"/" 2)]
                [(dissoc state [type id]) (conj responses {:response {:status "200 OK"}})])
     (throw (c/fhir-error (str "Unsupported method " (:method request)) 400 nil))))

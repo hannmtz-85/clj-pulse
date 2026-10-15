@@ -3,7 +3,10 @@
   `pulse.scheduler.authz`), the shape of what it takes and returns, and the handler (ADR-0020).
   The status of the jobs is shown as camelCase JSON with the times as ISO strings, like the
   api's own views. Handlers are built from `deps`, the started components they need."
-  (:require [pulse.platform.http.health :as health]
+  (:require [clojure.string :as str]
+            [pulse.fhir.client :as fhir]
+            [pulse.platform.http.client :as http]
+            [pulse.platform.http.health :as health]
             [pulse.platform.http.problem :as problem]
             [pulse.platform.jwt :as jwt]
             [pulse.platform.token :as token]
@@ -19,13 +22,21 @@
                 offset-ms (assoc :offsetMs offset-ms))
     :daily {:type "daily" :at at :zone zone}))
 
+(defn- camel
+  "The key `k`, such as :already-raised, as :alreadyRaised."
+  [k]
+  (let [[head & more] (str/split (name k) #"-")]
+    (keyword (apply str head (map str/capitalize more)))))
+
 (defn- run-view [{:keys [trigger started-at finished-at duration-ms outcome result error]}]
   (cond-> {:trigger (name trigger)
            :startedAt (str started-at)
            :finishedAt (str finished-at)
            :durationMs duration-ms
            :outcome (name outcome)}
-    result (assoc :result result)
+    ;; what a job returns is flat (see `executor/summary`) and in Clojure's style: its keys are
+    ;; written as the rest are
+    result (assoc :result (update-keys result camel))
     error (assoc :error error)))
 
 (defn job-view
@@ -80,11 +91,16 @@
   "Readiness asks for the identity provider's keys, without which no token can be checked, that the
   executor is running, and that the scheduler can identify itself: that it can get its own access
   token, from the cache or from Keycloak (ADR-0021). A wrong secret shows here and not as jobs that
-  fail."
-  [{:keys [verifier executor] own-token :token}]
+  fail. It asks too for what the jobs read and write: that the api says it is ready (which means it
+  can check the token and reach FHIR), and that FHIR answers."
+  [{:keys [verifier executor api fhir] own-token :token}]
   (let [checks {:keycloak #(jwt/keys-available? (:jwks-source verifier))
                 :executor #(executor/running? executor)
-                :token #(token/available? own-token)}]
+                :token #(token/available? own-token)
+                :api #(= 200 (:status (http/request api {:method :get :path "/readyz"})))
+                ;; asking for one Patient exercises the whole path to the database behind the server
+                :fhir #(do (doall (take 1 (fhir/search fhir "Patient" {:_count 1})))
+                           true)}]
     (fn [_request]
       (health/readiness-response (health/run-checks checks {})))))
 
@@ -102,8 +118,9 @@
         :stopped (problem/response 503 {:detail "The scheduler is stopping." :request request})))))
 
 (defn routes
-  "The route table. `deps` is `{:verifier v :executor e :token t}`: the verifier of access tokens,
-  the executor of the jobs and the keeper of the scheduler's own token."
+  "The route table. `deps` is `{:verifier v :executor e :token t :api a :fhir f}`: the verifier of
+  access tokens, the executor of the jobs, the keeper of the scheduler's own token and its clients
+  of the api and of FHIR (which readiness asks about)."
   [deps]
   [["/healthz" {:get {:authz :public
                       :responses {200 {:body [:map [:status [:= "up"]]]}}

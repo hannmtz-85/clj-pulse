@@ -2,4 +2,7 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.6"}
         ;; Configuration, lifecycle, logging, malli, the router setup and the server come with
         ;; the platform library.
-        pulse/platform {:local/root "../../libs/platform"}}}
+        pulse/platform {:local/root "../../libs/platform"}
+        ;; FHIR: the clients, for the alerts the rules engine raises and the conditions it reads,
+        ;; and the shapes of the readings and alerts
+        pulse/fhir {:local/root "../../libs/fhir"}}}

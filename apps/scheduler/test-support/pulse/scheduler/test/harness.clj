@@ -7,8 +7,12 @@
   Test code only: it is on the classpath of the `:test` alias and nowhere else."
   (:require [clojure.string :as str]
             [jsonista.core :as json]
+            [pulse.fhir.client :as fhir]
+            [pulse.fhir.client.memory :as memory]
+            [pulse.platform.http.client :as http]
             [pulse.platform.jwt :as jwt]
             [pulse.platform.test.idp :as idp]
+            [pulse.platform.test.stub :as stub]
             [pulse.platform.token :as token]
             [pulse.scheduler.executor :as executor]
             [pulse.scheduler.handler :as handler]
@@ -57,14 +61,33 @@
   (let [{:keys [roles] :as person} (get people who)]
     (access-token (merge (dissoc person :roles) (apply roles-claim roles) overrides))))
 
+(def api-ready
+  "What the stand-in for the api answers to a readiness probe, until a test changes it."
+  {:status 200 :body "{\"status\":\"ready\",\"checks\":{\"keycloak\":\"up\",\"fhir\":\"up\"}}"})
+
+(defn- refused []
+  (throw (ex-info "connection refused: secret-host:8090" {})))
+
+(def unreachable-fhir
+  "A FHIR server that cannot be reached, whose exceptions say too much."
+  (reify fhir/FhirClient
+    (read-resource [_ _ _] (refused))
+    (search [_ _ _] (refused))
+    (put! [_ _] (refused))
+    (delete! [_ _ _] (refused))
+    (transact! [_ _] (refused))
+    (validate [_ _] (refused))))
+
 (defn with-scheduler
-  "Calls `(f {:handler h :idp server :executor e :token t :world w})` with a fake identity provider,
-  an executor in a world of fake time that begins at `:start`, the keeper of the scheduler's own
-  token, and the scheduler's handler wired to them, and stops it all afterwards. Options: `:jobs`
-  (none by default), `:workers` (run on the spot by default), `:start` (an ISO instant, as in
-  `pulse.scheduler.test.time/world`), `:token-fetch` (what the token endpoint does: by default it
-  gives a token of 5 minutes) and `:routes` (extra routes, added to the scheduler's)."
-  [{:keys [jobs workers start routes token-fetch] :or {start "2026-10-15T10:02:13Z"}} f]
+  "Calls `(f {:handler h :idp server :executor e :token t :world w :api-answer a :fhir fhir})` with a
+  fake identity provider, an executor in a world of fake time that begins at `:start`, the keeper of
+  the scheduler's own token, a stand-in for the api, a FHIR server, and the scheduler's handler wired
+  to them, and stops it all afterwards. Options: `:jobs` (none by default), `:workers` (run on the
+  spot by default), `:start` (an ISO instant, as in `pulse.scheduler.test.time/world`), `:token-fetch`
+  (what the token endpoint does: by default it gives a token of 5 minutes), `:routes` (extra routes,
+  added to the scheduler's) and `:fhir` (an empty server in memory by default). The stand-in for the
+  api answers every request with what the atom `:api-answer` holds, `api-ready` at first."
+  [{:keys [jobs workers start routes token-fetch fhir] :or {start "2026-10-15T10:02:13Z"}} f]
   (let [server (idp/start! [signing-key])
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (jwt/verifier {:jwks-source source :issuer issuer :audience audience :token-type "Bearer"})
@@ -75,17 +98,28 @@
                                               :grace-ms 100})
         own-token (token/source {:fetch (or token-fetch (fn [] {:access-token "the-schedulers-token" :expires-in 300}))
                                  :clock (:clock world)
-                                 :client-id "pulse-scheduler"})]
+                                 :client-id "pulse-scheduler"})
+        api-answer (atom api-ready)
+        api-stub (stub/start! (fn [_] @api-answer))
+        api (http/client {:base-url (:url api-stub) :token own-token})
+        fhir (or fhir (memory/memory-client []))]
     (try
-      (f {:handler (handler/ring-handler (into (routes/routes {:verifier verifier :executor running :token own-token}) routes)
+      (f {:handler (handler/ring-handler (into (routes/routes {:verifier verifier :executor running :token own-token
+                                                               :api api :fhir fhir})
+                                               routes)
                                          {:verifier verifier :realm "pulse-scheduler"
                                           :quiet-paths #{"/healthz" "/readyz"}})
           :idp server
           :executor running
           :token own-token
-          :world world})
+          :world world
+          :api-answer api-answer
+          :api-requests (:requests api-stub)
+          :fhir fhir})
       (finally
         (executor/stop! running)
+        (http/close! api)
+        (stub/stop! api-stub)
         (jwt/close! source)
         (idp/stop! server)))))
 

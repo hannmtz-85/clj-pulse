@@ -237,6 +237,48 @@
     (is (= "inactive" (:status acknowledged)))
     (is (not (outcome/error? result)) (outcome/summary result))))
 
+(deftest ^:integration a-conditional-create-answers-the-same-on-hapi-and-in-memory
+  ;; How the rules engine raises an alert once (ADR-0022): a POST with `ifNoneExist` in a
+  ;; transaction. No match creates; a match is left as it is and answered with a 200, whatever its
+  ;; status; more than one match is a 412. HAPI gives the new resource its own id, which is
+  ;; deleted afterwards.
+  (let [system "https://pulse.example/identifier/alert"
+        ;; as the rules engine writes it, with slashes and colons, and the condition as it writes it:
+        ;; encoded (see `pulse.scheduler.alerts/raise!`)
+        key (str "R1/it-conditional-" (random-uuid) "/2026-01-07T08:00:00Z")
+        identifier {:system system :value key}
+        condition (c/query-string {:identifier (str system "|" key)})
+        flag (fn [] (r/flag {:id "unused" :patient patient-id :text "Integration conditional"
+                             :start "2026-01-07T08:00:00Z" :identifier identifier}))
+        raise! (fn [client]
+                 (-> (c/transact! client (bundle/transaction-of [(bundle/conditional-create-entry (flag) condition)]))
+                     :entry first :response))
+        found (fn [client] (vec (c/search client "Flag" {:identifier (str system "|" key)})))
+        hapi (http/client {:base-url base-url})
+        memory (mem/memory-client)]
+    (doseq [[label client] [["HAPI" hapi] ["in memory" memory]]]
+      (testing label
+        (try
+          (let [created (raise! client)
+                again (raise! client)
+                [_ id] (bundle/location-id (:location created))]
+            (is (= "201 Created" (:status created)))
+            (is (= "200 OK" (:status again)))
+            (is (= [id] (map :id (found client))) "one Flag, however many times it was raised")
+            (is (= [id] [(second (bundle/location-id (:location again)))]) "and the second answer points at it")
+            (testing "an acknowledged alert is left as it is"
+              (c/put! client (:ok (alert/acknowledge (c/read-resource client "Flag" id) "2026-01-08T09:00:00Z")))
+              (is (= "200 OK" (:status (raise! client))))
+              (is (= ["inactive"] (map :status (found client)))))
+            (testing "a condition that matches two is an error and creates nothing"
+              (c/put! client (assoc (flag) :id "it-flag-twin"))
+              (let [e (try (raise! client) (catch clojure.lang.ExceptionInfo e e))]
+                (is (= 412 (:status (ex-data e))))
+                (is (= 2 (count (found client)))))))
+          (finally
+            (doseq [{:keys [id]} (found client)]
+              (c/delete! client "Flag" id))))))))
+
 (deftest ^:integration every-search-parameter-of-the-fake-exists-on-hapi
   ;; The fake must not accept what the real server rejects: R4 gave Flag no `status` parameter,
   ;; the fake had one, and the api asked for it. Each parameter is tried with a value of its kind.
