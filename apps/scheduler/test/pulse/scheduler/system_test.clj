@@ -5,6 +5,7 @@
   (:require [babashka.http-client :as http]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
+            [pulse.fhir.client :as c]
             [pulse.platform.test.idp :as idp]
             [pulse.platform.test.stub :as stub]
             [pulse.scheduler.config :as config]
@@ -109,6 +110,10 @@
       (is (thrown? java.io.IOException (http/get (str @url "/healthz"))))
       (is (not (executor/running? (:pulse.scheduler/executor @running)))))))
 
+(def ^:private quiet
+  "A schedule that will not fire while a test runs: once a week, on the grid of the epoch."
+  {:type :interval :every-ms 604800000})
+
 (defn- run-now [base-url id]
   (http/post (str base-url "/jobs/" id "/run") {:throw false :headers {"Authorization" (str "Bearer " (token))}}))
 
@@ -121,12 +126,14 @@
             (recur))))))
 
 (deftest the-rules-job-reads-the-patients-through-the-api-with-the-schedulers-token
-  (with-system #(assoc-in % [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
+  (with-system #(-> %
+                    (assoc-in [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
+                    (assoc-in [:pulse.scheduler/jobs :evaluate-rules :schedule] quiet))
     (fn [base-url _ server api]
       (let [job (fn [] (first (:json (get-json (str base-url "/jobs") :token (token)))))]
-        (testing "enabled, it is in the catalogue, scheduled as the configuration says"
+        (testing "enabled, it is in the catalogue, scheduled as it was told"
           (is (= "evaluate-rules" (:id (job))))
-          (is (= {:type "interval" :everyMs 30000} (:schedule (job)))))
+          (is (= {:type "interval" :everyMs 604800000} (:schedule (job)))))
         (testing "run by hand, it asks the api for the patients and finds none"
           (is (= 202 (:status (run-now base-url "evaluate-rules"))))
           (is (eventually #(:lastRun (job))))
@@ -139,3 +146,20 @@
             (is (= "Bearer fake-token-1" (get-in request [:headers "authorization"])))
             (is (= "GET" (:method request)))
             (is (= 1 (count (idp/token-requests server))))))))))
+
+(deftest the-simulator-job-writes-the-readings-of-its-ticks-to-the-fhir-server-of-the-scheduler
+  (with-system #(-> %
+                    (assoc-in [:pulse.scheduler/jobs :simulate-devices :enabled?] true)
+                    (assoc-in [:pulse.scheduler/jobs :simulate-devices :schedule] quiet))
+    (fn [base-url system _ _]
+      (let [job (fn [] (first (filter #(= "simulate-devices" (:id %)) (:json (get-json (str base-url "/jobs") :token (token))))))]
+        (testing "enabled, it is in the catalogue"
+          (is (= {:type "interval" :everyMs 604800000} (:schedule (job)))))
+        (testing "run by hand, it writes the readings of its first tick"
+          (is (= 202 (:status (run-now base-url "simulate-devices"))))
+          (is (eventually #(:lastRun (job))))
+          (is (= {:trigger "manual" :outcome "ok"
+                  :result {:planned 7 :abnormal 1 :read 7 :written 7 :batches 1 :failed 0 :failedBatches 0 :errors 0}}
+                 (-> (job) :lastRun (select-keys [:trigger :outcome :result]))))
+          (is (= 7 (count (c/search (:pulse.scheduler/fhir system) "Observation" {})))
+              "in the server the scheduler was given"))))))

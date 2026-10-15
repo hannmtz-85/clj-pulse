@@ -76,8 +76,8 @@
       :task (shell "docker" "compose" "ps")}
 
   ;; --- the apps ------------------------------------------------------------
-  dev {:doc "Run the apps built so far in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up)"
-       :task (apply shell "clojure" "-M:dev" "-m" "pulse.api.main" *command-line-args*)}
+  dev {:doc "Run the api and the scheduler in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up). The scheduler simulates devices; SCHEDULER_SIMULATOR=false stops that"
+       :task (apply shell "clojure" "-M:dev" "-m" "pulse.dev" *command-line-args*)}
 
   scheduler {:doc "Run the scheduler alone on 127.0.0.1:5000: bb scheduler [dev | test]. It gets its client secret from .env (needs `bb up`)"
              :requires ([env])

@@ -1,0 +1,32 @@
+;; The scenario of the device simulator (ADR-0023). Everything here is invented.
+;;
+;; The simulator takes the devices from the demo cohort (every signal of every patient in
+;; pulse/seed/cohort.edn) and sends a reading from each every :cadence-ticks ticks, at the baseline
+;; of the signal with its noise cut at :noise-limit standard deviations, so that a normal reading
+;; never crosses a threshold of Annex C. What crosses one is an episode: from tick :at-tick of a
+;; cycle of :cycle-ticks ticks, that signal sends the readings listed, one on each tick, instead.
+;; A tick is a run of the job (every 15 seconds in dev), and the cycle begins when the scheduler
+;; does, so the first alert is there within a minute.
+;;
+;; An episode lasts longer than a run of the rules engine (30 seconds), since R4 looks only at the
+;; latest weight and R1 at the last three pressures.
+{:cycle-ticks 32
+ :cadence-ticks 2
+ :noise-limit 2.0
+
+ :episodes
+ [;; R2: the saturation of Sofía falls below 92 % in two readings or more
+  {:patient "pt-sofia" :signal :spo2 :at-tick 0
+   :readings [{:value 88} {:value 89} {:value 88}]}
+
+  ;; R1: the pressure of Ana is at stage 2 in two of the last three readings
+  {:patient "pt-ana" :signal :blood-pressure :at-tick 8
+   :readings [{:systolic 172 :diastolic 104} {:systolic 176 :diastolic 107} {:systolic 170 :diastolic 103}]}
+
+  ;; R3: the glucose of Liam is above 250 mg/dL
+  {:patient "pt-liam" :signal :glucose :at-tick 16
+   :readings [{:value 268} {:value 274}]}
+
+  ;; R4: the weight of Maya (heart failure) is 2 kg or more above the lowest of the last three days
+  {:patient "pt-maya" :signal :weight :at-tick 24
+   :readings [{:value 74.6} {:value 74.8} {:value 74.7} {:value 74.9}]}]}

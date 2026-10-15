@@ -10,6 +10,9 @@
            :ns-patterns ["-test$"]}
           {:id :scheduler
            :test-paths ["apps/scheduler/test"]
+           :ns-patterns ["-test$"]}
+          {:id :dev
+           :test-paths ["dev/test"]
            :ns-patterns ["-test$"]}]
   :plugins [:kaocha.plugin/print-invocations]
   :reporter kaocha.report/dots}

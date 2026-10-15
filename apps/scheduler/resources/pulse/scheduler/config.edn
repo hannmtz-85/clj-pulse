@@ -77,7 +77,15 @@
   :evaluate-rules {:enabled? #profile {:default true
                                        :test false}
                    :schedule {:type :interval
-                              :every-ms #long #or [#env SCHEDULER_EVALUATE_EVERY_MS 30000]}}}
+                              :every-ms #long #or [#env SCHEDULER_EVALUATE_EVERY_MS 30000]}}
+
+  ;; The devices of the demo cohort, simulated (ADR-0023): about 28 readings a minute, written to
+  ;; FHIR, and an abnormal episode in turn, so that alerts appear. For development: off in the tests,
+  ;; SCHEDULER_SIMULATOR=false switches it off, and the profile of a deployment must say false.
+  :simulate-devices {:enabled? #profile {:default #boolean #or [#env SCHEDULER_SIMULATOR "true"]
+                                         :test false}
+                     :schedule {:type :interval :every-ms 15000}
+                     :batch-size 20}}
 
  :pulse.scheduler/executor
  {:jobs #ig/ref :pulse.scheduler/jobs

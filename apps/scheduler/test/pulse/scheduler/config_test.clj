@@ -153,6 +153,20 @@
           (is (platform/invalid-config? e) (str bad " is a number, and the schedule says it is not sound"))
           (is (str/includes? (ex-message e) ":pulse.scheduler/jobs :evaluate-rules :schedule :every-ms") bad))))))
 
+(deftest the-devices-are-simulated-every-quarter-of-a-minute-except-in-the-tests
+  (is (= {:enabled? true :schedule {:type :interval :every-ms 15000} :batch-size 20}
+         (get-in (load-config) [:pulse.scheduler/jobs :simulate-devices])))
+  (testing "which a variable switches off, or on"
+    (doseq [[value enabled?] [["false" false] ["true" true] ["FALSE" false] ["TRUE" true]]]
+      (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
+                                        "SCHEDULER_SIMULATOR" value}]
+        (is (= enabled? (get-in (config/load-config {:profile :dev}) [:pulse.scheduler/jobs :simulate-devices :enabled?]))
+            value))))
+  (testing "and the tests do not want it, whatever the variable says"
+    (is (false? (get-in (load-config :test) [:pulse.scheduler/jobs :simulate-devices :enabled?])))
+    (binding [platform/*environment* {"SCHEDULER_SIMULATOR" "true"}]
+      (is (false? (get-in (config/load-config {:profile :test}) [:pulse.scheduler/jobs :simulate-devices :enabled?]))))))
+
 (deftest the-catalogue-and-the-readiness-probe-use-the-same-clients
   (let [cfg (load-config)]
     (is (= (ig/ref :pulse.scheduler/api) (get-in cfg [:pulse.scheduler/jobs :api])
@@ -211,6 +225,17 @@
                    ":pulse.scheduler/jobs :evaluate-rules :schedule"))
     (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :evaluate-rules :schedule] {:type :hourly}))
                    ":pulse.scheduler/jobs :evaluate-rules :schedule")))
+  (testing "the simulator with a batch that is nothing or too much, or no schedule"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :simulate-devices :batch-size] 0))
+                   ":pulse.scheduler/jobs :simulate-devices :batch-size"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :simulate-devices :batch-size] 101))
+                   ":pulse.scheduler/jobs :simulate-devices :batch-size"))
+    (is (mentions? (problems-with #(update-in % [:pulse.scheduler/jobs :simulate-devices] dissoc :schedule))
+                   ":pulse.scheduler/jobs :simulate-devices :schedule"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :simulate-devices :enabled?] "yes"))
+                   ":pulse.scheduler/jobs :simulate-devices :enabled?"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :simulate-devices :rate] 3))
+                   ":pulse.scheduler/jobs :simulate-devices :rate" "disallowed")))
   (testing "the api and FHIR at addresses that are not URLs"
     (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/api :base-url] "localhost:4000"))
                    ":pulse.scheduler/api :base-url" "URL"))

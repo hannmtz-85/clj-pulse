@@ -29,7 +29,12 @@
      [:evaluate-rules
       [:map {:closed true}
        [:enabled? :boolean]
-       [:schedule schedule/schema]]]]]
+       [:schedule schedule/schema]]]
+     [:simulate-devices
+      [:map {:closed true}
+       [:enabled? :boolean]
+       [:schedule schedule/schema]
+       [:batch-size [:int {:min 1 :max 100}]]]]]]
    [:pulse.scheduler/executor
     [:map {:closed true}
      [:jobs ref-schema]

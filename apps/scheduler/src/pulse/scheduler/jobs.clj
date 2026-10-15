@@ -1,10 +1,14 @@
 (ns pulse.scheduler.jobs
   "The catalogue of the scheduler's jobs (ADR-0020). Each is a map as `pulse.scheduler.job` says,
   whose handler closes over the components it needs, so the catalogue is built from the started
-  system by a function and not read from the configuration. The device simulator and the
-  appointment reminders are added here as they are written."
-  (:require [pulse.scheduler.engine :as engine]
-            [pulse.scheduler.source :as source]))
+  system by a function and not read from the configuration. The appointment reminders are added
+  here as they are written."
+  (:require [pulse.fhir.synthetic :as synthetic]
+            [pulse.scheduler.engine :as engine]
+            [pulse.scheduler.simulator :as simulator]
+            [pulse.scheduler.source :as source])
+  (:import (java.time Instant)
+           (java.time.temporal ChronoUnit)))
 
 (def service-actor
   "Who the audit trail names for what the scheduler writes: its client in the realm and its role."
@@ -25,10 +29,30 @@
                     (throw (ex-info "Some patients could not be evaluated" {:summary summary})))
                   summary))}))
 
+(defn- simulate-devices-job
+  "The job that simulates the devices of the demo cohort (ADR-0023): one run is one tick of the
+  simulated world, whose readings go to FHIR. The tick is counted from the start of the scheduler,
+  and an episode of the scenario begins at the tick it says. A run in which a reading could not be
+  written is a failed run."
+  [{:keys [fhir]} {:keys [schedule batch-size]}]
+  (let [scenario (simulator/scenario (synthetic/cohort))
+        last-tick (atom -1)]
+    {:id :simulate-devices
+     :description "Simulates the readings of the devices of the demo cohort and writes them to FHIR"
+     :schedule schedule
+     :handler (fn [{:keys [^Instant started-at]}]
+                (let [n (swap! last-tick inc)
+                      summary (simulator/tick! fhir scenario n (.truncatedTo started-at ChronoUnit/SECONDS)
+                                               {:batch-size batch-size})]
+                  (when (pos? (+ (:failed summary) (:errors summary)))
+                    (throw (ex-info "Some readings could not be written" {:summary summary})))
+                  summary))}))
+
 (defn catalogue
   "The jobs to run, a vector, built from `options` (the `:pulse.scheduler/jobs` component): `:api`,
   a client of the api, `:fhir`, a FHIR client, and the settings of each job, such as
-  `:evaluate-rules` with its `:schedule` and whether it is `:enabled?`."
-  [{:keys [evaluate-rules] :as options}]
+  `:evaluate-rules` and `:simulate-devices` with their `:schedule` and whether they are `:enabled?`."
+  [{:keys [evaluate-rules simulate-devices] :as options}]
   (cond-> []
-    (:enabled? evaluate-rules) (conj (evaluate-rules-job options evaluate-rules))))
+    (:enabled? evaluate-rules) (conj (evaluate-rules-job options evaluate-rules))
+    (:enabled? simulate-devices) (conj (simulate-devices-job options simulate-devices))))

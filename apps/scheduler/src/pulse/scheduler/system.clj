@@ -4,6 +4,7 @@
   order, so the server stops taking requests before the executor stops the jobs, and the key
   cache and the logging go last."
   (:require [integrant.core :as ig]
+            [pulse.fhir.client :as fhir-client]
             [pulse.fhir.client.http :as fhir-http]
             [pulse.fhir.client.memory :as fhir-memory]
             [pulse.platform.system :as platform]
@@ -22,12 +23,15 @@
 (derive :pulse.scheduler/token :pulse.platform/token-source)
 (derive :pulse.scheduler/api :pulse.platform/service-client)
 
-(defmethod ig/init-key :pulse.scheduler/fhir [_ {:keys [kind] :as options}]
-  (case kind
-    :http (fhir-http/client (dissoc options :kind))
-    ;; Empty, for the tests, which put in it what they need. The api's "lite" backend is a server
-    ;; in memory too, but it is the api's: alerts written to another one would never be seen.
-    :memory (fhir-memory/memory-client [])))
+(defmethod ig/init-key :pulse.scheduler/fhir [_ options]
+  (if (satisfies? fhir-client/FhirClient options)
+    ;; A client made elsewhere: the development runner gives the scheduler the api's, when that is a
+    ;; server in memory, since alerts written to another one would never be seen (pulse.dev).
+    options
+    (case (:kind options)
+      :http (fhir-http/client (dissoc options :kind))
+      ;; Empty, for the tests, which put in it what they need.
+      :memory (fhir-memory/memory-client []))))
 
 (defmethod ig/init-key :pulse.scheduler/jobs [_ options]
   (job/check! (jobs/catalogue options)))

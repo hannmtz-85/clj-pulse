@@ -5,4 +5,7 @@
         pulse/platform {:local/root "../../libs/platform"}
         ;; FHIR: the clients, for the alerts the rules engine raises and the conditions it reads,
         ;; and the shapes of the readings and alerts
-        pulse/fhir {:local/root "../../libs/fhir"}}}
+        pulse/fhir {:local/root "../../libs/fhir"}
+        ;; The pipeline of the device simulator: producer, transducers, batches and a writer, with
+        ;; bounded channels (ADR-0023)
+        org.clojure/core.async {:mvn/version "1.9.865"}}}
