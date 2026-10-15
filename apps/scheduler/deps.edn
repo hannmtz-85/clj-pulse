@@ -1,4 +1,5 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.6"}
-        ;; Configuration, lifecycle, logging and malli come with the platform library.
+        ;; Configuration, lifecycle, logging, malli, the router setup and the server come with
+        ;; the platform library.
         pulse/platform {:local/root "../../libs/platform"}}}

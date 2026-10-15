@@ -7,7 +7,7 @@
             [integrant.repl :as ig-repl :refer [go halt reset]]))
 
 ;; `reset` reloads changed namespaces with clj-reload: ours only, never the dependencies.
-(reload/init {:dirs ["libs/fhir/src" "libs/platform/src" "apps/api/src"]})
+(reload/init {:dirs ["libs/fhir/src" "libs/platform/src" "apps/api/src" "apps/scheduler/src"]})
 
 (ig-repl/set-prep!
  (fn []

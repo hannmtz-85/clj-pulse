@@ -1,0 +1,53 @@
+;; The scheduler as an Integrant system: one entry per component, and #ig/ref where a component
+;; needs another. Read by pulse.platform.config (Aero) and checked by the schema in
+;; pulse.scheduler.config before anything starts, so a mistake here fails at once and says what is
+;; wrong.
+;;
+;; Profile, chosen with SCHEDULER_PROFILE (default dev); where a profile is not listed #profile
+;; falls back to :default:
+;;   dev   the real identity provider, on port 5000
+;;   test  what the tests use
+;;
+;; Nothing here is secret: the scheduler only checks tokens against Keycloak's public keys.
+{:pulse.scheduler/logging
+ {:level #profile {:default #keyword #or [#env LOG_LEVEL "info"]
+                   :test :warn}
+  :format #keyword #or [#env LOG_FORMAT "text"]
+  ;; Jetty's own messages are not ours to read at :info
+  :ns-levels {"org.eclipse.jetty.*" :warn}}
+
+ :pulse.scheduler/jwks
+ {:uri #or [#env KEYCLOAK_JWKS_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/certs"]}
+
+ :pulse.scheduler/verifier
+ {:jwks #ig/ref :pulse.scheduler/jwks
+  ;; Keycloak reports its issuer from its configured hostname, whatever address it is reached
+  ;; at, so this and the JWKS address above are separate settings (the Docker profile needs it)
+  :issuer #or [#env KEYCLOAK_ISSUER "http://localhost:8080/realms/pulse"]
+  ;; Only tokens issued for this service: one for the api is not accepted here (ADR-0020)
+  :audience "pulse-scheduler"
+  :algorithms ["RS256"]
+  :leeway-s 30
+  :token-type "Bearer"}
+
+ ;; The catalogue of jobs is built by pulse.scheduler.jobs from what it needs; there are none yet
+ :pulse.scheduler/jobs
+ {}
+
+ :pulse.scheduler/executor
+ {:jobs #ig/ref :pulse.scheduler/jobs
+  ;; How long a stop lets a running job finish before interrupting it
+  :grace-ms 5000}
+
+ :pulse.scheduler/handler
+ {:logging #ig/ref :pulse.scheduler/logging ; only to start logging before everything else
+  :verifier #ig/ref :pulse.scheduler/verifier
+  :executor #ig/ref :pulse.scheduler/executor
+  :realm "pulse-scheduler"
+  :quiet-paths #{"/healthz" "/readyz"}}
+
+ :pulse.scheduler/server
+ {:handler #ig/ref :pulse.scheduler/handler
+  :host #or [#env SCHEDULER_HOST "127.0.0.1"]
+  :port #profile {:default #long #or [#env SCHEDULER_PORT 5000]
+                  :test 0}}}

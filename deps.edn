@@ -15,8 +15,8 @@
 
   ;; clojure -M:test [kaocha args]    (config: tests.edn)
   ;; `test-support` holds test-only helpers shared by several suites, such as the fake
-  ;; identity provider and the api's handler harness.
-  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support"]
+  ;; identity provider, the api's handler harness and the scheduler's fake time.
+  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support" "apps/scheduler/test-support"]
          :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                       pulse/platform {:local/root "libs/platform"}
                       pulse/api {:local/root "apps/api"}

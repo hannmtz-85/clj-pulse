@@ -7,26 +7,14 @@
             [pulse.fhir.client.http :as fhir-http]
             [pulse.fhir.client.memory :as fhir-memory]
             [pulse.fhir.synthetic :as synthetic]
-            [pulse.platform.jwt :as jwt]
-            [pulse.platform.log :as log]
-            [ring.adapter.jetty :as jetty])
-  (:import (org.eclipse.jetty.server Server ServerConnector)))
+            [pulse.platform.system :as platform]))
 
-(defmethod ig/init-key :pulse.api/logging [_ options]
-  (log/start! options)
-  options)
-
-(defmethod ig/halt-key! :pulse.api/logging [_ _]
-  (log/stop!))
-
-(defmethod ig/init-key :pulse.api/jwks [_ options]
-  (jwt/jwks-source options))
-
-(defmethod ig/halt-key! :pulse.api/jwks [_ source]
-  (jwt/close! source))
-
-(defmethod ig/init-key :pulse.api/verifier [_ {:keys [jwks] :as options}]
-  (jwt/verifier (-> options (dissoc :jwks) (assoc :jwks-source jwks))))
+;; Logging, the key cache, the verifier and the server start and stop as in every Pulse service:
+;; the methods are in pulse.platform.system, and these keys are those components.
+(derive :pulse.api/logging :pulse.platform/logging)
+(derive :pulse.api/jwks :pulse.platform/jwks)
+(derive :pulse.api/verifier :pulse.platform/verifier)
+(derive :pulse.api/server :pulse.platform/server)
 
 (defmethod ig/init-key :pulse.api/fhir [_ {:keys [kind] :as options}]
   (case kind
@@ -36,18 +24,6 @@
 
 (defmethod ig/init-key :pulse.api/handler [_ options]
   (handler/create options))
-
-(defmethod ig/init-key :pulse.api/server [_ {:keys [handler host port]}]
-  (jetty/run-jetty handler
-                   {:host host
-                    :port port
-                    :join? false
-                    :send-server-version? false
-                    ;; On stop, let requests in flight finish before closing.
-                    :configurator (fn [^Server server] (.setStopTimeout server 5000))}))
-
-(defmethod ig/halt-key! :pulse.api/server [_ ^Server server]
-  (.stop server))
 
 (defn start
   "Starts the system described by `config` (see `pulse.api.config/load-config`) and returns it."
@@ -62,4 +38,4 @@
 (defn port
   "The port the server of `system` listens on (useful when the configured port is 0)."
   [system]
-  (.getLocalPort ^ServerConnector (first (.getConnectors ^Server (:pulse.api/server system)))))
+  (platform/port (:pulse.api/server system)))

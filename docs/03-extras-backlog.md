@@ -48,7 +48,9 @@
 | X-21 | Real notification channel | Reminders sent through SMTP (MailHog in compose) or web push instead of a `Communication` record only | Needs extra services | Phase 5 | M |
 | X-22 | Device gateway simulation | Measurements arriving over MQTT or HTTP from a separate simulated gateway instead of the in-process simulator | In-process simulator is simpler | Phase 5 | M |
 | X-23 | Server-Sent Events for alerts | Push new alerts from `api` to the SPA (and to `web` through the htmx SSE extension) | Polling is enough | Phases 4, 8 | M |
-| X-24 | Calendar schedules | Weekdays, days of the month and "last Friday" for the `scheduler`, as one more type of schedule next to `:interval` and `:daily` (`{:type :weekly :days #{:mon :thu} ...}`), with the same pure `next-run` and the same kind of property tests; or a cron expression parsed into that data (ADR-0019) | Every job of the MVP is an interval or a time of day | Phase 5 | S |
+| X-34 | Calendar schedules | Weekdays, days of the month and "last Friday" for the `scheduler`, as one more type of schedule next to `:interval` and `:daily` (`{:type :weekly :days #{:mon :thu} ...}`), with the same pure `next-run` and the same kind of property tests; or a cron expression parsed into that data (ADR-0019) | Every job of the MVP is an interval or a time of day | Phase 5 | S |
+| X-35 | A timeout for each job | A `:timeout-ms` in a job that interrupts a run that goes on for longer, recorded as its own outcome, so a handler that hangs on something that has no timeout of its own cannot hold its job for ever (ADR-0020) | Every handler so far is bounded by the timeouts of the FHIR client | Phase 5 | S |
+| X-36 | Run history that survives a restart | The last runs of each job kept in FHIR (an `AuditEvent` or a `Task`) or in a small table, so that the status after a restart shows what happened before it (ADR-0020) | The status in memory is enough to see that the jobs are alive | Phase 5 | M |
 
 ## D. UX and product
 

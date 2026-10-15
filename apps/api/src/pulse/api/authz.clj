@@ -21,7 +21,7 @@
             [pulse.fhir.reference :as ref]
             [pulse.platform.http.auth :as auth]
             [pulse.platform.http.problem :as problem]
-            [reitit.core :as r]
+            [pulse.platform.http.router :as platform-router]
             [taoensso.telemere :as t]))
 
 ;; ---------------------------------------------------------------------------
@@ -116,27 +116,15 @@
            (contains? rules (:action spec))
            (let [resource (:resource spec)] (or (nil? resource) (ifn? resource))))))
 
-(def ^:private http-methods [:get :head :post :put :delete :connect :options :trace :patch])
-
-(defn- endpoints
-  "`[method path authz]` for every endpoint of `router`. A method's own `:authz` wins over the
-  one it inherits from the route or its parents; `:any` is a handler given for all methods."
-  [router]
-  (for [[path data] (r/routes router)
-        method (concat (filter data http-methods) (when (:handler data) [:any]))]
-    [method path (or (:authz (get data method)) (:authz data))]))
-
 (defn check-routes!
   "Returns `router` when every endpoint has a valid `:authz`, otherwise throws, naming the
   endpoints that do not. Called when the router is built, so a forgotten rule is a start-up
   failure and not a hole."
   [router]
-  (let [bad (for [[method path spec] (endpoints router)
-                  :when (not (valid-spec? spec))]
-              (str (name method) " " path))]
+  (let [bad (vec (platform-router/endpoints-without router valid-spec?))]
     (if (seq bad)
-      (throw (ex-info (str "Endpoints without a valid :authz (deny by default): " (pr-str (vec bad)))
-                      {:type ::missing-authz :endpoints (vec bad)}))
+      (throw (ex-info (str "Endpoints without a valid :authz (deny by default): " (pr-str bad))
+                      {:type ::missing-authz :endpoints bad}))
       router)))
 
 ;; ---------------------------------------------------------------------------

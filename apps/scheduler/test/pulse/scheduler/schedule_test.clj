@@ -384,8 +384,9 @@
                                  :let [{:keys [at zone]} schedule
                                        day (.toLocalDate (wall (next-run schedule after) zone))]]
                              (offsets-that-day zone day at)))]
-    (is (< 100 (get tally 0 0)) "days with a time the clocks skip")
-    (is (< 100 (get tally 2 0)) "days with a time the clocks repeat")))
+    ;; The generator gives about 150 and 120 in 1000, with a spread of about 11
+    (is (< 60 (get tally 0 0)) "days with a time the clocks skip")
+    (is (< 60 (get tally 2 0)) "days with a time the clocks repeat")))
 
 (deftest the-generators-reach-the-days-next-run-tries
   (let [tally (fn [generator] (frequencies (map days-ahead (gen/sample generator 600))))]

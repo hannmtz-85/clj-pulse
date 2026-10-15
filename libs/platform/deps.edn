@@ -13,4 +13,13 @@
         com.taoensso/telemere {:mvn/version "1.4.0"}
         com.taoensso/telemere-slf4j {:mvn/version "1.4.0"}
         ;; JSON for log lines and problem responses.
-        metosin/jsonista {:mvn/version "1.0.2"}}}
+        metosin/jsonista {:mvn/version "1.0.2"}
+        ;; The router setup the services with a JSON interface share (ADR-0011, ADR-0020):
+        ;; routes as data, content negotiation and coercion with malli.
+        metosin/reitit-ring {:mvn/version "0.11.0"}
+        metosin/reitit-malli {:mvn/version "0.11.0"}
+        metosin/reitit-middleware {:mvn/version "0.11.0"}
+        metosin/muuntaja {:mvn/version "0.6.12"}
+        ;; The server the services listen with (`pulse.platform.system`)
+        ring/ring-core {:mvn/version "1.15.5"}
+        ring/ring-jetty-adapter {:mvn/version "1.15.5"}}}

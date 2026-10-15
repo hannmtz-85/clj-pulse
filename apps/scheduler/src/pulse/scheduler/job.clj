@@ -10,13 +10,17 @@
             [malli.error :as me]
             [pulse.scheduler.schedule :as schedule]))
 
+(def id-pattern
+  "What the name of a job's id looks like: lower case letters, digits and hyphens, starting with
+  a letter, so that it can sit in a URL path and a log line."
+  #"[a-z][a-z0-9-]*")
+
 (defn- id?
-  "A keyword with no namespace and a name that can sit in a URL path and a log line: lower case
-  letters, digits and hyphens, starting with a letter."
+  "A keyword with no namespace and a name that matches `id-pattern`."
   [x]
   (and (keyword? x)
        (nil? (namespace x))
-       (boolean (re-matches #"[a-z][a-z0-9-]*" (name x)))))
+       (boolean (re-matches id-pattern (name x)))))
 
 (def schema
   [:map {:closed true}
