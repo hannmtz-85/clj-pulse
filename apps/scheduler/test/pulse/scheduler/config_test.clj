@@ -6,6 +6,7 @@
             [clojure.walk :as walk]
             [integrant.core :as ig]
             [pulse.platform.config :as platform]
+            [pulse.scheduler.authz :as authz]
             [pulse.scheduler.config :as config]))
 
 (def ^:private components
@@ -80,6 +81,29 @@
         (is (some? client))
         (is (false? (:publicClient client)))
         (is (true? (:serviceAccountsEnabled client)))))))
+
+(deftest the-realm-gives-the-api-a-token-that-is-for-this-scheduler-and-for-nobody-else
+  ;; ADR-0025: the api asks the scheduler for its jobs with the token of its own service account. The
+  ;; audience the scheduler requires (above) is the one that client's mapper puts in the token, and the
+  ;; audience of the api is not, so that the api would not accept its own token.
+  (let [required (get-in (load-config) [:pulse.scheduler/verifier :audience])
+        client (first (filter #(= "pulse-api" (:clientId %)) (:clients (realm))))
+        audiences (->> (:protocolMappers client)
+                       (filter #(= "oidc-audience-mapper" (:protocolMapper %)))
+                       (map #(get-in % [:config :included.custom.audience])))
+        account (first (filter #(= "service-account-pulse-api" (:username %)) (:users (realm))))]
+    (is (some? client))
+    (is (false? (:publicClient client)))
+    (is (true? (:serviceAccountsEnabled client)))
+    (is (false? (:standardFlowEnabled client)) "it is a service, nobody signs in with it")
+    (is (false? (:directAccessGrantsEnabled client)))
+    (is (= [required] audiences) "its token is for the scheduler, and for nobody else")
+    (is (not-any? #{"pulse-api"} audiences))
+    (is (= "${API_CLIENT_SECRET}" (:secret client)) "a placeholder that Keycloak resolves, never a secret")
+    (testing "its service account has the one role the scheduler lets read the jobs"
+      (is (= "pulse-api" (:serviceAccountClientId account)))
+      (is (= #{"api-service"} (set (filter authz/roles (:realmRoles account)))))
+      (is (contains? (get authz/rules :jobs/read) "api-service")))))
 
 (deftest the-secret-of-the-scheduler-comes-from-the-environment-and-is-never-printed
   (let [cfg (load-config)

@@ -142,9 +142,25 @@
        ["pulse-docs refuses a return address outside /docs/" [["rejected" false]]]
        (catch Exception _ ["pulse-docs refuses a return address outside /docs/" [["rejected" true]]]))]))
 
+(defn- api-service-checks
+  "What the token of the api's own service account must say (ADR-0025): the one application role
+  `api-service`, the scheduler as its audience and not the api itself, and the client it was
+  issued to."
+  []
+  (let [label "service account pulse-api"]
+    (try
+      (let [claims (-> (client-credentials "pulse-api" (env/get-var "API_CLIENT_SECRET"))
+                       :access_token decode-jwt)]
+        [label
+         [["role" (= #{"api-service"} (set (filter app-roles (get-in claims [:realm_access :roles]))))]
+          ["audience" (contains? (audiences claims) realm/scheduler-audience)]
+          ["not for the api itself" (not (contains? (audiences claims) realm/audience))]
+          ["azp" (= "pulse-api" (:azp claims))]]])
+      (catch Exception e [label [["sign-in" false] ["error" (ex-message e)]]]))))
+
 (defn smoke
-  "Signs in as every demo user and as the scheduler service account, and checks the claims
-  the API relies on. Exits 1 on any failure."
+  "Signs in as every demo user and as the service accounts of the scheduler and the api, and checks
+  the claims the services rely on. Exits 1 on any failure."
   []
   (let [password (env/get-var "DEMO_USER_PASSWORD")
         results (concat
@@ -163,6 +179,7 @@
                         ["audience" (contains? (audiences claims) realm/audience)]
                         ["azp" (= "pulse-scheduler" (:azp claims))]]])
                     (catch Exception e ["service account pulse-scheduler" [["sign-in" false] ["error" (ex-message e)]]]))
+                  (api-service-checks)
                   (try
                     (login {:username "ana.garcia@pulse.test" :password "definitely-wrong"})
                     ["wrong password is rejected" [["rejected" false]]]
@@ -177,17 +194,18 @@
       (println "All sign-ins and claims verified"))))
 
 (defn print-token
-  "Prints an access token for `who`: a demo user's username, or `scheduler` for its service account.
-  A user's token is the one the clinical workspace gets (client `pulse-spa`), or with `pulse-docs` as
-  `client`, the one Swagger UI gets."
+  "Prints an access token for `who`: a demo user's username, or `scheduler` or `api` for the service
+  account of one of them. A user's token is the one the clinical workspace gets (client `pulse-spa`),
+  or with `pulse-docs` as `client`, the one Swagger UI gets."
   ([who] (print-token who nil))
   ([who client]
    (when (or (str/blank? who) (not (contains? #{nil "pulse-spa" "pulse-docs"} client)))
-     (println "usage: bb token <username | scheduler> [pulse-docs]")
+     (println "usage: bb token <username | scheduler | api> [pulse-docs]")
      (System/exit 2))
    (println (:access_token
              (cond
                (= who "scheduler") (client-credentials "pulse-scheduler" (env/get-var "SCHEDULER_CLIENT_SECRET"))
+               (= who "api") (client-credentials "pulse-api" (env/get-var "API_CLIENT_SECRET"))
                (= client "pulse-docs") (login {:username who :password (env/get-var "DEMO_USER_PASSWORD")
                                                :client-id "pulse-docs" :redirect-uri docs-redirect})
                :else (login {:username who :password (env/get-var "DEMO_USER_PASSWORD")}))))))

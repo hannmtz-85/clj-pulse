@@ -93,19 +93,26 @@
 (defn request
   "Makes a request and returns `{:status n :body parsed}`, whatever the status: the body is parsed
   JSON with keyword keys, or nil when there is none. `request` is `{:method :get :path \"/api/me\"
-  :query {...} :body {...}}`; a body is sent as JSON. Throws what is said at the top for a service
-  that cannot be reached or a token that cannot be had."
-  [{:keys [base-url timeout-ms ^HttpClient http] own-token :token} {:keys [method path query body]}]
+  :query {...} :body {...} :headers {...}}`; a body is sent as JSON, and `:headers` are more
+  headers to send, such as `X-Request-Id` to carry the id of a request from one service to the
+  other. The ones this client sets itself (`Authorization`, `Accept` and `Content-Type`) are not
+  for the caller to change. Throws what is said at the top for a service that cannot be reached or
+  a token that cannot be had."
+  [{:keys [base-url timeout-ms ^HttpClient http] own-token :token} {:keys [method path query body headers]}]
   (let [query (when (map? query) (query-string query))
         uri (URI/create (str base-url path (when query (str "?" query))))
         publisher (if (some? body)
                     (HttpRequest$BodyPublishers/ofString (json/write-value-as-string body))
                     (HttpRequest$BodyPublishers/noBody))
-        ^HttpRequest$Builder builder (-> (HttpRequest/newBuilder uri)
-                                         (.timeout (Duration/ofMillis timeout-ms))
-                                         (.header "Accept" "application/json")
-                                         (.header "Authorization" (str "Bearer " (token/access-token own-token))))
-        request (-> (cond-> builder (some? body) (.header "Content-Type" "application/json"))
+        ;; the caller's headers first, so that the three below replace any of the same name
+        ^HttpRequest$Builder builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (name k) (str v)))
+                                                (-> (HttpRequest/newBuilder uri)
+                                                    (.timeout (Duration/ofMillis timeout-ms)))
+                                                (or headers {}))
+        ^HttpRequest$Builder builder (-> builder
+                                         (.setHeader "Accept" "application/json")
+                                         (.setHeader "Authorization" (str "Bearer " (token/access-token own-token))))
+        request (-> (cond-> builder (some? body) (.setHeader "Content-Type" "application/json"))
                     (.method (str/upper-case (name method)) publisher)
                     (.build))
         ^HttpResponse response (try

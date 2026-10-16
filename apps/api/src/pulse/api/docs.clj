@@ -57,7 +57,7 @@
                                                          :schema {:type "string"}}})
    "Forbidden" (problem "The token is valid, but its owner may not do this: their role does not allow it, or the record is outside their scope.")
    "NotFound" (problem "There is no such resource.")
-   "ServerError" (problem "The api could not complete the request. `502`: the FHIR server could not be reached or failed. `503`: the identity provider's keys are not available, and `Retry-After` says when to try again. `504`: the FHIR server did not answer in time. `500`: an unexpected error.")})
+   "ServerError" (problem "The api could not complete the request. `502`: a service it depends on could not be reached or failed: the FHIR server, or for the administration endpoints the scheduler. `503`: the identity provider's keys are not available, and `Retry-After` says when to try again. `504`: that service did not answer in time. `500`: an unexpected error.")})
 
 (def ^:private description
   (str/join
@@ -73,7 +73,8 @@
    {:name "Patients" :description "The panel, and one patient's record and summary."}
    {:name "Observations" :description "Readings of vital signs: blood pressure, heart rate, oxygen saturation, glucose, weight and temperature."}
    {:name "Appointments" :description "Asking for an appointment, and a clinician's answer."}
-   {:name "Alerts" :description "What the rules engine raised about a patient, and acknowledging it."}])
+   {:name "Alerts" :description "What the rules engine raised about a patient, and acknowledging it."}
+   {:name "Administration" :description "How the clinic's own machinery is doing, for the administrator: the scheduler's jobs."}])
 
 (defn- root
   "What describes the api as a whole, in the route data of the document: Reitit puts it at the top

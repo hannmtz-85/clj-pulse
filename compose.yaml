@@ -48,6 +48,7 @@ services:
       # Consumed by the ${VAR} placeholders of the realm import file.
       WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:?run "bb env:init" first}
       SCHEDULER_CLIENT_SECRET: ${SCHEDULER_CLIENT_SECRET:?run "bb env:init" first}
+      API_CLIENT_SECRET: ${API_CLIENT_SECRET:?run "bb env:init" first}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:?run "bb env:init" first}
     volumes:
       # The import is skipped when the realm already exists: use `bb reset` to reload it.

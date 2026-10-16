@@ -176,9 +176,9 @@
         (is (= 401 (:status (call api :get "/jobs" :token token))) label)))))
 
 ;; ---------------------------------------------------------------------------
-;; Authorization: only the administrator
+;; Authorization: the administrator, and the api for the status
 
-(deftest only-the-administrator-may-see-the-jobs-and-run-them
+(deftest nobody-else-may-see-the-jobs-and-only-the-administrator-may-run-them
   (with-scheduler {:jobs jobs}
     (fn [api]
       (doseq [who [:rivera :ana :scheduler]]
@@ -192,22 +192,45 @@
       (is (= 200 (:status (call api :get "/jobs" :token (h/token-for :admin)))))
       (is (= 202 (:status (call api :post "/jobs/every-minute/run" :token (h/token-for :admin))))))))
 
+(deftest the-api-may-see-the-jobs-and-not-run-them
+  ;; ADR-0025: the api asks for the status with its own service account, whose one role is
+  ;; `api-service`. Starting a job is for the administrator alone, and the api has no way to ask.
+  (with-scheduler {:jobs jobs}
+    (fn [api]
+      (let [list (call api :get "/jobs" :token (h/token-for :api))
+            run (call api :post "/jobs/every-minute/run" :token (h/token-for :api))]
+        (is (= 200 (:status list)))
+        (is (= ["every-minute" "morning"] (map :id (:json list))))
+        (is (= 403 (:status run)))
+        (is (= "You are not allowed to do this." (get-in run [:json :detail])) "and no word on why")
+        (is (nil? (get-in (executor/job-status (:executor api) :every-minute) [:last-run])) "nothing was run"))
+      (testing "and only with a token that is for the scheduler: the audience of the api is not enough"
+        (is (= 401 (:status (call api :get "/jobs" :token (h/token-for :api :aud ["pulse-api" "account"])))))
+        (is (= 200 (:status (call api :get "/jobs" :token (h/token-for :api :aud ["pulse-scheduler" "account"])))))))))
+
 (deftest every-decision-is-an-audit-event
   (with-scheduler {:jobs jobs}
     (fn [api]
       (let [allowed (call api :get "/jobs" :token (h/token-for :admin))
             denied (call api :post "/jobs/every-minute/run" :token (h/token-for :rivera))
+            by-the-api (call api :get "/jobs" :token (h/token-for :api))
             [a] (h/audit-events allowed)
-            [d] (h/audit-events denied)]
+            [d] (h/audit-events denied)
+            [s] (h/audit-events by-the-api)]
         (is (= 1 (count (h/audit-events allowed))))
         (is (= :info (:level a)))
-        (is (= {:actor {:subject "u-admin" :username "admin@pulse.test" :roles ["clinic-admin"] :client "pulse-api"}
+        (is (= {:actor {:subject "u-admin" :username "admin@pulse.test" :roles ["clinic-admin"] :client "pulse-spa"}
                 :action :jobs/read :outcome :allowed :method "GET" :path "/jobs"}
                (:data a)))
         (is (= :warn (:level d)))
-        (is (= {:actor {:subject "u-rivera" :username "dr.rivera@pulse.test" :roles ["practitioner"] :client "pulse-api"}
+        (is (= {:actor {:subject "u-rivera" :username "dr.rivera@pulse.test" :roles ["practitioner"] :client "pulse-spa"}
                 :action :jobs/run :outcome :denied :method "POST" :path "/jobs/every-minute/run"}
-               (:data d)))))))
+               (:data d)))
+        (testing "the api is named as the client and as its role, so the trail says who asked"
+          (is (= :info (:level s)))
+          (is (= {:actor {:subject "u-api" :username "service-account-pulse-api" :roles ["api-service"] :client "pulse-api"}
+                  :action :jobs/read :outcome :allowed :method "GET" :path "/jobs"}
+                 (:data s))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; GET /jobs

@@ -9,12 +9,15 @@
             [pulse.fhir.synthetic :as synthetic]
             [pulse.platform.system :as platform]))
 
-;; Logging, the key cache, the verifier and the server start and stop as in every Pulse service:
-;; the methods are in pulse.platform.system, and these keys are those components.
+;; Logging, the key cache, the verifier, the server, the keeper of the service's own token and its
+;; client of the scheduler start and stop as in every Pulse service: the methods are in
+;; pulse.platform.system, and these keys are those components.
 (derive :pulse.api/logging :pulse.platform/logging)
 (derive :pulse.api/jwks :pulse.platform/jwks)
 (derive :pulse.api/verifier :pulse.platform/verifier)
 (derive :pulse.api/server :pulse.platform/server)
+(derive :pulse.api/token :pulse.platform/token-source)
+(derive :pulse.api/scheduler :pulse.platform/service-client)
 
 (defmethod ig/init-key :pulse.api/fhir [_ {:keys [kind] :as options}]
   (case kind

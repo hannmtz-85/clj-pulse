@@ -78,16 +78,26 @@
   (with-dotenv text
     (fn [path] (dev/config {:profile profile :dotenv path :process-env {}}))))
 
+(def ^:private both-secrets
+  "The `.env` of a machine where `bb up` has been run: a secret for each of the two services."
+  "SCHEDULER_CLIENT_SECRET=a-secret-from-dotenv\nAPI_CLIENT_SECRET=the-apis-secret-from-dotenv\n")
+
 (deftest the-configuration-has-the-components-of-both-apps
-  (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=a-secret-from-dotenv\n")]
+  (let [cfg (config :dev both-secrets)]
     (is (every? #(contains? cfg %) [:pulse.api/server :pulse.api/handler :pulse.api/fhir
+                                    :pulse.api/token :pulse.api/scheduler
                                     :pulse.scheduler/server :pulse.scheduler/executor :pulse.scheduler/jobs
                                     :pulse.scheduler/api :pulse.scheduler/token]))
     (is (= 4000 (get-in cfg [:pulse.api/server :port])))
     (is (= 5000 (get-in cfg [:pulse.scheduler/server :port])))
-    (testing "the secret of the scheduler comes from the file, and is a secret"
+    (testing "the secrets of the two come from the file, and are secrets"
       (is (= "a-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret]))))
-      (is (platform/secret? (get-in cfg [:pulse.scheduler/token :client-secret]))))
+      (is (platform/secret? (get-in cfg [:pulse.scheduler/token :client-secret])))
+      (is (= "the-apis-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.api/token :client-secret]))))
+      (is (platform/secret? (get-in cfg [:pulse.api/token :client-secret]))))
+    (testing "each asks the other where the other is by default: the api's port, and the scheduler's"
+      (is (= "http://localhost:4000" (get-in cfg [:pulse.scheduler/api :base-url])))
+      (is (= "http://localhost:5000" (get-in cfg [:pulse.api/scheduler :base-url]))))
     (testing "the scheduler's client of the api comes after the api's server"
       (is (= (ig/ref :pulse.api/server) (get-in cfg [:pulse.scheduler/api :after]))))
     (testing "each reaches HAPI by itself"
@@ -100,7 +110,7 @@
 
 (deftest a-server-in-memory-is-the-schedulers-too
   (doseq [profile [:lite :test]
-          :let [cfg (config profile "SCHEDULER_CLIENT_SECRET=x\n")]]
+          :let [cfg (config profile both-secrets)]]
     (testing profile
       (is (= :memory (get-in cfg [:pulse.api/fhir :kind])))
       (is (= (ig/ref :pulse.api/fhir) (:pulse.scheduler/fhir cfg))
@@ -112,25 +122,36 @@
     (is (false? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])))))
 
 (deftest the-simulator-can-be-switched-off-with-a-variable
-  (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=x\nSCHEDULER_SIMULATOR=false\n")]
+  (let [cfg (config :dev (str both-secrets "SCHEDULER_SIMULATOR=false\n"))]
     (is (false? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])))
     (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])) "and the rules go on")))
 
 (deftest the-reminders-can-be-switched-off-with-a-variable
-  (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=x\nSCHEDULER_REMINDERS=false\n")]
+  (let [cfg (config :dev (str both-secrets "SCHEDULER_REMINDERS=false\n"))]
     (is (false? (get-in cfg [:pulse.scheduler/jobs :send-reminders :enabled?])))
     (is (true? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])) "and the devices go on")
     (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])) "and so do the rules")))
 
 (deftest what-a-test-says-is-read-before-dotenv
-  (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" "from-the-test"}]
-    (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=from-dotenv\n")]
-      (is (= "from-the-test" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret])))))))
+  (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" "from-the-test" "API_CLIENT_SECRET" "api-from-the-test"}]
+    (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=from-dotenv\nAPI_CLIENT_SECRET=api-from-dotenv\n")]
+      (is (= "from-the-test" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret]))))
+      (is (= "api-from-the-test" (platform/reveal (get-in cfg [:pulse.api/token :client-secret])))))))
 
-(deftest without-the-secret-the-apps-say-which-variable-to-set
-  (let [e (try (config :dev "OTHER=1\n") (catch clojure.lang.ExceptionInfo e e))]
-    (is (platform/invalid-config? e))
-    (is (re-find #"SCHEDULER_CLIENT_SECRET" (ex-message e)))))
+(deftest without-the-secrets-the-apps-say-which-variable-to-set
+  (testing "with neither, the api, which is read first, says its own"
+    (let [e (try (config :dev "OTHER=1\n") (catch clojure.lang.ExceptionInfo e e))]
+      (is (platform/invalid-config? e))
+      (is (re-find #"API_CLIENT_SECRET" (ex-message e)))))
+  (testing "with the api's and not the scheduler's, the scheduler's"
+    (let [e (try (config :dev "API_CLIENT_SECRET=x\n") (catch clojure.lang.ExceptionInfo e e))]
+      (is (platform/invalid-config? e))
+      (is (re-find #"SCHEDULER_CLIENT_SECRET" (ex-message e)))))
+  (testing "with the scheduler's and not the api's, the api's, and how to get it"
+    (let [e (try (config :dev "SCHEDULER_CLIENT_SECRET=x\n") (catch clojure.lang.ExceptionInfo e e))]
+      (is (platform/invalid-config? e))
+      (is (re-find #"API_CLIENT_SECRET" (ex-message e)))
+      (is (re-find #"bb env:init" (ex-message e))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The acceptance of Phase 5: devices, alerts, inbox
@@ -147,19 +168,24 @@
 
 (defn- with-dev
   "Calls `(f {:system s :api-url url})` with the api and the scheduler started as one system: the test
-  profile, a fake identity provider that gives the scheduler a token the api accepts, the api on a
-  port that is known, the jobs switched on (and run by the test, not by a schedule that is quiet), and no
+  profile, a fake identity provider that gives each of the two the token of its own service account
+  (the scheduler's is for the api, the api's for the scheduler), the api and the scheduler on ports
+  that are known, the jobs switched on (and run by the test, not by a schedule that is quiet), and no
   readings in the FHIR server but those that the simulator sends."
   [f]
   (let [idp (idp/start! [h/signing-key])
         port (free-port)
         api-url (str "http://127.0.0.1:" port)
+        scheduler-port (free-port)
         cfg (-> (dev/config {:profile :test :dotenv "there-is-no-such-file.env" :process-env {}})
                 (assoc-in [:pulse.api/jwks :uri] (:uri idp))
                 (assoc-in [:pulse.api/verifier :issuer] h/issuer)
                 (assoc-in [:pulse.api/server :port] port)
+                (assoc-in [:pulse.api/token :token-uri] (:token-uri idp))
+                (assoc-in [:pulse.api/scheduler :base-url] (str "http://127.0.0.1:" scheduler-port))
                 (assoc-in [:pulse.scheduler/jwks :uri] (:uri idp))
                 (assoc-in [:pulse.scheduler/verifier :issuer] h/issuer)
+                (assoc-in [:pulse.scheduler/server :port] scheduler-port)
                 (assoc-in [:pulse.scheduler/token :token-uri] (:token-uri idp))
                 (assoc-in [:pulse.scheduler/api :base-url] api-url)
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
@@ -168,7 +194,11 @@
                 (assoc-in [:pulse.scheduler/jobs :simulate-devices :schedule] quiet)
                 (assoc-in [:pulse.scheduler/jobs :send-reminders :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :send-reminders :schedule] quiet))]
-    (idp/serve-token! idp {:body (json-text {:access_token (h/token-for :scheduler) :expires_in 300 :token_type "Bearer"})})
+    (idp/serve-token! idp {:answer (fn [request]
+                                     (json-text {:access_token (h/token-for (case (idp/client-id-of request)
+                                                                              "pulse-scheduler" :scheduler
+                                                                              "pulse-api" :api-service))
+                                                 :expires_in 300 :token_type "Bearer"}))})
     (let [system (ig/init cfg)]
       (try
         (let [fhir (:pulse.api/fhir system)]
@@ -264,3 +294,34 @@
         (testing "once: the job goes on running and the reminder is not sent again"
           (is (= {:appointments 1 :sent 0 :already-sent 1 :failed 0} (run-job! system :send-reminders)))
           (is (= 1 (count (reminders)))))))))
+
+(deftest the-administrator-sees-the-jobs-of-the-scheduler-through-the-api
+  ;; ADR-0025, the last step of Phase 5: the api asks the real scheduler, in the same JVM and over HTTP,
+  ;; with the token of its own service account, and answers the administrator
+  (with-dev
+    (fn [{:keys [system api-url]}]
+      (let [jobs-of (fn [who] (get-json api-url "/api/admin/jobs" who))
+            by-id (fn [r id] (first (filter #(= id (:id %)) (get-in r [:json :items]))))]
+        (testing "the three jobs that are switched on, in the order of the catalogue, none of which has run"
+          (let [r (jobs-of :admin)]
+            (is (= 200 (:status r)))
+            (is (= 3 (get-in r [:json :total])))
+            (is (= ["evaluate-rules" "simulate-devices" "send-reminders"] (map :id (get-in r [:json :items]))))
+            (is (every? #(and (= "idle" (:state %))
+                              (nil? (:lastRun %))
+                              (= {:ok 0 :failed 0 :interrupted 0 :skipped 0} (:counts %)))
+                        (get-in r [:json :items])))
+            (is (= {:type "interval" :everyMs 604800000} (:schedule (by-id r "send-reminders"))) "as it was configured")))
+        (testing "after a run by hand, the status says how it went"
+          (run-job! system :send-reminders)
+          (let [job (by-id (jobs-of :admin) "send-reminders")]
+            (is (= "manual" (get-in job [:lastRun :trigger])))
+            (is (= "ok" (get-in job [:lastRun :outcome])))
+            (is (= {:appointments 1 :sent 1 :alreadySent 0 :failed 0} (get-in job [:lastRun :result])))
+            (is (= {:ok 1 :failed 0 :interrupted 0 :skipped 0} (:counts job)))))
+        (testing "and nobody else sees them"
+          (is (= 403 (:status (jobs-of :rivera))))
+          (is (= 403 (:status (jobs-of :ana))))
+          (is (= 403 (:status (jobs-of :scheduler))))
+          (is (= 401 (:status (jobs-of :api-service))) "the token of the api's own service account is for the scheduler")
+          (is (= 401 (:status (http/get (str api-url "/api/admin/jobs") {:throw false})))))))))

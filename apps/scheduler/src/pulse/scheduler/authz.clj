@@ -21,12 +21,14 @@
   "The application roles of the `pulse` realm (see tools/realm.clj). A token carries them in
   `realm_access.roles` next to Keycloak's own (`default-roles-pulse`, `offline_access`, ...),
   which mean nothing here and are dropped."
-  #{"patient" "practitioner" "clinic-admin" "rules-engine"})
+  #{"patient" "practitioner" "clinic-admin" "rules-engine" "api-service"})
 
 (def rules
   "The roles that may do each action. The names are those the api uses for the same things
-  (`:jobs/read` is the action of its `GET /api/admin/jobs`)."
-  {:jobs/read #{"clinic-admin"}
+  (`:jobs/read` is the action of its `GET /api/admin/jobs`). The api asks for the status with its
+  own service account, which has the role `api-service` and no other (ADR-0025); starting a job is
+  for the administrator alone, and the api has no way to ask for it."
+  {:jobs/read #{"clinic-admin" "api-service"}
    :jobs/run #{"clinic-admin"}})
 
 (defn caller

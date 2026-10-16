@@ -86,6 +86,29 @@
       (is (= "false" (:body (first @(:requests service)))))
       (is (= "application/json" (get-in (first @(:requests service)) [:headers "content-type"]))))))
 
+(deftest more-headers-can-be-sent-and-the-ones-the-client-sets-cannot-be-changed
+  (with-service (fn [_] {:body (json-text {:ok true})})
+    (fn [c service _ _]
+      (testing "a header of the caller goes with the request, as the id of a request does from one service to the other"
+        (client/call c {:method :get :path "/jobs" :headers {"X-Request-Id" "req-123"}})
+        (let [request (first @(:requests service))]
+          (is (= "req-123" (get-in request [:headers "x-request-id"])))
+          (is (= (str "Bearer " the-token "-1") (get-in request [:headers "authorization"])) "with the token, as always")))
+      (testing "a keyword is a name too, and a value that is not text is written"
+        (client/call c {:method :get :path "/jobs" :headers {:x-trace 42}})
+        (is (= "42" (get-in (second @(:requests service)) [:headers "x-trace"]))))
+      (testing "none, or an empty map, is nothing"
+        (client/call c {:method :get :path "/jobs" :headers nil})
+        (client/call c {:method :get :path "/jobs" :headers {}})
+        (is (= 4 (count @(:requests service)))))
+      (testing "but the three the client sets itself are its own, whatever the case of the name"
+        (client/call c {:method :post :path "/jobs" :body {:a 1}
+                        :headers {"Authorization" "Bearer somebody-elses" "accept" "text/html" "CONTENT-TYPE" "text/plain"}})
+        (let [request (last @(:requests service))]
+          (is (= (str "Bearer " the-token "-1") (get-in request [:headers "authorization"])))
+          (is (= "application/json" (get-in request [:headers "accept"])))
+          (is (= "application/json" (get-in request [:headers "content-type"]))))))))
+
 (deftest a-trailing-slash-in-the-base-url-is-dropped
   (let [service (stub/start! (fn [_] {:body (json-text {})}))
         [own-token _ _] (keeper)]

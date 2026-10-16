@@ -14,13 +14,22 @@
             [jsonista.core :as json]
             [pulse.api.config :as config]
             [pulse.api.system :as system]
+            [pulse.dev :as dev]
             [pulse.fhir.client :as fc]
             [pulse.fhir.client.http :as fhir-http]
             [pulse.fhir.observation :as obs]
             [pulse.fhir.outcome :as outcome]
-            [pulse.fhir.resource :as r])
+            [pulse.fhir.resource :as r]
+            [pulse.platform.config :as platform-config])
   (:import (java.time Duration Instant)
            (java.time.temporal ChronoUnit)))
+
+(defn- dev-config
+  "The configuration of the `dev` profile, with the variables that `.env` has and the process lacks, as
+  `bb dev` reads them: the api needs the secret of its own client (ADR-0025)."
+  []
+  (binding [platform-config/*environment* (dev/environment ".env")]
+    (config/load-config {:profile :dev})))
 
 (defn- token-for
   "An access token for `who`, issued to the client of the workspace or, with `client`, to another
@@ -64,7 +73,7 @@
               (Duration/ofMinutes (+ (* days 24 60) (or minutes 0))))))
 
 (defn- with-running-api [f]
-  (let [cfg (-> (config/load-config {:profile :dev})
+  (let [cfg (-> (dev-config)
                 (assoc-in [:pulse.api/server :port] 0)
                 (assoc-in [:pulse.api/logging :level] :warn))
         running (system/start cfg)]
@@ -180,7 +189,7 @@
           (is (= 404 (:status (summary "dr.rivera@pulse.test" "pt-ghost")))))))))
 
 (deftest ^:integration the-observations-against-the-real-stack
-  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+  (let [hapi (fhir-http/client {:base-url (get-in (dev-config) [:pulse.api/fhir :base-url])})
         recorded (atom [])]
     (try
       (with-running-api
@@ -263,7 +272,7 @@
           (fc/delete! hapi "Observation" id))))))
 
 (deftest ^:integration the-appointments-against-the-real-stack
-  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+  (let [hapi (fhir-http/client {:base-url (get-in (dev-config) [:pulse.api/fhir :base-url])})
         created (atom [])]
     (try
       (with-running-api
@@ -360,7 +369,7 @@
   ;; The cohort has no alerts (the scheduler raises them), so the test raises three in HAPI and
   ;; removes them at the end. Only those whose id starts with `it-flag-` are looked at, so that
   ;; alerts raised by anything else do not matter.
-  (let [hapi (fhir-http/client {:base-url (get-in (config/load-config {:profile :dev}) [:pulse.api/fhir :base-url])})
+  (let [hapi (fhir-http/client {:base-url (get-in (dev-config) [:pulse.api/fhir :base-url])})
         raised (atom [])
         raise! (fn [id patient text minutes-ago]
                  (fc/put! hapi (r/flag {:id id :patient patient :text text :start (in-days 0 (- minutes-ago))}))

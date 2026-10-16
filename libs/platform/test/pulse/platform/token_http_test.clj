@@ -61,6 +61,22 @@
           (testing "the id and the secret are form-encoded first, as RFC 6749 says, and then sent as Basic"
             (is (= (str "Basic " (last secret-forms)) (get-in request [:headers "authorization"])))))))))
 
+(deftest an-identity-provider-asked-by-two-clients-can-answer-each-its-own
+  ;; the fake's way to be the endpoint that the scheduler and the api both ask (ADR-0025)
+  (with-idp
+    (fn [server]
+      (idp/serve-token! server {:answer (fn [request]
+                                          (str "{\"access_token\":\"token-of-" (idp/client-id-of request)
+                                               "\",\"expires_in\":300,\"token_type\":\"Bearer\"}"))})
+      (let [[scheduler _] (source-for server :client-id "pulse-scheduler")
+            [api _] (source-for server :client-id "pulse-api")]
+        (is (= "token-of-pulse-scheduler" (token/access-token scheduler)))
+        (is (= "token-of-pulse-api" (token/access-token api)))
+        (is (= ["pulse-scheduler" "pulse-api"] (map idp/client-id-of (idp/token-requests server)))))))
+  (testing "and a request with no credentials is nobody's"
+    (is (nil? (idp/client-id-of {:headers {}})))
+    (is (nil? (idp/client-id-of {:headers {"authorization" "Bearer abc"}})))))
+
 (deftest a-client-id-with-a-space-is-form-encoded-too
   (with-idp
     (fn [server]

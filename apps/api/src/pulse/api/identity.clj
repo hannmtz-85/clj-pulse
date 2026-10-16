@@ -7,7 +7,7 @@
   "The application roles of the `pulse` realm (see tools/realm.clj). A token carries them in
   `realm_access.roles` next to Keycloak's own (`default-roles-pulse`, `offline_access`, ...),
   which mean nothing here and are dropped."
-  #{:patient :practitioner :clinic-admin :rules-engine})
+  #{:patient :practitioner :clinic-admin :rules-engine :api-service})
 
 (defn from-claims
   "The identity behind `claims` (keyword keys, as `jwt/verify` returns them):

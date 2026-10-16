@@ -16,6 +16,8 @@
    [:pulse.api/logging system/logging-schema]
    [:pulse.api/jwks system/jwks-schema]
    [:pulse.api/verifier system/verifier-schema]
+   [:pulse.api/token (system/token-source-schema "set API_CLIENT_SECRET (`bb env:init` adds it to .env)")]
+   [:pulse.api/scheduler system/service-client-schema]
    [:pulse.api/fhir
     [:multi {:dispatch :kind}
      [:http [:map {:closed true}
@@ -29,6 +31,7 @@
      [:logging ref-schema]
      [:verifier ref-schema]
      [:fhir ref-schema]
+     [:scheduler ref-schema]
      [:realm [:string {:min 1}]]
      [:issuer http-url]
      [:cors [:map {:closed true}

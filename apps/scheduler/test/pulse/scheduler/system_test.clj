@@ -58,7 +58,7 @@
 
 (defn- token [& {:keys [aud roles] :or {aud ["pulse-scheduler"] roles ["clinic-admin"]}}]
   (let [now (quot (System/currentTimeMillis) 1000)]
-    (idp/mint k1 {:iss issuer :aud aud :sub "u-admin" :typ "Bearer" :azp "pulse-api"
+    (idp/mint k1 {:iss issuer :aud aud :sub "u-admin" :typ "Bearer" :azp "pulse-spa"
                   :preferred_username "admin@pulse.test"
                   :iat now :exp (+ now 300)
                   :realm_access {:roles roles}})))
@@ -101,6 +101,8 @@
           (let [r (get-json (str base-url "/jobs") :token (token))]
             (is (= 200 (:status r)))
             (is (= [] (:json r)))))
+        (testing "so does the api, with the token of its own service account"
+          (is (= 200 (:status (get-json (str base-url "/jobs") :token (token :roles ["api-service"]))))))
         (testing "anyone else is forbidden"
           (is (= 403 (:status (get-json (str base-url "/jobs") :token (token :roles ["practitioner"]))))))
         (testing "the security headers arrive, and the server does not announce its version"

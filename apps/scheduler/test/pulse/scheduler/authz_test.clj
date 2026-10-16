@@ -21,7 +21,7 @@
   (testing "a token with no roles at all is still a caller"
     (is (= #{} (:roles (authz/caller (dissoc keycloak-claims :realm_access)))))))
 
-(deftest only-the-administrator-may-do-what-the-rules-name
+(deftest the-administrator-may-do-what-the-rules-name
   (doseq [action [:jobs/read :jobs/run]
           [roles allowed?] [[#{"clinic-admin"} true]
                             [#{"clinic-admin" "practitioner"} true]
@@ -30,6 +30,18 @@
                             [#{"rules-engine"} false]
                             [#{} false]]]
     (is (= allowed? (authz/permits? {:roles roles} action)) (str action " " roles))))
+
+(deftest the-api-may-read-the-status-and-start-nothing
+  ;; ADR-0025: its service account has the role api-service and no other
+  (is (true? (authz/permits? {:roles #{"api-service"}} :jobs/read)))
+  (is (false? (authz/permits? {:roles #{"api-service"}} :jobs/run)))
+  (testing "the rules engine, the other service, is neither"
+    (is (false? (authz/permits? {:roles #{"rules-engine"}} :jobs/read)))
+    (is (false? (authz/permits? {:roles #{"rules-engine"}} :jobs/run))))
+  (testing "it is a role the scheduler understands, from a token as Keycloak makes it"
+    (is (= #{"api-service"}
+           (:roles (authz/caller {:sub "u-api" :azp "pulse-api"
+                                  :realm_access {:roles ["default-roles-pulse" "offline_access" "api-service"]}}))))))
 
 (deftest what-has-no-rule-is-permitted-to-nobody
   (is (false? (authz/permits? {:roles #{"clinic-admin"}} :jobs/delete)))

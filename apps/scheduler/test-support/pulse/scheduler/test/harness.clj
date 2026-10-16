@@ -41,7 +41,7 @@
   (idp/mint signing-key
             (into {} (remove (comp nil? val))
                   (merge {:iss issuer :aud [audience] :sub "u-1" :typ "Bearer"
-                          :azp "pulse-api" :preferred_username "admin@pulse.test"
+                          :azp "pulse-spa" :preferred_username "admin@pulse.test"
                           :iat (now-s) :exp (+ (now-s) 300)
                           :realm_access {:roles ["default-roles-pulse" "clinic-admin" "offline_access"]}}
                          overrides))))
@@ -52,10 +52,13 @@
    :rivera {:sub "u-rivera" :preferred_username "dr.rivera@pulse.test" :roles [:practitioner]}
    :ana {:sub "u-ana" :preferred_username "ana.garcia@pulse.test" :roles [:patient]}
    :scheduler {:sub "u-scheduler" :preferred_username "service-account-pulse-scheduler"
-               :azp "pulse-scheduler" :roles [:rules-engine]}})
+               :azp "pulse-scheduler" :roles [:rules-engine]}
+   ;; the api's own service account: its token is for the scheduler and for nobody else (ADR-0025)
+   :api {:sub "u-api" :preferred_username "service-account-pulse-api"
+         :azp "pulse-api" :roles [:api-service]}})
 
 (defn token-for
-  "A token for the scheduler for one of the demo `people` (:admin, :rivera, :ana, :scheduler).
+  "A token for the scheduler for one of the demo `people` (:admin, :rivera, :ana, :scheduler, :api).
   Further arguments are claims to change."
   [who & {:as overrides}]
   (let [{:keys [roles] :as person} (get people who)]

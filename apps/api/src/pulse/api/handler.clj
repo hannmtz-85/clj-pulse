@@ -47,9 +47,10 @@
 
 (defn create
   "The api's Ring handler. `options` is the `:pulse.api/handler` component: `:verifier`,
-  `:fhir`, `:realm`, `:issuer`, `:cors`, `:quiet-paths` and `:summary-timeout-ms`. A `:clock` (a
-  `java.time.Clock`) may be given too, which the configuration does not do: it is for tests."
-  [{:keys [verifier fhir issuer summary-timeout-ms clock] :as options}]
-  (ring-handler (routes/routes {:verifier verifier :fhir fhir :issuer issuer
+  `:fhir`, `:scheduler`, `:realm`, `:issuer`, `:cors`, `:quiet-paths` and `:summary-timeout-ms`. A
+  `:clock` (a `java.time.Clock`) may be given too, which the configuration does not do: it is for
+  tests."
+  [{:keys [verifier fhir scheduler issuer summary-timeout-ms clock] :as options}]
+  (ring-handler (routes/routes {:verifier verifier :fhir fhir :scheduler scheduler :issuer issuer
                                 :summary-timeout-ms summary-timeout-ms :clock clock})
                 options))

@@ -11,6 +11,9 @@
           {:id :scheduler
            :test-paths ["apps/scheduler/test"]
            :ns-patterns ["-test$"]}
+          {:id :tools
+           :test-paths ["tools/test"]
+           :ns-patterns ["-test$"]}
           {:id :dev
            :test-paths ["dev/test"]
            :ns-patterns ["-test$"]}]

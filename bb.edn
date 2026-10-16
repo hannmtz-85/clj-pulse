@@ -39,11 +39,11 @@
                :requires ([realm])
                :task (realm/check!)}
 
-  realm:smoke {:doc "Sign in as every demo user, and through the Swagger UI client, and verify their token claims (needs `bb up`)"
+  realm:smoke {:doc "Sign in as every demo user, through the Swagger UI client and as the service accounts, and verify their token claims (needs `bb up`)"
                :requires ([kc])
                :task (kc/smoke)}
 
-  token {:doc "Print an access token: bb token <username | scheduler> [pulse-docs] (needs `bb up`)"
+  token {:doc "Print an access token: bb token <username | scheduler | api> [pulse-docs] (needs `bb up`)"
          :requires ([kc])
          :task (kc/print-token (first *command-line-args*) (second *command-line-args*))}
 

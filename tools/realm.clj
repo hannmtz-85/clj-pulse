@@ -16,6 +16,10 @@
 
 (def audience "pulse-api")
 
+(def scheduler-audience
+  "The audience of the access tokens the scheduler accepts, and so of the api's own (ADR-0025)."
+  "pulse-scheduler")
+
 ;; ---------------------------------------------------------------------------
 ;; People: the single source for demo users (realm import and smoke test)
 
@@ -49,11 +53,17 @@
            :realmRoles [(str "default-roles-" realm-name) role]}
     fhir-user (assoc :attributes {"fhir_user" [fhir-user]})))
 
-(def service-account-user
-  {:username "service-account-pulse-scheduler"
+(defn- service-account
+  "The user Keycloak keeps for the service account of the client `client-id`, with its `role`."
+  [client-id role]
+  {:username (str "service-account-" client-id)
    :enabled true
-   :serviceAccountClientId "pulse-scheduler"
-   :realmRoles [(str "default-roles-" realm-name) "rules-engine"]})
+   :serviceAccountClientId client-id
+   :realmRoles [(str "default-roles-" realm-name) role]})
+
+(def service-account-users
+  [(service-account "pulse-scheduler" "rules-engine")
+   (service-account "pulse-api" "api-service")])
 
 ;; ---------------------------------------------------------------------------
 ;; Roles
@@ -62,20 +72,25 @@
   [{:name "patient" :description "A patient using the portal; sees only their own record"}
    {:name "practitioner" :description "A clinician; sees the patients on their panel"}
    {:name "clinic-admin" :description "Clinic administrator; sees every patient and operational status"}
-   {:name "rules-engine" :description "Service role of the scheduler: reads observations and raises alerts"}])
+   {:name "rules-engine" :description "Service role of the scheduler: reads observations and raises alerts"}
+   {:name "api-service" :description "Service role of the api: reads the status of the scheduler's jobs"}])
 
 ;; ---------------------------------------------------------------------------
 ;; Clients
 
-(def audience-mapper
-  {:name "pulse-api-audience"
+(defn- audience-mapper-for
+  "A mapper that puts `target` in the access token, as the audience the token is meant for."
+  [target]
+  {:name (str target "-audience")
    :protocol "openid-connect"
    :protocolMapper "oidc-audience-mapper"
    :consentRequired false
-   :config {"included.custom.audience" audience
+   :config {"included.custom.audience" target
             "id.token.claim" "false"
             "access.token.claim" "true"
             "introspection.token.claim" "true"}})
+
+(def audience-mapper (audience-mapper-for audience))
 
 (def fhir-user-mapper
   {:name "fhirUser"
@@ -136,7 +151,18 @@
            :publicClient false
            :clientAuthenticatorType "client-secret"
            :secret "${SCHEDULER_CLIENT_SECRET}"
-           :serviceAccountsEnabled true})])
+           :serviceAccountsEnabled true})
+   ;; The api as a client, for the one service it calls (ADR-0025). Its token is for the scheduler,
+   ;; and not for the api: it has the audience mapper of the scheduler instead of the shared ones, so
+   ;; the api would not accept its own.
+   (merge base-client
+          {:clientId "pulse-api"
+           :name "Pulse api (service account)"
+           :publicClient false
+           :clientAuthenticatorType "client-secret"
+           :secret "${API_CLIENT_SECRET}"
+           :serviceAccountsEnabled true
+           :protocolMappers [(audience-mapper-for scheduler-audience)]})])
 
 ;; ---------------------------------------------------------------------------
 ;; User profile (Keycloak 24+ drops attributes it does not know about, so `fhir_user`
@@ -203,7 +229,7 @@
    :ssoSessionMaxLifespan 36000
    :roles {:realm roles}
    :clients clients
-   :users (conj (mapv user people) service-account-user)
+   :users (into (mapv user people) service-account-users)
    :components
    {"org.keycloak.userprofile.UserProfileProvider"
     [{:providerId "declarative-user-profile"

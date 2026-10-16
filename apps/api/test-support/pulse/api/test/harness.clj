@@ -58,11 +58,14 @@
    :okafor {:sub "u-okafor" :preferred_username "dr.okafor@pulse.test" :fhirUser "Practitioner/pr-okafor" :roles [:practitioner]}
    :admin {:sub "u-admin" :preferred_username "admin@pulse.test" :fhirUser nil :roles [:clinic-admin]}
    :scheduler {:sub "u-scheduler" :preferred_username "service-account-pulse-scheduler" :fhirUser nil
-               :azp "pulse-scheduler" :roles [:rules-engine]}})
+               :azp "pulse-scheduler" :roles [:rules-engine]}
+   ;; the api's own service account: its token is for the scheduler, not for the api (ADR-0025)
+   :api-service {:sub "u-api" :preferred_username "service-account-pulse-api" :fhirUser nil
+                 :azp "pulse-api" :aud ["pulse-scheduler" "account"] :roles [:api-service]}})
 
 (defn token-for
-  "A token for one of the demo `people` (:ana, :rivera, :admin, :scheduler, ...). Further
-  arguments are claims to change."
+  "A token for one of the demo `people` (:ana, :rivera, :admin, :scheduler, :api-service, ...).
+  Further arguments are claims to change."
   [who & {:as overrides}]
   (let [{:keys [roles] :as person} (get people who)]
     (access-token (merge (dissoc person :roles) (apply roles-claim roles) overrides))))
@@ -143,15 +146,17 @@
 
 (defn with-api
   "Calls `(f {:handler h :idp server})` with a fake identity provider and the api's handler
-  wired to it. Options: `:fhir` (default: the demo cohort in memory), `:routes` (extra routes,
-  added to the api's), `:summary-timeout-ms` (the deadline of a patient summary), `:clock` (a
-  `java.time.Clock`, to say what time it is when a reading is recorded) and `:cors-origins`
-  (the origins CORS lets in, a set; the workspace's by default)."
-  [{:keys [fhir routes summary-timeout-ms clock cors-origins]} f]
+  wired to it. Options: `:fhir` (default: the demo cohort in memory), `:scheduler` (the client of
+  the scheduler that `GET /api/admin/jobs` asks; none by default, for the tests that do not use
+  it), `:routes` (extra routes, added to the api's), `:summary-timeout-ms` (the deadline of a
+  patient summary), `:clock` (a `java.time.Clock`, to say what time it is when a reading is
+  recorded) and `:cors-origins` (the origins CORS lets in, a set; the workspace's by default)."
+  [{:keys [fhir scheduler routes summary-timeout-ms clock cors-origins]} f]
   (let [server (idp/start! [signing-key])
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (jwt/verifier {:jwks-source source :issuer issuer :audience "pulse-api" :token-type "Bearer"})
         api-routes (routes/routes {:verifier verifier :fhir (or fhir (demo-cohort))
+                                   :scheduler scheduler
                                    :issuer issuer
                                    :summary-timeout-ms summary-timeout-ms
                                    :clock clock})]

@@ -13,6 +13,7 @@
             [pulse.api.appointments :as appointments]
             [pulse.api.docs :as docs]
             [pulse.api.health :as health]
+            [pulse.api.jobs :as jobs]
             [pulse.api.me :as me]
             [pulse.api.observations :as observations]
             [pulse.api.patients :as patients]
@@ -39,8 +40,9 @@
   (str "a reason, if given, must be 1 to " (:text-length limits) " characters"))
 
 (defn routes
-  "The route table. `deps` is `{:verifier v :fhir c :issuer url :summary-timeout-ms n :clock clock}`;
-  the last two are optional."
+  "The route table. `deps` is `{:verifier v :fhir c :scheduler s :issuer url :summary-timeout-ms n
+  :clock clock}`; the last two are optional. `:scheduler` is the client of the scheduler that
+  `GET /api/admin/jobs` asks (see `pulse.api.jobs`)."
   [{:keys [fhir issuer] :as deps}]
   [["/healthz" {:tags ["Health"]
                 :get {:authz :public
@@ -163,4 +165,12 @@
              :problems {409 "The alert is not active: it was acknowledged already."}
              :responses {200 {:description "The alert, acknowledged."
                               :body alerts/item-schema}}
-             :handler (alerts/ack-handler deps)}}]]])
+             :handler (alerts/ack-handler deps)}}]
+    ["/admin/jobs"
+     {:tags ["Administration"]
+      :get {:authz {:action :jobs/read}
+            :summary "The jobs of the scheduler and how they are doing: when each is due, whether it is running, how its last run went"
+            :description "The scheduler is a separate service, and the api asks it with the credentials of its own service account, never with the caller's. Starting a job is not possible through the api. A scheduler that cannot be asked, or whose answer is not what it should be, is a `502`; one that is too slow, a `504`."
+            :responses {200 {:description "The jobs, in the order the scheduler has them."
+                             :body jobs/list-schema}}
+            :handler (jobs/handler deps)}}]]])

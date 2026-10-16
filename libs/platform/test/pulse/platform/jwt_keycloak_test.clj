@@ -23,8 +23,8 @@
 (use-fixtures :once with-source)
 
 (def ^:private token-for
-  "An access token for a demo user, or for `scheduler`, its service account. Signing in is the
-  slow part, so each token is fetched once (they live for 5 minutes)."
+  "An access token for a demo user, or for `scheduler` or `api`, the service accounts. Signing in is
+  the slow part, so each token is fetched once (they live for 5 minutes)."
   (memoize
    (fn [who]
      (let [{:keys [exit out err]} (shell/sh "bb" "token" who)]
@@ -62,6 +62,21 @@
         (is (= azp (:azp ok)))
         (is (= fhir-user (:fhirUser ok)))
         (is (some #{role} (get-in ok [:realm_access :roles])))))))
+
+(deftest ^:integration the-token-of-the-apis-own-service-account-is-for-the-scheduler-and-not-for-the-api
+  ;; ADR-0025: the api asks the scheduler for its jobs with the token of its own client. The realm gives it
+  ;; the audience of the scheduler and not the shared one of the api, so the api would not accept its own.
+  (let [token (token-for "api")]
+    (testing "the scheduler accepts it, as the service it was issued to"
+      (let [{:keys [ok error]} (jwt/verify (verifier :audience "pulse-scheduler") token)]
+        (is (nil? error))
+        (is (= "pulse-api" (:azp ok)))
+        (is (= "Bearer" (:typ ok)))
+        (is (some #{"api-service"} (get-in ok [:realm_access :roles])))
+        (is (nil? (:fhirUser ok)))
+        (is (not (contains? (set (:aud ok)) "pulse-api")))))
+    (testing "the api does not"
+      (is (= :bad-audience (error-type (jwt/verify (verifier) token)))))))
 
 (deftest ^:integration keycloak-tokens-are-rejected-when-they-should-be
   (let [token (token-for "ana.garcia@pulse.test")

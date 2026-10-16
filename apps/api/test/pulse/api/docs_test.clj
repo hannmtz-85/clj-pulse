@@ -20,8 +20,8 @@
 (def ^:private operations
   "Annex B as a table: the method and the path of each operation, as the document writes them, the
   action it is authorized as (nil for a public one), and every status the document lists for it.
-  `5XX` stands for what the api could not do: the FHIR server failing or slow, the keys of the
-  identity provider missing."
+  `5XX` stands for what the api could not do: the FHIR server or the scheduler failing or slow,
+  the keys of the identity provider missing."
   [[:get "/healthz" nil #{"200"}]
    [:get "/readyz" nil #{"200" "503"}]
    [:get "/api/me" :identity/read #{"200" "401" "403" "5XX"}]
@@ -34,7 +34,8 @@
    [:post "/api/appointments" :appointment/request #{"201" "400" "401" "403" "409" "422" "5XX"}]
    [:patch "/api/appointments/{id}" :appointment/manage #{"200" "400" "401" "403" "404" "409" "422" "5XX"}]
    [:get "/api/alerts" :alert/read #{"200" "400" "401" "403" "5XX"}]
-   [:post "/api/alerts/{id}/ack" :alert/ack #{"200" "401" "403" "404" "409" "5XX"}]])
+   [:post "/api/alerts/{id}/ack" :alert/ack #{"200" "401" "403" "404" "409" "5XX"}]
+   [:get "/api/admin/jobs" :jobs/read #{"200" "401" "403" "5XX"}]])
 
 (defn- document
   "The document the api serves, with string keys, since a path is not a good keyword."

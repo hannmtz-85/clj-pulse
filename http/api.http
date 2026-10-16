@@ -1,7 +1,8 @@
 # Requests to the api for the REST Client extension. No secrets in this file.
 # Start the api first (`bb dev`, or `(go)` in the REPL). To call protected endpoints, run
-# `bb token <username>` (or `bb token scheduler`) in a terminal and paste the result into
-# @token below; access tokens last 5 minutes. Demo users: see tools/realm.clj.
+# `bb token <username>` in a terminal and paste the result into @token below; access tokens last
+# 5 minutes. Demo users: see tools/realm.clj. `bb token scheduler` is the scheduler's service account,
+# which the api accepts; `bb token api` is the api's own, which is for the scheduler and not for this api.
 
 @api = http://localhost:4000
 @token =
@@ -123,13 +124,21 @@ Content-Type: application/json
 
 ### The alerts of the caller's panel: a practitioner's patients', or everyone's for the admin
 # Active unless status=inactive asks for those that were acknowledged. The cohort has no alerts: the
-# scheduler will raise them in Phase 5, and http/hapi.http has a request that raises one by hand.
+# scheduler raises them (with `bb dev` they appear within a minute), and http/hapi.http has a request
+# that raises one by hand.
 GET {{api}}/api/alerts?status=active&sort=-since&limit=20&offset=0
 Authorization: Bearer {{token}}
 
 ### Acknowledge an alert: it becomes inactive and its period ends now
 # Replace the id with one from the list. An alert that is not active is a 409 that names its status.
 POST {{api}}/api/alerts/flag-demo-ana/ack
+Authorization: Bearer {{token}}
+
+### The jobs of the scheduler and how they are doing: the clinic administrator only (admin@pulse.test)
+# The api asks the scheduler with the token of its own service account, not with yours. Needs the
+# scheduler too (`bb dev` runs both): without it this is a 502, and a 504 if it is too slow. When did
+# each job run, how did it go, and how many runs of each outcome since the scheduler started.
+GET {{api}}/api/admin/jobs
 Authorization: Bearer {{token}}
 
 ### A patient that does not exist: 404 for staff, 403 for a patient (no way to probe)
