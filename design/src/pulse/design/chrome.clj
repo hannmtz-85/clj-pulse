@@ -6,7 +6,7 @@
             [pulse.ui.layout :as layout]))
 
 (defn theme-options
-  "The themes of the tokens as `[name label]`, such as `[\"pulse-teal-dark\" \"Teal, dark\"]`."
+  "The themes of the tokens as `[name label]`, such as `[\"pulse-dark\" \"Teal, dark\"]`."
   [tokens]
   (for [{:keys [name palette scheme]} (design/themes tokens)]
     [name (str (get-in tokens [:palettes palette :label]) ", " (clojure.core/name scheme))]))
@@ -21,7 +21,7 @@
 (defn page
   "A page of the mock-ups. `:title` of the page, `:pages` (the links: `{:file :title}`), `:file` of this one,
   `:themes` (from `theme-options`) and `:theme` (the one it starts in). The children are its content."
-  [{:keys [title pages file themes theme] :or {theme "pulse-teal"}} & content]
+  [{:keys [title pages file themes theme] :or {theme "pulse"}} & content]
   (layout/document
    {:title (str title " · Pulse design")
     :theme theme

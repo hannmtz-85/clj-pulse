@@ -1,6 +1,6 @@
 # ADR-0026: The design system as data: tokens in EDN, a theme generated from them, shared hiccup components and contrast checked by a test
 
-- **Status:** accepted (the approach was validated point by point by the project owner on 2026-10-16; Phase 6)
+- **Status:** accepted (the approach was validated point by point by the project owner on 2026-10-16; Phase 6). At the first review, the same day, the owner approved the style tile and chose **teal**: see the update at the end of the decision.
 - **Date:** 2026-10-16
 
 ## Context
@@ -30,6 +30,8 @@ Phase 6 gives the three interfaces one look: `web` (the patient portal, rendered
 
 **Accessibility** is WCAG 2.2 AA: the contrast by the test above; a visible focus ring that comes from a token; targets of at least 44 px in the portal; no meaning conveyed by colour alone (a band has an icon and a word, a series of a chart a dash and a marker); reduced motion respected. What a program can see in hiccup is checked by a test of its own, `pulse.ui.test.a11y`, which every component and every page of the mock-ups must pass (labels of controls, names of buttons and links, svg hidden or named, ids that exist and are unique, captions and scopes of tables, headings that do not skip a level, and for a page the language, the title, the viewport, one h1 and a main). Focus order, reflow and the size of targets are checked by hand until the extra X-32.
 
+**Update, 2026-10-16: the first review.** The owner approved the style tile (the look, the components, the way a reading away from normal is shown) and chose teal. Blue and indigo were deleted from `design/tokens.edn` in a commit of their own, `:palette :selected` is `:teal`, and the themes are called `pulse` and `pulse-dark`; the generator still writes a theme for each of several palettes when none is selected, and the tests of that use the tokens of the review, made in the test. The same review decided that a patient can cancel their own appointment, which the plan and Annex A did not allow (the portal said "request/cancel" and Annex A gave the patient only the request): the mock-ups have the button, and the api gets the action in Phase 7, with its own ADR.
+
 ## Alternatives considered
 
 - **Tokens written in CSS (`@theme`)**: how Tailwind 4 is meant to be used and the shorter way; the contrast would be checked by eye, and Chart.js, the SVG of the portal and the login would each read the colours in a different way.
@@ -45,7 +47,7 @@ Phase 6 gives the three interfaces one look: `web` (the patient portal, rendered
 - There is a Node toolchain in the repository, for development only (Phase 8 needs it anyway, for shadow-cljs).
 - Two build steps: Clojure writes `theme.css`, and Tailwind writes `pulse.css` from it and from the sources. Only the first is checked by `bb check`; the second needs Node.
 - A class cannot be put together from parts. A component that needs one of several writes them all out: `{:primary "btn-primary" :ghost "btn-ghost"}`.
-- The palettes that are not chosen are deleted, and the choice is a commit of its own.
+- The palettes that were not chosen were deleted, and the choice is a commit of its own (teal, 2026-10-16).
 - The build of the mock-ups fails when a page uses a class that the compiled stylesheet has no rule for: a misspelling, or a class that was put together from parts, which Tailwind cannot see.
 - In both schemes the page is the darker of the two surfaces and a card the lighter (in the dark scheme `base-100` is slate 800 and `base-200` slate 900), so that a card stands out from the page in light and in dark; the contrast test covers both.
 - The compiled CSS of the login theme is a build artefact in git, like the realm JSON.

@@ -3,8 +3,9 @@
   the pairs of colours of every palette in both schemes, what the schema refuses, and the generated
   theme. The functions are pure; only the last test reads the committed file.
 
-  While the style tile shows three candidates the tests name the first of them through `palette`; the
-  two that spell out the themes of the candidates (`pulse-teal`, ...) are replaced when one is chosen."
+  The palette of the repository is teal, which the owner chose on 2026-10-16 from three candidates. The
+  generator can still write a theme for each of several palettes, as the style tile did, and `candidates`
+  (the tokens of that time, made in the test) is what the tests of that use."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.test.check.clojure-test :refer [defspec]]
@@ -15,6 +16,19 @@
 (def ^:private tokens (design/read-tokens))
 
 (def ^:private palette (first (keys (:palettes tokens))))
+
+(def ^:private candidates
+  "The tokens as they were while the owner chose: three palettes and none selected."
+  (-> tokens
+      (assoc-in [:palette :selected] nil)
+      (assoc-in [:palettes :blue]
+                {:label "Blue"
+                 :light {:primary "#1d4ed8" :primary-content "#ffffff" :accent "#dbeafe" :accent-content "#1e3a8a"}
+                 :dark {:primary "#60a5fa" :primary-content "#172554" :accent "#1e3a8a" :accent-content "#bfdbfe"}})
+      (assoc-in [:palettes :indigo]
+                {:label "Indigo"
+                 :light {:primary "#4338ca" :primary-content "#ffffff" :accent "#e0e7ff" :accent-content "#312e81"}
+                 :dark {:primary "#818cf8" :primary-content "#1e1b4b" :accent "#312e81" :accent-content "#c7d2fe"}})))
 
 (defn- approx
   "True when `x` is within `epsilon` of `expected`."
@@ -102,7 +116,15 @@
     (testing "the minimum of each kind is the one of WCAG 2.2 AA"
       (is (= 4.5 (get-in tokens [:contrast :text])))
       (is (= 3.0 (get-in tokens [:contrast :ui])))
-      (is (= #{4.5 3.0} (set (map :min report)))))))
+      (is (= #{4.5 3.0} (set (map :min report)))))
+    (testing "and so do the other two candidates, whichever the palette that is chosen"
+      (is (= (* 3 2 pairs) (count (design/contrast-report candidates))))
+      (is (empty? (design/failures candidates))))))
+
+(deftest the-palette-is-teal-chosen-by-the-owner
+  (is (= :teal (get-in tokens [:palette :selected])))
+  (is (= [:teal] (keys (:palettes tokens))) "the other candidates were deleted")
+  (is (= "Teal" (get-in tokens [:palettes :teal :label]))))
 
 (deftest the-pairs-cover-what-a-person-has-to-read-or-see
   (let [pairs (get-in tokens [:contrast :pairs])
@@ -191,25 +213,37 @@
 ;; ---------------------------------------------------------------------------
 ;; The themes
 
-(deftest while-no-palette-is-chosen-every-candidate-has-two-themes
+(deftest the-theme-of-the-repository-is-pulse-in-light-and-in-dark
   (let [themes (design/themes tokens)]
+    (is (= ["pulse" "pulse-dark"] (map :name themes)))
+    (is (= [:teal :teal] (map :palette themes)))
+    (is (= [:light :dark] (map :scheme themes)))
+    (is (= [[true false] [false true]] (map (juxt :default? :prefersdark?) themes))
+        "light is the default, and dark is what a browser that asks for it gets")
+    (is (= 2 (count (re-seq #"@plugin \"daisyui/theme\"" (design/theme-css tokens)))))
+    (testing "and they carry the colours of the palette"
+      (let [css (design/theme-css tokens)]
+        (is (str/includes? css (str "--color-primary: " (get-in tokens [:palettes :teal :light :primary]) ";")))
+        (is (str/includes? css (str "--color-primary: " (get-in tokens [:palettes :teal :dark :primary]) ";")))))))
+
+(deftest while-no-palette-is-chosen-every-candidate-has-two-themes
+  (let [themes (design/themes candidates)]
     (is (= ["pulse-teal" "pulse-teal-dark" "pulse-blue" "pulse-blue-dark" "pulse-indigo" "pulse-indigo-dark"]
            (map :name themes)))
     (is (= ["pulse-teal"] (map :name (filter :default? themes))) "the first candidate in light is the default")
-    (is (= ["pulse-teal-dark"] (map :name (filter :prefersdark? themes))) "and in dark, what a dark browser gets")))
+    (is (= ["pulse-teal-dark"] (map :name (filter :prefersdark? themes))) "and in dark, what a dark browser gets")
+    (is (= 6 (count (re-seq #"@plugin \"daisyui/theme\"" (design/theme-css candidates)))))))
 
-(deftest once-a-palette-is-chosen-there-are-two-themes-called-pulse
-  (let [last-palette (last (keys (:palettes tokens)))
-        chosen (assoc-in tokens [:palette :selected] last-palette)
-        themes (design/themes chosen)]
+(deftest once-a-palette-is-chosen-among-several-there-are-two-themes-called-pulse
+  (let [chosen (assoc-in candidates [:palette :selected] :blue)
+        themes (design/themes chosen)
+        css (design/theme-css chosen)]
     (is (= ["pulse" "pulse-dark"] (map :name themes)))
-    (is (= [last-palette last-palette] (map :palette themes)))
-    (is (= [[true false] [false true]] (map (juxt :default? :prefersdark?) themes)))
-    (is (= 2 (count (re-seq #"@plugin \"daisyui/theme\"" (design/theme-css chosen)))))
-    (testing "and they carry the colours of the chosen palette"
-      (let [css (design/theme-css chosen)]
-        (is (str/includes? css (str "--color-primary: " (get-in tokens [:palettes last-palette :light :primary]) ";")))
-        (is (str/includes? css (str "--color-primary: " (get-in tokens [:palettes last-palette :dark :primary]) ";")))))))
+    (is (= [:blue :blue] (map :palette themes)))
+    (is (= 2 (count (re-seq #"@plugin \"daisyui/theme\"" css))))
+    (is (str/includes? css "--color-primary: #1d4ed8;"))
+    (is (str/includes? css "--color-primary: #60a5fa;"))
+    (is (not (str/includes? css "#0f766e")) "and nothing of the others")))
 
 (deftest daisyui-is-loaded-once-with-none-of-its-own-themes
   (let [css (design/theme-css tokens)]

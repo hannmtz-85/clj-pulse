@@ -6,11 +6,13 @@
 ;; style tile prints the measured ratio beside each swatch.
 ;;
 ;; Colours are 6-digit lower-case hex, so that the contrast can be computed. The hex values are Tailwind's
-;; own palette (slate, teal, blue, indigo, green, amber, orange, red, sky), picked so that the pairs pass.
+;; own palette (slate, teal, green, amber, orange, red, sky, violet), picked so that the pairs pass.
 ;;
-;; :palette :selected is nil while the style tile shows the three candidates; once the owner chooses, it
-;; is the key of the chosen one, the other two are deleted, and the themes are called pulse and pulse-dark.
-{:palette {:selected nil}
+;; The palette is teal, chosen by the owner on 2026-10-16 from three candidates (teal, blue and indigo; the
+;; other two were deleted). :palette :selected names it and the themes are called pulse and pulse-dark. With
+;; several entries under :palettes and no :selected, the generator writes a theme for each, as the style tile
+;; did, and the contrast test covers every one of them.
+{:palette {:selected :teal}
 
  :font {:sans ["Inter Variable" "ui-sans-serif" "system-ui" "-apple-system" "Segoe UI" "Roboto" "Helvetica Neue" "Arial" "sans-serif"]
         :mono ["ui-monospace" "SFMono-Regular" "Menlo" "Consolas" "monospace"]
@@ -76,17 +78,11 @@
  {:light {:series [:primary "#c2410c" "#6d28d9" "#475569"] :grid "#cbd5e1"}
   :dark {:series [:primary "#fb923c" "#a78bfa" "#94a3b8"] :grid "#475569"}}
 
- ;; The brand: one per candidate, in the light and the dark scheme. Accent is the soft form of the primary
+ ;; The brand, in the light and the dark scheme. Accent is the soft form of the primary
  :palettes
  {:teal {:label "Teal"
          :light {:primary "#0f766e" :primary-content "#ffffff" :accent "#ccfbf1" :accent-content "#134e4a"}
-         :dark {:primary "#2dd4bf" :primary-content "#042f2e" :accent "#134e4a" :accent-content "#99f6e4"}}
-  :blue {:label "Blue"
-         :light {:primary "#1d4ed8" :primary-content "#ffffff" :accent "#dbeafe" :accent-content "#1e3a8a"}
-         :dark {:primary "#60a5fa" :primary-content "#172554" :accent "#1e3a8a" :accent-content "#bfdbfe"}}
-  :indigo {:label "Indigo"
-           :light {:primary "#4338ca" :primary-content "#ffffff" :accent "#e0e7ff" :accent-content "#312e81"}
-           :dark {:primary "#818cf8" :primary-content "#1e1b4b" :accent "#312e81" :accent-content "#c7d2fe"}}}
+         :dark {:primary "#2dd4bf" :primary-content "#042f2e" :accent "#134e4a" :accent-content "#99f6e4"}}}
 
  ;; WCAG 2.2 AA: 4.5 for text, 3 for what has to be seen to use a control or to read a graphic. A pair is
  ;; [foreground background kind]; the names are those of the flat map `design/scheme-colors` makes

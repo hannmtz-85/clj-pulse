@@ -27,11 +27,23 @@
     (is (not (str/includes? html "/>")) (str file ": void elements as HTML writes them, not as XML does"))))
 
 (deftest the-pages-are-the-ones-registered-and-have-their-own-names
-  (is (= ["index.html" "palettes.html" "type.html" "components.html" "charts.html" "contrast.html"]
+  (is (= ["index.html" "palette.html" "type.html" "components.html" "charts.html" "contrast.html"]
          (map :file pages/pages)))
   (is (= (count pages/pages) (count (set (map :file pages/pages)))))
   (is (= (count pages/pages) (count (set (map :title pages/pages)))))
-  (is (every? #(str/ends-with? (:file %) ".html") pages/pages)))
+  (is (every? #(str/ends-with? (:file %) ".html") pages/pages))
+  (is (every? #(not (str/blank? (:group %))) pages/pages) "each is listed under a group"))
+
+(deftest the-overview-says-what-was-decided-and-lists-the-other-pages-under-their-groups
+  (let [page (:hiccup (first (filter #(= "index.html" (:file %)) @rendered)))
+        text (hx/words page)
+        links (map #(:href (hx/attributes %)) (hx/select page #(and (= :a (hx/tag %)) (str/ends-with? (str (:href (hx/attributes %))) ".html"))))
+        ;; the link of the logo and the ones of the navigation come first
+        listed (drop (inc (count pages/pages)) links)]
+    (is (str/includes? text "Teal, chosen among teal, blue and indigo"))
+    (is (str/includes? text "A patient can cancel their own appointment"))
+    (is (= (map :file (rest pages/pages)) listed) "every page but the overview, once, in the order of the registry")
+    (is (= ["Style tile"] (map hx/words (hx/select page #(and (= :h2 (hx/tag %)) (str/starts-with? (str (:id (hx/attributes %))) "pages-"))))))))
 
 (deftest every-page-has-the-title-in-its-head-and-as-its-one-h1
   (doseq [{:keys [file hiccup]} @rendered
@@ -70,22 +82,22 @@
   (doseq [{:keys [file hiccup]} @rendered
           :let [select (hx/by-id hiccup "theme-select")
                 options (hx/by-tag select :option)]]
-    (is (= ["pulse-teal" "pulse-teal-dark" "pulse-blue" "pulse-blue-dark" "pulse-indigo" "pulse-indigo-dark"]
-           (map #(:value (hx/attributes %)) options)) file)
-    (is (= ["Teal, light" "Teal, dark" "Blue, light" "Blue, dark" "Indigo, light" "Indigo, dark"] (map hx/words options)) file)
-    (is (= ["pulse-teal"] (keep #(when (:selected (hx/attributes %)) (:value (hx/attributes %))) options)) file)
-    (is (= "pulse-teal" (:data-theme (hx/attributes (first (hx/by-tag hiccup :html))))) file)))
+    (is (= ["pulse" "pulse-dark"] (map #(:value (hx/attributes %)) options)) file)
+    (is (= ["Teal, light" "Teal, dark"] (map hx/words options)) file)
+    (is (= ["pulse"] (keep #(when (:selected (hx/attributes %)) (:value (hx/attributes %))) options)) file)
+    (is (= "pulse" (:data-theme (hx/attributes (first (hx/by-tag hiccup :html))))) file)))
 
-(deftest the-palettes-page-shows-each-candidate-in-both-schemes
-  (let [page (:hiccup (first (filter #(= "palettes.html" (:file %)) @rendered)))
+(deftest the-palette-page-shows-the-palette-in-both-schemes
+  (let [page (:hiccup (first (filter #(= "palette.html" (:file %)) @rendered)))
         themes (keep #(:data-theme (hx/attributes %)) (rest (hx/by-tag page :div)))]
-    (is (= ["pulse-teal" "pulse-teal-dark" "pulse-blue" "pulse-blue-dark" "pulse-indigo" "pulse-indigo-dark"] themes))))
+    (is (= ["pulse" "pulse-dark"] themes))
+    (is (str/includes? (hx/words page) "Teal, in the light and the dark scheme"))))
 
 (deftest the-contrast-page-says-that-nothing-is-below-its-minimum
   (let [page (:hiccup (first (filter #(= "contrast.html" (:file %)) @rendered)))
         text (hx/words page)]
     (is (re-find #"\d+ measurements, 0 below their minimum" text))
-    (is (= 6 (count (hx/by-tag page :details))) "a table for each palette in each scheme")
+    (is (= 2 (count (hx/by-tag page :details))) "a table for the palette in each scheme")
     (is (= 1 (count (filter #(:open (hx/attributes %)) (hx/by-tag page :details)))) "the first open")
     (is (empty? (hx/select page #(= "Fails" (:aria-label (hx/attributes %))))))))
 

@@ -61,5 +61,5 @@
 (deftest the-context-has-what-every-page-is-given
   (let [context (build/context)]
     (is (= #{:tokens :pages :themes} (set (keys context))))
-    (is (= 6 (count (:themes context))))
+    (is (= [["pulse" "Teal, light"] ["pulse-dark" "Teal, dark"]] (:themes context)))
     (is (= 6 (count (:pages context))))))

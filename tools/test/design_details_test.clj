@@ -16,7 +16,7 @@
         pairs [[:base-content :base-100 :text]]
         at-the-minimum (-> tokens (assoc-in [:contrast :text] exact) (assoc-in [:contrast :pairs] pairs))
         above (assoc-in at-the-minimum [:contrast :text] (+ exact 1e-9))]
-    (is (= 6 (count (design/contrast-report at-the-minimum))) "the pair in each palette and scheme")
+    (is (= (* 2 (count (:palettes tokens))) (count (design/contrast-report at-the-minimum))) "the pair in each palette and scheme")
     (is (empty? (teal-light (design/failures at-the-minimum))) "exactly the ratio is enough")
     (is (= 1 (count (teal-light (design/failures above)))) "and a hair more is not")))
 

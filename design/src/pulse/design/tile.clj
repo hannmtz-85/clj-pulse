@@ -1,7 +1,7 @@
 (ns pulse.design.tile
-  "The style tile, first point of review (ADR-0026): the candidate palettes in light and dark, the type, and the
-  measured contrast. The components and the charts are in `pulse.design.catalogue`. Each page is a function from
-  a context `{:tokens :pages :themes}` to hiccup."
+  "The style tile (ADR-0026), the first point of review, which the owner approved on 2026-10-16: the overview, the
+  palette in light and dark, the type, and the measured contrast. The components and the charts are in
+  `pulse.design.catalogue`. Each page is a function from a context `{:tokens :pages :themes}` to hiccup."
   (:require [clojure.string :as str]
             [design]
             [pulse.design.chrome :as chrome]
@@ -34,22 +34,22 @@
 ;; The index
 
 (defn index-page [{:keys [pages] :as context}]
-  (frame context "index.html" "Style tile"
-         (intro "Style tile"
-                "The first point of review: palette, type and components, before any page is drawn. Each page has a theme choice at the top right, remembered between pages.")
-         (section "decide" "What I need from you"
-                  nil
-                  [:ol {:class "list-decimal space-y-2 pl-6"}
-                   [:li [:strong "A palette."] " Teal, blue or indigo, on the page \"Palettes\". The others are deleted once you choose."]
-                   [:li [:strong "Whether the look is right"] ": roundness, density, the weight of the type, the way a reading away from normal is shown."]
-                   [:li [:strong "Anything missing"] " from the components, which the pages will be made of."]])
-         (section "pages" "The pages" nil
-                  (into [:ul {:class "grid gap-3 md:grid-cols-2"}]
-                        (for [{:keys [file title summary]} pages
-                              :when (not= file "index.html")]
-                          [:li (c/card {:class "h-full"}
-                                       [:a {:href file :class "text-base font-semibold text-primary hover:underline"} title]
-                                       [:p {:class "mt-1 text-sm text-muted"} summary])])))
+  (frame context "index.html" "Overview"
+         (intro "Pulse design"
+                "The design system of Pulse in pages: the style tile and the mock-ups of the interfaces, made with the same code that the interfaces will use. Each page has a theme choice at the top right, remembered between pages.")
+         (section "decided" "What the owner decided"
+                  "On 2026-10-16, on the style tile."
+                  (c/facts [["Palette" "Teal, chosen among teal, blue and indigo"]
+                            ["Look" "Approved: medium radii, flat surfaces with a soft shadow, Inter, and a reading away from normal with an icon, a word and an edge bar"]
+                            ["Components" "Approved: the ones on the page Components"]
+                            ["Appointments" "A patient can cancel their own appointment: the mock-ups have the button, and the api gets the action in Phase 7"]]))
+         (for [[group group-pages] (group-by :group (remove #(= "index.html" (:file %)) pages))]
+           (section (str "pages-" (str/lower-case (str/replace group #"\W+" "-"))) group nil
+                    (into [:ul {:class "grid gap-3 md:grid-cols-2"}]
+                          (for [{:keys [file title summary]} group-pages]
+                            [:li (c/card {:class "h-full"}
+                                         [:a {:href file :class "text-base font-semibold text-primary hover:underline"} title]
+                                         [:p {:class "mt-1 text-sm text-muted"} summary])]))))
          (section "rules" "What holds on every page" nil
                   (c/facts [["Contrast" "WCAG 2.2 AA, measured: 4.5 for text and 3 for controls and graphics"]
                             ["Meaning" "Never by colour alone: a reading away from normal has an icon and a word"]
@@ -110,20 +110,15 @@
                      :placeholder "Felt dizzy this morning"})]]))
 
 (def ^:private palette-notes
-  {:teal "Calm and clinical. Reads as health without borrowing the red of urgency, so the tones of a reading stand out against it."
-   :blue "The familiar colour of software for care. Safe, and the most likely to look like every other health application."
-   :indigo "Warmer and more distinctive. Closer to the violet of the series 3 line in charts, so it needs more care there."})
+  {:teal "Calm and clinical. Reads as health without borrowing the red of urgency, so that the tones of a reading stand out against it."})
 
-(def ^:private recommended #{:teal})
-
-(defn palettes-page [{:keys [tokens] :as context}]
-  (frame context "palettes.html" "Palettes"
-         (intro "Palettes"
-                "Three candidates in the light and the dark scheme, with the same components. The numbers are measured contrast ratios; WCAG 2.2 AA asks for 4.5 for text and 3 for controls, and every one of them passes.")
+(defn palette-page [{:keys [tokens] :as context}]
+  (frame context "palette.html" "Palette"
+         (intro "Palette"
+                "Teal, in the light and the dark scheme, with the same components. The numbers are measured contrast ratios; WCAG 2.2 AA asks for 4.5 for text and 3 for controls, and every one of them passes.")
          (for [palette (keys (:palettes tokens))]
            (section (str "palette-" (name palette))
-                    [:span (get-in tokens [:palettes palette :label])
-                     (when (recommended palette) [:span {:class "ml-3 align-middle"} (c/badge {:variant :accent} "Recommended")])]
+                    (get-in tokens [:palettes palette :label])
                     (palette-notes palette)
                     [:div {:class "grid gap-5 lg:grid-cols-2"}
                      (specimen tokens palette :light)

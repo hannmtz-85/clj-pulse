@@ -1,5 +1,5 @@
 // A helper for reviewing the mock-ups, not part of any interface: it keeps the theme chosen on one page for
-// the others, and `?theme=pulse-blue-dark` in an address picks one.
+// the others, and `?theme=pulse-dark` in an address picks one.
 (function () {
   var key = "pulse-design-theme";
   var root = document.documentElement;

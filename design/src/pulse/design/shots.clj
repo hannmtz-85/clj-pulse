@@ -26,7 +26,7 @@
       (throw (ex-info "No Chrome or Edge found: set CHROME to its path" {}))))
 
 (defn- file-name [page theme width clip]
-  (str (str/replace (:file page) #".html$" "") "-" (str/replace theme #"^pulse-" "") "-" width
+  (str (str/replace (:file page) #"\.html$" "") "-" (if (= "pulse" theme) "light" (str/replace theme #"^pulse-" "")) "-" width
        (when clip (str "-y" (:y clip)))
        ".png"))
 
@@ -45,15 +45,12 @@
       acc)))
 
 (defn default-shots
-  "The pictures of every page in the teal theme, light and dark, and of the components and the palettes in the other
-  two light themes as well. `only` limits them to pages whose file starts with one of the prefixes; `:theme`,
-  `:width` and `:clip` ask for one theme, one width and a slice of the page."
+  "The pictures of every page in the light theme and in the dark one. `only` limits them to pages whose file starts
+  with one of the prefixes; `:theme`, `:width` and `:clip` ask for one theme, one width and a slice of the page."
   [{:keys [only theme width clip]}]
   (for [page pages/pages
         :when (or (empty? only) (some #(str/starts-with? (:file page) %) only))
-        theme (cond theme [theme]
-                    :else (cond-> ["pulse-teal" "pulse-teal-dark"]
-                            (#{"components.html" "palettes.html"} (:file page)) (into ["pulse-blue" "pulse-indigo"])))
+        theme (if theme [theme] ["pulse" "pulse-dark"])
         :let [width (or width 1280)]]
     (cond-> {:page (:file page) :theme theme :width width :mobile (< width 600) :name (file-name page theme width clip)}
       clip (assoc :clip clip))))

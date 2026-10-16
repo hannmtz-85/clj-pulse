@@ -5,20 +5,21 @@
             [pulse.design.tile :as tile]))
 
 (def pages
-  "Every page: its `:file`, `:title`, a `:summary` for the index and the `:render` function."
-  [{:file "index.html" :title "Style tile" :summary "" :render tile/index-page}
-   {:file "palettes.html" :title "Palettes"
-    :summary "Teal, blue and indigo in light and dark, with the same components."
-    :render tile/palettes-page}
-   {:file "type.html" :title "Type"
+  "Every page: its `:file`, `:title`, the `:group` it is listed under, a `:summary` for the index and the `:render`
+  function."
+  [{:file "index.html" :title "Overview" :group "Overview" :summary "" :render tile/index-page}
+   {:file "palette.html" :title "Palette" :group "Style tile"
+    :summary "Teal in light and dark, with the same components."
+    :render tile/palette-page}
+   {:file "type.html" :title "Type" :group "Style tile"
     :summary "Inter, the scale, tabular figures and a reading."
     :render tile/type-page}
-   {:file "components.html" :title "Components"
+   {:file "components.html" :title "Components" :group "Style tile"
     :summary "Buttons, tones, messages, forms, tables, tabs and states."
     :render catalogue/components-page}
-   {:file "charts.html" :title "Charts"
+   {:file "charts.html" :title "Charts" :group "Style tile"
     :summary "A reading over time: bands, thresholds, two series, and the small version."
     :render catalogue/charts-page}
-   {:file "contrast.html" :title "Contrast"
-    :summary "Every pair of colours, measured, for every palette."
+   {:file "contrast.html" :title "Contrast" :group "Style tile"
+    :summary "Every pair of colours, measured, for the palette in both schemes."
     :render tile/contrast-page}])
