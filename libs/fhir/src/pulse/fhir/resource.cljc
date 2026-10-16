@@ -103,14 +103,16 @@
     identifier (assoc :identifier [identifier])))
 
 (defn communication
-  "A completed reminder sent to a patient about an appointment."
-  [{:keys [id patient appointment sent text]}]
-  {:resourceType "Communication"
-   :id id
-   :status "completed"
-   :category [{:coding [(assoc (t/status-coding :communication-category "reminder") :display "Reminder")]}]
-   :subject (ref/reference "Patient" patient)
-   :recipient [(ref/reference "Patient" patient)]
-   :about [(ref/reference "Appointment" appointment)]
-   :sent sent
-   :payload [{:contentString text}]})
+  "A completed reminder sent to a patient about an appointment. An `identifier` (`{:system :value}`)
+  is what a conditional create goes by to send it once (ADR-0024)."
+  [{:keys [id patient appointment sent text identifier]}]
+  (cond-> {:resourceType "Communication"
+           :id id
+           :status "completed"
+           :category [{:coding [(assoc (t/status-coding :communication-category "reminder") :display "Reminder")]}]
+           :subject (ref/reference "Patient" patient)
+           :recipient [(ref/reference "Patient" patient)]
+           :about [(ref/reference "Appointment" appointment)]
+           :sent sent
+           :payload [{:contentString text}]}
+    identifier (assoc :identifier [identifier])))

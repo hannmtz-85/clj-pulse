@@ -1,10 +1,10 @@
 (ns pulse.scheduler.jobs
   "The catalogue of the scheduler's jobs (ADR-0020). Each is a map as `pulse.scheduler.job` says,
   whose handler closes over the components it needs, so the catalogue is built from the started
-  system by a function and not read from the configuration. The appointment reminders are added
-  here as they are written."
+  system by a function and not read from the configuration."
   (:require [pulse.fhir.synthetic :as synthetic]
             [pulse.scheduler.engine :as engine]
+            [pulse.scheduler.reminders :as reminders]
             [pulse.scheduler.simulator :as simulator]
             [pulse.scheduler.source :as source])
   (:import (java.time Instant)
@@ -48,11 +48,29 @@
                     (throw (ex-info "Some readings could not be written" {:summary summary})))
                   summary))}))
 
+(defn- send-reminders-job
+  "The job that reminds the patients of their appointments (ADR-0024): one run is one look at the
+  confirmed appointments that begin within `window-hours`, which are reminded in `zone`. A run in
+  which a reminder could not be sent is a failed run, so that it shows as one; the others were
+  sent all the same."
+  [{:keys [fhir]} {:keys [schedule window-hours zone]}]
+  (let [deps {:fhir fhir :actor service-actor :window-hours window-hours :zone zone}]
+    {:id :send-reminders
+     :description "Sends a reminder to the patients whose confirmed appointment is about to begin"
+     :schedule schedule
+     :handler (fn [{:keys [started-at]}]
+                (let [summary (reminders/run! deps started-at)]
+                  (when (pos? (:failed summary))
+                    (throw (ex-info "Some reminders could not be sent" {:summary summary})))
+                  summary))}))
+
 (defn catalogue
   "The jobs to run, a vector, built from `options` (the `:pulse.scheduler/jobs` component): `:api`,
   a client of the api, `:fhir`, a FHIR client, and the settings of each job, such as
-  `:evaluate-rules` and `:simulate-devices` with their `:schedule` and whether they are `:enabled?`."
-  [{:keys [evaluate-rules simulate-devices] :as options}]
+  `:evaluate-rules`, `:simulate-devices` and `:send-reminders` with their `:schedule` and whether
+  they are `:enabled?`."
+  [{:keys [evaluate-rules simulate-devices send-reminders] :as options}]
   (cond-> []
     (:enabled? evaluate-rules) (conj (evaluate-rules-job options evaluate-rules))
-    (:enabled? simulate-devices) (conj (simulate-devices-job options simulate-devices))))
+    (:enabled? simulate-devices) (conj (simulate-devices-job options simulate-devices))
+    (:enabled? send-reminders) (conj (send-reminders-job options send-reminders))))

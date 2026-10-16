@@ -241,5 +241,125 @@
                  (select-keys (:summary (ex-data value)) [:planned :read :written :failed :failed-batches]))
               "and the summary is in the failure, so that it can be seen"))))))
 
+;; ---------------------------------------------------------------------------
+;; The reminders
+
+(def ^:private every-minute {:type :interval :every-ms 60000})
+
+(defn- reminder-options [& {:as changes}]
+  (merge {:enabled? true :schedule every-minute :window-hours 24 :zone "Europe/Madrid"} changes))
+
+(defn- the-clinic
+  "Resources for a clinic with Dr. Rivera, Ana and her appointment, which begins at `start`."
+  [start]
+  [(r/practitioner {:id "pr-rivera" :given "Elena" :family "Rivera" :gender "female"})
+   (r/patient {:id "pt-ana" :given "Ana" :family "García" :gender "female" :birth-date "1968-03-14"})
+   (r/appointment {:id "appt-ana-1" :patient "pt-ana" :practitioner "pr-rivera" :description "Hypertension follow-up"
+                   :start start :end "2026-10-14T04:30:00Z" :minutes 30})])
+
+(defn- with-reminders
+  "Calls `(f job fhir)` with the job that sends the reminders, built for a server in memory that holds
+  `resources` and the settings `options`."
+  ([resources f] (with-reminders resources (reminder-options) f))
+  ([resources options f]
+   (let [fhir (mem/memory-client resources)
+         [the-job :as catalogue] (jobs/catalogue {:fhir fhir :send-reminders options})]
+     (is (= 1 (count catalogue)))
+     (f the-job fhir))))
+
+(defn- remind-at [the-job instant]
+  (let [at (Instant/parse instant)]
+    ((:handler the-job) {:job-id :send-reminders :trigger :schedule :due at :started-at at})))
+
+(deftest the-reminders-are-in-the-catalogue-only-when-they-are-switched-on
+  (is (= [] (jobs/catalogue {:send-reminders (reminder-options :enabled? false)})))
+  (is (= [] (jobs/catalogue {:send-reminders (dissoc (reminder-options) :enabled?)})))
+  (is (= [:send-reminders]
+         (map :id (jobs/catalogue {:fhir (mem/memory-client) :send-reminders (reminder-options)}))))
+  (testing "after the others, and all are sound jobs"
+    (let [catalogue (jobs/catalogue {:fhir (mem/memory-client)
+                                     :evaluate-rules {:enabled? true :schedule every-half-minute}
+                                     :simulate-devices (simulator-options)
+                                     :send-reminders (reminder-options)})]
+      (is (= [:evaluate-rules :simulate-devices :send-reminders] (map :id catalogue)))
+      (is (= catalogue (job/check! catalogue))))))
+
+(deftest the-job-of-the-reminders-is-a-sound-job-with-the-schedule-it-was-given
+  (with-reminders []
+    (fn [the-job _]
+      (is (= :send-reminders (:id the-job)))
+      (is (= every-minute (:schedule the-job)))
+      (is (not (str/blank? (:description the-job))))
+      (is (= [the-job] (job/check! [the-job]))))))
+
+(deftest a-run-reminds-the-patients-whose-appointment-is-about-to-begin-at-the-moment-it-was-started
+  (with-reminders (the-clinic "2026-10-14T04:00:00Z")
+    (fn [the-job fhir]
+      (is (= {:appointments 1 :sent 1 :already-sent 0 :failed 0} (remind-at the-job "2026-10-13T08:00:00.600Z")))
+      (let [[reminder :as all] (vec (c/search fhir "Communication" {}))]
+        (is (= 1 (count all)))
+        (is (= "Patient/pt-ana" (get-in reminder [:subject :reference])))
+        (is (= "2026-10-13T08:00:00Z" (:sent reminder)) "sent at the moment the job was started")
+        (is (= "Reminder: your appointment with Elena Rivera is on Wednesday 14 October at 06:00 (Hypertension follow-up)."
+               (get-in reminder [:payload 0 :contentString]))))
+      (testing "and once"
+        (is (= {:appointments 1 :sent 0 :already-sent 1 :failed 0} (remind-at the-job "2026-10-13T08:01:00Z")))
+        (is (= 1 (count (c/search fhir "Communication" {}))))))))
+
+(deftest an-appointment-that-is-not-yet-about-to-begin-is-not-reminded
+  (with-reminders (the-clinic "2026-10-14T04:00:00Z")
+    (fn [the-job fhir]
+      (is (= {:appointments 0 :sent 0 :already-sent 0 :failed 0} (remind-at the-job "2026-10-13T03:59:59Z")))
+      (is (empty? (c/search fhir "Communication" {})))
+      (testing "until the second it comes into the window"
+        (is (= {:appointments 1 :sent 1 :already-sent 0 :failed 0} (remind-at the-job "2026-10-13T04:00:00Z")))))))
+
+(deftest the-window-and-the-zone-are-those-of-the-settings
+  (testing "a window of 19 hours does not reach an appointment that is 20 hours away"
+    (with-reminders (the-clinic "2026-10-14T04:00:00Z") (reminder-options :window-hours 19)
+      (fn [the-job fhir]
+        (is (= {:appointments 0 :sent 0 :already-sent 0 :failed 0} (remind-at the-job "2026-10-13T08:00:00Z")))
+        (is (empty? (c/search fhir "Communication" {}))))))
+  (testing "one of 20 does, and the time is said in the zone it was given"
+    (with-reminders (the-clinic "2026-10-14T04:00:00Z") (reminder-options :window-hours 20 :zone "Asia/Tokyo")
+      (fn [the-job fhir]
+        (is (= {:appointments 1 :sent 1 :already-sent 0 :failed 0} (remind-at the-job "2026-10-13T08:00:00Z")))
+        (is (str/includes? (get-in (first (c/search fhir "Communication" {})) [:payload 0 :contentString])
+                           "Wednesday 14 October at 13:00"))))))
+
+(deftest a-reminder-sent-is-audited-as-a-write-of-the-schedulers-client
+  (with-reminders (the-clinic "2026-10-14T04:00:00Z")
+    (fn [the-job _]
+      (let [{:keys [signals]} (t/with-signals true (remind-at the-job "2026-10-13T08:00:00Z"))
+            audit (first (filter #(= :pulse.audit/write (:id %)) signals))]
+        (is (= jobs/service-actor (get-in audit [:data :actor])))
+        (is (= :reminder/write (get-in audit [:data :action])))
+        (is (= "R5" (get-in audit [:data :rule])))))))
+
+(deftest a-run-in-which-a-reminder-could-not-be-sent-fails
+  (let [fhir (mem/memory-client (concat (the-clinic "2026-10-14T04:00:00Z")
+                                        [(assoc (r/appointment {:id "appt-ana-2" :patient "pt-ana" :practitioner "pr-rivera"
+                                                                :start "2026-10-14T05:00:00Z" :end "2026-10-14T05:30:00Z" :minutes 30})
+                                                :participant [{:actor {:reference "Practitioner/pr-rivera"} :status "accepted"}])]))
+        [the-job] (jobs/catalogue {:fhir fhir :send-reminders (reminder-options)})
+        e (:error (t/with-signals true (remind-at the-job "2026-10-13T08:00:00Z")))]
+    (is (= "Some reminders could not be sent" (ex-message e)))
+    (is (= {:appointments 2 :sent 1 :already-sent 0 :failed 1} (:summary (ex-data e)))
+        "and the summary is in the failure, so that it can be seen")
+    (is (= 1 (count (c/search fhir "Communication" {}))) "the one that could be sent was")))
+
+(deftest a-run-whose-fhir-server-fails-fails-as-a-whole
+  (let [broken (reify c/FhirClient
+                 (read-resource [_ _ _] nil)
+                 (search [_ _ _] (throw (ex-info "broken" {:type ::c/fhir-error :status 503})))
+                 (put! [_ r] r)
+                 (delete! [_ _ _] nil)
+                 (transact! [_ _] nil)
+                 (validate [_ _] nil))
+        [the-job] (jobs/catalogue {:fhir broken :send-reminders (reminder-options)})
+        e (try (remind-at the-job "2026-10-13T08:00:00Z") (catch clojure.lang.ExceptionInfo e e))]
+    (is (= 503 (:status (ex-data e))))
+    (is (= ::c/fhir-error (:type (ex-data e))))))
+
 (deftest the-actor-the-audit-names-is-the-schedulers-client-and-its-role
   (is (= {:client "pulse-scheduler" :roles ["rules-engine"]} jobs/service-actor)))

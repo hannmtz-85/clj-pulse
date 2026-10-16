@@ -214,6 +214,85 @@
     (is (thrown? clojure.lang.ExceptionInfo (c/transact! client tx)))
     (is (empty? (flags client)) "the create was rolled back with the rest")))
 
+;; ---------------------------------------------------------------------------
+;; create-once!: the conditional create as a function (alerts and reminders)
+
+(def ^:private reminder-system "https://pulse.example/identifier/reminder")
+
+(defn- a-reminder [key & {:as overrides}]
+  (merge (r/communication {:id "unused" :patient "pt-ana" :appointment "appt-ana-1"
+                           :sent "2026-10-13T08:00:00Z" :text "Reminder: your appointment is tomorrow."
+                           :identifier {:system reminder-system :value key}})
+         overrides))
+
+(defn- communications [client] (vec (c/search client "Communication" {:patient "pt-ana"})))
+
+(deftest create-once-creates-a-resource-and-then-finds-it
+  (let [client (mem/memory-client)
+        key "appt-ana-1/2026-10-14T04:00:00Z"
+        created (c/create-once! client (a-reminder key))
+        again (c/create-once! client (a-reminder key))]
+    (is (= :created (:outcome created)))
+    (is (= :existing (:outcome again)))
+    (is (string? (:id created)))
+    (is (= (:id created) (:id again)) "the second answer is the resource of the first")
+    (is (= [(:id created)] (mapv :id (communications client))) "one, however many times it was asked")
+    (testing "found by its identifier, which has a system"
+      (is (= [(:id created)] (mapv :id (c/search client "Communication" {:identifier (str reminder-system "|" key)}))))
+      (is (empty? (c/search client "Communication" {:identifier (str "https://other.example/id|" key)})))
+      (is (empty? (c/search client "Communication" {:identifier (str reminder-system "|appt-ana-1/2026-10-14T05:00:00Z")}))))))
+
+(deftest create-once-goes-by-the-identifier-and-by-nothing-else
+  (let [client (mem/memory-client)
+        first-key "appt-ana-1/2026-10-14T04:00:00Z"
+        second-key "appt-ana-1/2026-10-14T06:00:00Z"]
+    (c/create-once! client (a-reminder first-key))
+    (testing "another identifier is another resource, whatever else the two have in common"
+      (is (= :created (:outcome (c/create-once! client (a-reminder second-key)))))
+      (is (= 2 (count (communications client)))))
+    (testing "the same identifier is the same resource, whatever else differs"
+      (is (= :existing (:outcome (c/create-once! client (a-reminder first-key :sent "2026-10-13T09:00:00Z"
+                                                                    :payload [{:contentString "Another text"}])))))
+      (is (= 2 (count (communications client)))))
+    (testing "and the same value in another system is not the same"
+      (let [other (a-reminder first-key :identifier [{:system "https://other.example/id" :value first-key}])]
+        (is (= :created (:outcome (c/create-once! client other))))
+        (is (= 3 (count (communications client))))))))
+
+(deftest create-once-needs-an-identifier-to-go-by
+  (let [client (mem/memory-client)]
+    (doseq [[label resource] {"none" (dissoc (a-reminder "k") :identifier)
+                              "no system" (assoc (a-reminder "k") :identifier [{:value "k"}])
+                              "an empty system" (assoc (a-reminder "k") :identifier [{:system "" :value "k"}])
+                              "an empty value" (assoc (a-reminder "k") :identifier [{:system reminder-system :value ""}])}
+            :let [e (try (c/create-once! client resource) (catch clojure.lang.ExceptionInfo e e))]]
+      (testing label
+        (is (= ::c/no-identifier (:type (ex-data e))))
+        (is (= "Communication" (:resource-type (ex-data e))) "and says what it was asked to create")))
+    (is (empty? (communications client)) "without it, every ask would have made another one")))
+
+(deftest create-once-leaves-what-is-there-as-it-is
+  (let [client (mem/memory-client)
+        key "appt-ana-1/2026-10-14T04:00:00Z"
+        {:keys [id]} (c/create-once! client (a-reminder key))
+        changed (assoc (c/read-resource client "Communication" id) :status "entered-in-error")]
+    (c/put! client changed)
+    (is (= {:outcome :existing :id id} (c/create-once! client (a-reminder key))))
+    (is (= [changed] (communications client)) "not written over, whatever has become of it")))
+
+(deftest create-once-reports-what-the-server-says-when-it-cannot-decide-or-create
+  (testing "an identifier that two resources have"
+    (let [key "appt-ana-1/2026-10-14T04:00:00Z"
+          client (mem/memory-client [(assoc (a-reminder key) :id "co-1") (assoc (a-reminder key) :id "co-2")])
+          e (try (c/create-once! client (a-reminder key)) (catch clojure.lang.ExceptionInfo e e))]
+      (is (= 412 (:status (ex-data e))))
+      (is (= ["co-1" "co-2"] (mapv :id (communications client))))))
+  (testing "a resource that is not valid"
+    (let [client (mem/memory-client)
+          e (try (c/create-once! client (a-reminder "k" :status "sleeping")) (catch clojure.lang.ExceptionInfo e e))]
+      (is (= 422 (:status (ex-data e))))
+      (is (empty? (communications client))))))
+
 (deftest server-side-validation
   (let [client (mem/memory-client)]
     (is (not-any? #{"error"} (map :severity (:issue (c/validate client clinic)))))

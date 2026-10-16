@@ -71,3 +71,25 @@
   "The first resource matching `params`, or nil."
   [client resource-type params]
   (first (search client resource-type (assoc params :_count 1))))
+
+(defn create-once!
+  "Creates `resource` unless the server already has one of its type with the same first identifier:
+  a conditional create in a transaction of one entry (see `bundle/conditional-create-entry`), which
+  the server answers with a 201 for a new resource and with a 200 for the one it had, left as it is
+  whatever has become of it since. That is the way to say \"do this once\" however often it is asked
+  and whoever asks, with no search first and so no race. The server names the resource: its `:id`
+  is not sent.
+
+  Returns `{:outcome :created :id \"123\"}` or `{:outcome :existing :id \"123\"}`, the id being that
+  of the resource the server has. A failed transaction throws, and so does an identifier that
+  matches more than one resource (a 412)."
+  [client resource]
+  (let [{:keys [system value]} (first (:identifier resource))]
+    (when (or (str/blank? system) (str/blank? value))
+      (throw (ex-info "A resource that is created once needs an identifier with a system and a value"
+                      {:type ::no-identifier :resource-type (:resourceType resource)})))
+    (let [condition (query-string {:identifier (str system "|" value)})
+          response (-> (transact! client (bundle/transaction-of [(bundle/conditional-create-entry resource condition)]))
+                       :entry first :response)]
+      {:outcome (if (str/starts-with? (str (:status response)) "201") :created :existing)
+       :id (second (bundle/location-id (:location response)))})))

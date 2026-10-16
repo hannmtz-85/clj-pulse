@@ -21,7 +21,9 @@
 
 (def ^:private zone-ids (ZoneId/getAvailableZoneIds))
 
-(def ^:private time-zone
+(def time-zone
+  "The schema of the name of a time zone, one that `java.time` knows, such as \"Europe/Madrid\". A
+  daily schedule has one, and so do the settings that say in which zone a time is shown."
   [:fn {:error/message "should be the name of a time zone such as \"Europe/Madrid\" or \"UTC\""}
    (fn [x] (and (string? x) (contains? zone-ids x)))])
 

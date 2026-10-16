@@ -85,7 +85,19 @@
   :simulate-devices {:enabled? #profile {:default #boolean #or [#env SCHEDULER_SIMULATOR "true"]
                                          :test false}
                      :schedule {:type :interval :every-ms 15000}
-                     :batch-size 20}}
+                     :batch-size 20}
+
+  ;; The reminders of appointments (ADR-0024): a patient whose confirmed appointment begins within
+  ;; the window gets one, once. They are read from FHIR and written to it, so this works with the api
+  ;; down. A run every minute sends one at most a minute after the appointment enters the window;
+  ;; SCHEDULER_REMINDERS=false switches the job off, and the tests run it by hand. The text says the
+  ;; time in the zone of the clinic.
+  :send-reminders {:enabled? #profile {:default #boolean #or [#env SCHEDULER_REMINDERS "true"]
+                                       :test false}
+                   :schedule {:type :interval
+                              :every-ms #long #or [#env SCHEDULER_REMINDERS_EVERY_MS 60000]}
+                   :window-hours 24
+                   :zone "Europe/Madrid"}}
 
  :pulse.scheduler/executor
  {:jobs #ig/ref :pulse.scheduler/jobs

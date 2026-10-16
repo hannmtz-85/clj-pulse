@@ -35,6 +35,18 @@
     (testing type
       (is (nil? (schema/explain resource)) (pr-str (schema/validate resource))))))
 
+(deftest a-communication-can-carry-the-identifier-a-conditional-create-goes-by
+  (let [identifier {:system "https://pulse.example/identifier/reminder" :value "ap-1/2026-10-14T04:00:00Z"}
+        reminder (r/communication {:id "co-1" :patient "pt-1" :appointment "ap-1" :sent "2026-10-13T09:00:00Z"
+                                   :text "Appointment tomorrow at 10:00" :identifier identifier})]
+    (is (= [identifier] (:identifier reminder)))
+    (is (schema/valid? reminder))
+    (testing "and has none unless it is given one"
+      (is (not (contains? (samples "Communication") :identifier))))
+    (testing "an identifier has a value, which is text"
+      (is (some? (schema/validate (assoc-in reminder [:identifier 0 :value] 42))))
+      (is (some? (schema/validate (update-in reminder [:identifier 0] dissoc :value)))))))
+
 (deftest a-proposed-appointment-is-valid-without-start-and-end
   (let [proposed (r/appointment {:id "ap-2" :patient "pt-1" :practitioner "pr-1"
                                  :description "Review" :requested-start "2026-10-20T00:00:00Z"

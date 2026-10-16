@@ -8,7 +8,6 @@
   that identifier and with a 200, leaving it as it is, if there was one, active or acknowledged."
   (:require [clojure.string :as str]
             [pulse.fhir.alert :as alert]
-            [pulse.fhir.bundle :as bundle]
             [pulse.fhir.client :as c]
             [pulse.fhir.resource :as resource]))
 
@@ -65,13 +64,8 @@
            flags))))
 
 (defn raise!
-  "Raises `flag` (see `flag`) unless there is one with its identifier. Returns
-  `{:outcome :created :id \"123\"}` or `{:outcome :existing :id \"123\"}`, the id being that of the
-  alert the server has. A failed transaction throws."
+  "Raises `flag` (see `flag`) unless there is one with its identifier, with `c/create-once!`.
+  Returns `{:outcome :created :id \"123\"}` or `{:outcome :existing :id \"123\"}`, the id being that
+  of the alert the server has. A failed transaction throws."
   [fhir flag]
-  (let [{:keys [system value]} (first (:identifier flag))
-        condition (c/query-string {:identifier (str system "|" value)})
-        response (-> (c/transact! fhir (bundle/transaction-of [(bundle/conditional-create-entry flag condition)]))
-                     :entry first :response)]
-    {:outcome (if (str/starts-with? (str (:status response)) "201") :created :existing)
-     :id (second (bundle/location-id (:location response)))}))
+  (c/create-once! fhir flag))

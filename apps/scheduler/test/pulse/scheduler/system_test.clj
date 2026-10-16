@@ -6,11 +6,14 @@
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
             [pulse.fhir.client :as c]
+            [pulse.fhir.resource :as r]
             [pulse.platform.test.idp :as idp]
             [pulse.platform.test.stub :as stub]
             [pulse.scheduler.config :as config]
             [pulse.scheduler.executor :as executor]
-            [pulse.scheduler.system :as system]))
+            [pulse.scheduler.system :as system])
+  (:import (java.time Instant)
+           (java.time.temporal ChronoUnit)))
 
 (def ^:private k1 (idp/signing-key "k1"))
 
@@ -146,6 +149,36 @@
             (is (= "Bearer fake-token-1" (get-in request [:headers "authorization"])))
             (is (= "GET" (:method request)))
             (is (= 1 (count (idp/token-requests server))))))))))
+
+(deftest the-reminders-job-reminds-the-patients-of-the-fhir-server-of-the-scheduler
+  (with-system #(-> %
+                    (assoc-in [:pulse.scheduler/jobs :send-reminders :enabled?] true)
+                    (assoc-in [:pulse.scheduler/jobs :send-reminders :schedule] quiet))
+    (fn [base-url system _ _]
+      (let [fhir (:pulse.scheduler/fhir system)
+            job (fn [] (first (filter #(= "send-reminders" (:id %)) (:json (get-json (str base-url "/jobs") :token (token))))))
+            runs (fn [] (get-in (job) [:counts :ok]))
+            begins (.truncatedTo (.plus (Instant/now) 2 ChronoUnit/HOURS) ChronoUnit/SECONDS)]
+        (c/put! fhir (r/practitioner {:id "pr-rivera" :given "Elena" :family "Rivera" :gender "female"}))
+        (c/put! fhir (r/patient {:id "pt-ana" :given "Ana" :family "García" :gender "female" :birth-date "1968-03-14"}))
+        (c/put! fhir (r/appointment {:id "appt-ana-1" :patient "pt-ana" :practitioner "pr-rivera" :description "Hypertension follow-up"
+                                     :start (str begins) :end (str (.plus begins 30 ChronoUnit/MINUTES)) :minutes 30}))
+        (testing "enabled, it is in the catalogue, scheduled as it was told"
+          (is (= {:type "interval" :everyMs 604800000} (:schedule (job)))))
+        (testing "run by hand, it reminds the patient of the appointment that begins in two hours"
+          (is (= 202 (:status (run-now base-url "send-reminders"))))
+          (is (eventually #(= 1 (runs))))
+          (is (= {:trigger "manual" :outcome "ok" :result {:appointments 1 :sent 1 :alreadySent 0 :failed 0}}
+                 (-> (job) :lastRun (select-keys [:trigger :outcome :result]))))
+          (let [[reminder :as all] (vec (c/search fhir "Communication" {}))]
+            (is (= 1 (count all)) "in the server the scheduler was given")
+            (is (= "Patient/pt-ana" (get-in reminder [:subject :reference])))
+            (is (= [{:reference "Appointment/appt-ana-1"}] (:about reminder)))))
+        (testing "and again, it finds it sent"
+          (is (= 202 (:status (run-now base-url "send-reminders"))))
+          (is (eventually #(= 2 (runs))))
+          (is (= {:appointments 1 :sent 0 :alreadySent 1 :failed 0} (-> (job) :lastRun :result)))
+          (is (= 1 (count (c/search fhir "Communication" {})))))))))
 
 (deftest the-simulator-job-writes-the-readings-of-its-ticks-to-the-fhir-server-of-the-scheduler
   (with-system #(-> %

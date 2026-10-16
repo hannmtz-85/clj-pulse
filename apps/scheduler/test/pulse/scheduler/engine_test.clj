@@ -258,7 +258,9 @@
                      "FHIR failing" (ex-info "broken" {:type ::c/fhir-error :status 503})
                      "FHIR failing, at the first status of a failure" (ex-info "broken" {:type ::c/fhir-error :status 500})
                      "FHIR with no answer at all" (ex-info "no answer" {:type ::c/fhir-error})
-                     "FHIR unreachable" (java.net.ConnectException. "refused")}
+                     "FHIR unreachable" (java.net.ConnectException. "refused")
+                     "an interruption, which a job must not swallow" (InterruptedException. "stop")
+                     "an interruption that a client wrapped" (ex-info "wrapped" {} (InterruptedException. "stop"))}
           :let [resources (generate end)
                 client (mem/memory-client resources)
                 calls (atom 0)

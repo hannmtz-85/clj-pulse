@@ -34,7 +34,13 @@
       [:map {:closed true}
        [:enabled? :boolean]
        [:schedule schedule/schema]
-       [:batch-size [:int {:min 1 :max 100}]]]]]]
+       [:batch-size [:int {:min 1 :max 100}]]]]
+     [:send-reminders
+      [:map {:closed true}
+       [:enabled? :boolean]
+       [:schedule schedule/schema]
+       [:window-hours [:int {:min 1 :max 168}]]
+       [:zone schedule/time-zone]]]]]
    [:pulse.scheduler/executor
     [:map {:closed true}
      [:jobs ref-schema]

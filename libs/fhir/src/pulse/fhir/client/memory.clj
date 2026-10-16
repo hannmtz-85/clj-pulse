@@ -54,7 +54,8 @@
            "identifier" [:identifier [:identifier]]}
    "Communication" {"patient" [:reference [:subject]]
                     "subject" [:reference [:subject]]
-                    "status" [:code [:status]]}})
+                    "status" [:code [:status]]
+                    "identifier" [:identifier [:identifier]]}})
 
 (defn- values-at
   "Every value reachable from `x` by following `path`, flattening vectors along the way."

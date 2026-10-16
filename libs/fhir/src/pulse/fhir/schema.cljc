@@ -130,6 +130,7 @@
            (opt :period ::period)]
 
    "Communication" [:map [:resourceType [:= "Communication"]] (opt :id ::id)
+                    (opt :identifier [:vector ::identifier])
                     [:status [:enum "preparation" "in-progress" "not-done" "on-hold" "stopped" "completed" "entered-in-error" "unknown"]]
                     (opt :category [:vector ::codeable-concept])
                     [:subject ::reference]

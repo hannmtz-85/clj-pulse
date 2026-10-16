@@ -7,28 +7,13 @@
   patient would fail the same way; any other failure is counted and the run goes on."
   (:refer-clojure :exclude [run!])
   (:require [clojure.string :as str]
-            [pulse.fhir.client :as c]
             [pulse.fhir.terminology :as terminology]
-            [pulse.platform.http.client :as http]
-            [pulse.platform.token :as token]
             [pulse.scheduler.alerts :as alerts]
+            [pulse.scheduler.failure :as failure]
             [pulse.scheduler.rules :as rules]
             [pulse.scheduler.source :as source]
             [taoensso.telemere :as t])
-  (:import (java.io IOException)
-           (java.time Instant)))
-
-(defn- fatal?
-  "Whether `e` says that the infrastructure is out of reach or refuses the engine, and not that
-  one patient has a problem: no token, the api or FHIR unreachable or failing, or the api refusing
-  the token."
-  [e]
-  (let [{:keys [type status]} (ex-data e)]
-    (or (= ::token/unavailable type)
-        (= ::http/unreachable type)
-        (and (= ::http/failed type) (or (contains? #{401 403} status) (>= (or status 0) 500)))
-        (and (= ::c/fhir-error type) (or (nil? status) (>= status 500)))
-        (instance? IOException e))))
+  (:import (java.time Instant)))
 
 (defn- has-condition?
   "Whether `conditions`, a set of `{:system :code}`, holds one of `system` (a key of
@@ -108,7 +93,7 @@
                         summary
                         (evaluate-patient deps now patient-id))
                 (catch Exception e
-                  (when (fatal? e)
+                  (when (failure/fatal? e)
                     (throw e))
                   (t/event! :pulse.rules/patient-failed
                             {:level :warn :error e :data {:patient patient-id}})

@@ -93,9 +93,10 @@
     (testing "each reaches HAPI by itself"
       (is (= :http (get-in cfg [:pulse.api/fhir :kind])))
       (is (= :http (get-in cfg [:pulse.scheduler/fhir :kind]))))
-    (testing "the devices are simulated and the rules evaluated"
+    (testing "the devices are simulated, the rules evaluated and the patients reminded"
       (is (true? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])))
-      (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?]))))))
+      (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])))
+      (is (true? (get-in cfg [:pulse.scheduler/jobs :send-reminders :enabled?]))))))
 
 (deftest a-server-in-memory-is-the-schedulers-too
   (doseq [profile [:lite :test]
@@ -114,6 +115,12 @@
   (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=x\nSCHEDULER_SIMULATOR=false\n")]
     (is (false? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])))
     (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])) "and the rules go on")))
+
+(deftest the-reminders-can-be-switched-off-with-a-variable
+  (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=x\nSCHEDULER_REMINDERS=false\n")]
+    (is (false? (get-in cfg [:pulse.scheduler/jobs :send-reminders :enabled?])))
+    (is (true? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])) "and the devices go on")
+    (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])) "and so do the rules")))
 
 (deftest what-a-test-says-is-read-before-dotenv
   (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" "from-the-test"}]
@@ -158,7 +165,9 @@
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :schedule] quiet)
                 (assoc-in [:pulse.scheduler/jobs :simulate-devices :enabled?] true)
-                (assoc-in [:pulse.scheduler/jobs :simulate-devices :schedule] quiet))]
+                (assoc-in [:pulse.scheduler/jobs :simulate-devices :schedule] quiet)
+                (assoc-in [:pulse.scheduler/jobs :send-reminders :enabled?] true)
+                (assoc-in [:pulse.scheduler/jobs :send-reminders :schedule] quiet))]
     (idp/serve-token! idp {:body (json-text {:access_token (h/token-for :scheduler) :expires_in 300 :token_type "Bearer"})})
     (let [system (ig/init cfg)]
       (try
@@ -230,3 +239,28 @@
         (is (= {:raised 0 :still-active 1}
                (select-keys (run-job! system :evaluate-rules) [:raised :still-active])))
         (is (= 1 (:total (:json (get-json api-url "/api/alerts" :rivera)))))))))
+
+(deftest the-patient-with-an-appointment-within-a-day-is-reminded-once
+  ;; The cohort puts the appointment of Ana about 20 hours from the moment the system started, those
+  ;; of Maya and Liam two and three days away, and the requests of Sofía and Noah have no time yet.
+  (with-dev
+    (fn [{:keys [system api-url]}]
+      (let [fhir (:pulse.api/fhir system)
+            reminders (fn [] (vec (c/search fhir "Communication" {})))]
+        (testing "before anything, no reminders"
+          (is (empty? (reminders))))
+        (testing "a run of the job reminds Ana, who is the only one whose appointment is within a day"
+          (is (= {:appointments 1 :sent 1 :already-sent 0 :failed 0} (run-job! system :send-reminders)))
+          (let [[reminder :as all] (reminders)]
+            (is (= 1 (count all)))
+            (is (= "Patient/pt-ana" (get-in reminder [:subject :reference])))
+            (is (= [{:reference "Appointment/appt-ana-1"}] (:about reminder)))
+            (is (re-matches #"Reminder: your appointment with Elena Rivera is on \w+ \d{1,2} \w+ at \d\d:\d\d \(Hypertension follow-up\)\."
+                            (get-in reminder [:payload 0 :contentString])))))
+        (testing "the appointment the api shows is the one the reminder is about, and it is as it was"
+          (let [r (get-json api-url "/api/patients/pt-ana/summary" :rivera)]
+            (is (= 200 (:status r)))
+            (is (= [["appt-ana-1" "booked"]] (map (juxt :id :status) (get-in r [:json :appointments]))))))
+        (testing "once: the job goes on running and the reminder is not sent again"
+          (is (= {:appointments 1 :sent 0 :already-sent 1 :failed 0} (run-job! system :send-reminders)))
+          (is (= 1 (count (reminders)))))))))

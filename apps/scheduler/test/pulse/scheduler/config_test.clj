@@ -143,15 +143,17 @@
            (get-in (load-config :test) [:pulse.scheduler/jobs :evaluate-rules :schedule])))))
 
 (deftest a-variable-that-is-not-a-sound-number-of-milliseconds-stops-the-start-up
-  (doseq [bad ["often" "0" "-5" "99999999999"]]
+  (doseq [[variable job] [["SCHEDULER_EVALUATE_EVERY_MS" :evaluate-rules]
+                          ["SCHEDULER_REMINDERS_EVERY_MS" :send-reminders]]
+          bad ["often" "0" "-5" "99999999999"]]
     (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
-                                      "SCHEDULER_EVALUATE_EVERY_MS" bad}]
+                                      variable bad}]
       (let [e (try (config/load-config {:profile :dev}) nil (catch Exception e e))]
-        (is (some? e) (str bad " was accepted"))
+        (is (some? e) (str variable " " bad " was accepted"))
         (is (not (str/includes? (str (ex-message e)) dev-secret)) bad)
         (when (not= "often" bad)
           (is (platform/invalid-config? e) (str bad " is a number, and the schedule says it is not sound"))
-          (is (str/includes? (ex-message e) ":pulse.scheduler/jobs :evaluate-rules :schedule :every-ms") bad))))))
+          (is (str/includes? (ex-message e) (str ":pulse.scheduler/jobs " job " :schedule :every-ms")) (str variable " " bad)))))))
 
 (deftest the-devices-are-simulated-every-quarter-of-a-minute-except-in-the-tests
   (is (= {:enabled? true :schedule {:type :interval :every-ms 15000} :batch-size 20}
@@ -166,6 +168,29 @@
     (is (false? (get-in (load-config :test) [:pulse.scheduler/jobs :simulate-devices :enabled?])))
     (binding [platform/*environment* {"SCHEDULER_SIMULATOR" "true"}]
       (is (false? (get-in (config/load-config {:profile :test}) [:pulse.scheduler/jobs :simulate-devices :enabled?]))))))
+
+(deftest the-reminders-are-sent-every-minute-except-in-the-tests
+  (is (= {:enabled? true :schedule {:type :interval :every-ms 60000} :window-hours 24 :zone "Europe/Madrid"}
+         (get-in (load-config) [:pulse.scheduler/jobs :send-reminders]))
+      "a reminder goes out within a minute of the appointment coming within a day of its time")
+  (testing "which a variable switches off, or on"
+    (doseq [[value enabled?] [["false" false] ["true" true] ["FALSE" false] ["TRUE" true]]]
+      (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
+                                        "SCHEDULER_REMINDERS" value}]
+        (is (= enabled? (get-in (config/load-config {:profile :dev}) [:pulse.scheduler/jobs :send-reminders :enabled?]))
+            value))))
+  (testing "and says how often, with another"
+    (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" dev-secret
+                                      "SCHEDULER_REMINDERS_EVERY_MS" "300000"}]
+      (is (= {:type :interval :every-ms 300000}
+             (get-in (config/load-config {:profile :dev}) [:pulse.scheduler/jobs :send-reminders :schedule])))))
+  (testing "and the tests do not want it, whatever the variable says"
+    (is (false? (get-in (load-config :test) [:pulse.scheduler/jobs :send-reminders :enabled?])))
+    (binding [platform/*environment* {"SCHEDULER_REMINDERS" "true"}]
+      (is (false? (get-in (config/load-config {:profile :test}) [:pulse.scheduler/jobs :send-reminders :enabled?]))))
+    (testing "but they run it by hand with the same settings otherwise"
+      (is (= (dissoc (get-in (load-config) [:pulse.scheduler/jobs :send-reminders]) :enabled?)
+             (dissoc (get-in (load-config :test) [:pulse.scheduler/jobs :send-reminders]) :enabled?))))))
 
 (deftest the-catalogue-and-the-readiness-probe-use-the-same-clients
   (let [cfg (load-config)]
@@ -236,6 +261,28 @@
                    ":pulse.scheduler/jobs :simulate-devices :enabled?"))
     (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :simulate-devices :rate] 3))
                    ":pulse.scheduler/jobs :simulate-devices :rate" "disallowed")))
+  (testing "the reminders with a window that is nothing or longer than a week, a zone that does not exist, or no schedule"
+    (doseq [window [0 -1 169 1.5 "24"]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :send-reminders :window-hours] window))
+                     ":pulse.scheduler/jobs :send-reminders :window-hours")
+          (str window)))
+    (doseq [window [1 168]]
+      (is (nil? (problems-with #(assoc-in % [:pulse.scheduler/jobs :send-reminders :window-hours] window)))
+          (str window " is the shortest and the longest that are allowed")))
+    (doseq [zone ["Madrid" "Europe/Nowhere" "" nil :utc]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :send-reminders :zone] zone))
+                     ":pulse.scheduler/jobs :send-reminders :zone" "time zone")
+          (pr-str zone)))
+    (is (mentions? (problems-with #(update-in % [:pulse.scheduler/jobs :send-reminders] dissoc :schedule))
+                   ":pulse.scheduler/jobs :send-reminders :schedule"))
+    (is (mentions? (problems-with #(update-in % [:pulse.scheduler/jobs :send-reminders] dissoc :zone))
+                   ":pulse.scheduler/jobs :send-reminders :zone"))
+    (is (mentions? (problems-with #(update-in % [:pulse.scheduler/jobs :send-reminders] dissoc :window-hours))
+                   ":pulse.scheduler/jobs :send-reminders :window-hours"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :send-reminders :enabled?] "yes"))
+                   ":pulse.scheduler/jobs :send-reminders :enabled?"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/jobs :send-reminders :channel] :email))
+                   ":pulse.scheduler/jobs :send-reminders :channel" "disallowed")))
   (testing "the api and FHIR at addresses that are not URLs"
     (is (mentions? (problems-with #(assoc-in % [:pulse.scheduler/api :base-url] "localhost:4000"))
                    ":pulse.scheduler/api :base-url" "URL"))

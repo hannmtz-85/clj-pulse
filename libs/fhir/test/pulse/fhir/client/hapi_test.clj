@@ -279,6 +279,124 @@
             (doseq [{:keys [id]} (found client)]
               (c/delete! client "Flag" id))))))))
 
+(def ^:private doctor-id "it-pr-1")
+
+(defn- with-temporary
+  "Calls `(f hapi memory)` with `resources` in HAPI and in a fresh server in memory, and deletes
+  them from HAPI afterwards, whatever happens. They have to be in dependency order."
+  [resources f]
+  (let [hapi (http/client {:base-url base-url})
+        delete-all! #(doseq [{:keys [resourceType id]} (reverse resources)]
+                       (c/delete! hapi resourceType id))]
+    (delete-all!)
+    (c/transact! hapi (bundle/transaction resources))
+    (try (f hapi (mem/memory-client resources))
+         (finally (delete-all!)))))
+
+(defn- the-doctor [] (r/practitioner {:id doctor-id :given "Integration" :family "Doctor" :gender "other"}))
+
+(defn- booked-at
+  "A booked appointment of the integration patient that begins at `start` and lasts half an hour."
+  [id start end & {:keys [status] :or {status "booked"}}]
+  (assoc (r/appointment {:id id :patient patient-id :practitioner doctor-id :description "Integration window"
+                         :start start :end end :minutes 30})
+         :status status))
+
+(deftest ^:integration the-appointments-due-for-a-reminder-are-found-the-same-by-hapi-and-in-memory
+  ;; What the reminders job asks for (ADR-0024): the booked appointments that begin after a moment
+  ;; and no later than 24 hours after it, soonest first, in whole seconds. The edges are where the
+  ;; job says they are on both servers, to the second.
+  (with-temporary [(the-doctor)
+                   (booked-at "it-appt-before" "2026-01-10T09:59:59Z" "2026-01-10T10:29:59Z")
+                   (booked-at "it-appt-now" "2026-01-10T10:00:00Z" "2026-01-10T10:30:00Z")
+                   (booked-at "it-appt-just-after" "2026-01-10T10:00:01Z" "2026-01-10T10:30:01Z")
+                   (booked-at "it-appt-cancelled" "2026-01-10T12:00:00Z" "2026-01-10T12:30:00Z" :status "cancelled")
+                   (booked-at "it-appt-24h" "2026-01-11T10:00:00Z" "2026-01-11T10:30:00Z")
+                   (booked-at "it-appt-24h-and-a-second" "2026-01-11T10:00:01Z" "2026-01-11T10:30:01Z")]
+    (fn [hapi memory]
+      (doseq [[label from to expected]
+              [["from a moment on an appointment to the same moment a day on"
+                "2026-01-10T10:00:00Z" "2026-01-11T10:00:00Z" ["it-appt-just-after" "it-appt-24h"]]
+               ["a second later, both ends move with it"
+                "2026-01-10T10:00:01Z" "2026-01-11T10:00:01Z" ["it-appt-24h" "it-appt-24h-and-a-second"]]
+               ["a second earlier"
+                "2026-01-10T09:59:59Z" "2026-01-11T09:59:59Z" ["it-appt-now" "it-appt-just-after"]]
+               ["one hour only" "2026-01-10T09:00:00Z" "2026-01-10T10:00:00Z" ["it-appt-before" "it-appt-now"]]
+               ["nothing begins in it" "2026-01-10T10:30:00Z" "2026-01-10T11:00:00Z" []]]
+              :let [params {:status "booked" :date [(str "gt" from) (str "le" to)] :_sort "date" :_count 1}
+                    ids-of (fn [client] (mapv :id (c/search client "Appointment" params)))]]
+        (testing label
+          (is (= expected (ids-of hapi)))
+          (is (= expected (ids-of memory))))))))
+
+(deftest ^:integration a-reminder-is-created-once-on-hapi-and-in-memory
+  ;; How the reminders job sends one (ADR-0024): `create-once!` of a Communication by its
+  ;; identifier, which has a slash and colons, as for the Flag of an alert. No match creates, a
+  ;; match is left as it is whatever has become of it, and two matches are a 412. HAPI names the
+  ;; new resource.
+  (with-temporary [(the-doctor)
+                   (booked-at "it-appt-reminder" "2026-01-10T10:00:00Z" "2026-01-10T10:30:00Z")]
+    (fn [hapi memory]
+      (let [system "https://pulse.example/identifier/reminder"
+            key (str "it-appt-reminder/2026-01-10T10:00:00Z/" (random-uuid))
+            reminder (fn [] (r/communication {:id "unused" :patient patient-id :appointment "it-appt-reminder"
+                                              :sent "2026-01-09T10:00:00Z" :text "Integration reminder"
+                                              :identifier {:system system :value key}}))
+            found (fn [client] (vec (c/search client "Communication" {:identifier (str system "|" key)})))]
+        (doseq [[label client] [["HAPI" hapi] ["in memory" memory]]]
+          (testing label
+            (try
+              (let [created (c/create-once! client (reminder))
+                    again (c/create-once! client (reminder))
+                    id (:id created)]
+                (is (= :created (:outcome created)))
+                (is (= :existing (:outcome again)))
+                (is (= [id] (map :id (found client))) "one, however many times it was sent")
+                (is (= id (:id again)) "and the second answer points at it")
+                (testing "what is there is left as it is"
+                  (c/put! client (assoc (c/read-resource client "Communication" id) :status "entered-in-error"))
+                  (is (= :existing (:outcome (c/create-once! client (reminder)))))
+                  (is (= ["entered-in-error"] (map :status (found client)))))
+                (testing "two that match are an error and nothing is created"
+                  (c/put! client (assoc (reminder) :id "it-comm-twin"))
+                  (let [e (try (c/create-once! client (reminder)) (catch clojure.lang.ExceptionInfo e e))]
+                    (is (= 412 (:status (ex-data e))))
+                    (is (= 2 (count (found client)))))))
+              (finally
+                (doseq [{:keys [id]} (found client)]
+                  (c/delete! client "Communication" id))))))))))
+
+(deftest ^:integration reminders-created-at-the-same-time-are-created-once
+  ;; ADR-0024 says that two runs that overlap send nothing twice. HAPI keeps that: of several
+  ;; creators of the same reminder at once, one creates it and the others are answered with a 200
+  ;; or, mostly, with a 409, a conflict that is solved by asking again. Never two are stored.
+  (with-temporary [(the-doctor)
+                   (booked-at "it-appt-race" "2026-01-10T10:00:00Z" "2026-01-10T10:30:00Z")]
+    (fn [hapi _]
+      (let [system "https://pulse.example/identifier/reminder"]
+        (dotimes [round 5]
+          (let [key (str "it-appt-race/2026-01-10T10:00:00Z/" round "/" (random-uuid))
+                reminder (fn [] (r/communication {:id "unused" :patient patient-id :appointment "it-appt-race"
+                                                  :sent "2026-01-09T10:00:00Z" :text "Integration race"
+                                                  :identifier {:system system :value key}}))
+                found (fn [] (vec (c/search hapi "Communication" {:identifier (str system "|" key)})))
+                gate (promise)
+                tries (doall (for [_ (range 6)]
+                               (future @gate
+                                       (try (c/create-once! hapi (reminder))
+                                            (catch clojure.lang.ExceptionInfo e e)))))
+                _ (deliver gate :go)
+                results (mapv deref tries)]
+            (try
+              (testing (str "round " round)
+                (is (= 1 (count (found))) "never two")
+                (is (= 1 (count (filter #(= :created (:outcome %)) results))) "and one of them created it")
+                (is (every? #(or (map? %) (= 409 (:status (ex-data %)))) results)
+                    "the others were told that it exists, or that it is being created"))
+              (finally
+                (doseq [{:keys [id]} (found)]
+                  (c/delete! hapi "Communication" id))))))))))
+
 (deftest ^:integration every-search-parameter-of-the-fake-exists-on-hapi
   ;; The fake must not accept what the real server rejects: R4 gave Flag no `status` parameter,
   ;; the fake had one, and the api asked for it. Each parameter is tried with a value of its kind.
