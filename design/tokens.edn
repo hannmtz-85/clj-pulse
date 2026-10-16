@@ -1,0 +1,122 @@
+;; The Pulse design tokens (ADR-0026): the colours, type and shapes of every interface, as data.
+;;
+;; `bb design:theme` makes design/theme.css from this file (the daisyUI themes, the custom properties
+;; --pulse-*, the @theme of Tailwind and the @font-face). The test in tools/test/design_test.clj fails
+;; when a pair listed under :contrast is below its minimum, for any palette in either scheme, and the
+;; style tile prints the measured ratio beside each swatch.
+;;
+;; Colours are 6-digit lower-case hex, so that the contrast can be computed. The hex values are Tailwind's
+;; own palette (slate, teal, blue, indigo, green, amber, orange, red, sky), picked so that the pairs pass.
+;;
+;; :palette :selected is nil while the style tile shows the three candidates; once the owner chooses, it
+;; is the key of the chosen one, the other two are deleted, and the themes are called pulse and pulse-dark.
+{:palette {:selected nil}
+
+ :font {:sans ["Inter Variable" "ui-sans-serif" "system-ui" "-apple-system" "Segoe UI" "Roboto" "Helvetica Neue" "Arial" "sans-serif"]
+        :mono ["ui-monospace" "SFMono-Regular" "Menlo" "Consolas" "monospace"]
+        :url "fonts/"
+        ;; the two files of @fontsource-variable/inter that the Latin alphabets and their accents need
+        :faces [{:file "inter-latin-wght-normal.woff2"
+                 :range "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"}
+                {:file "inter-latin-ext-wght-normal.woff2"
+                 :range "U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF"}]}
+
+ ;; daisyUI's own shape variables: how round the controls (field), the small marks (selector) and the
+ ;; boxes (box) are, the size unit of the controls, the border, and how much depth (0: flat)
+ :shape {:radius-selector "0.5rem" :radius-field "0.5rem" :radius-box "0.75rem"
+         :size-selector "0.25rem" :size-field "0.25rem"
+         :border "1px" :depth "0" :noise "0"}
+
+ :shadow {:card "0 1px 2px 0 rgb(15 23 42 / 0.06), 0 1px 3px 0 rgb(15 23 42 / 0.08)"
+          :raised "0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.06)"
+          :overlay "0 20px 25px -5px rgb(15 23 42 / 0.12), 0 8px 10px -6px rgb(15 23 42 / 0.10)"}
+
+ ;; What is the same whatever the brand colour: the greys, the four daisyUI states, muted text and the
+ ;; border of a control. base-100 is the surface of a card, base-200 the page behind it and base-300 the
+ ;; lines and wells; in both schemes the page is the darker of the first two, so a card stands out from it.
+ :neutrals
+ {:light {:base-100 "#ffffff" :base-200 "#f8fafc" :base-300 "#e2e8f0" :base-content "#0f172a"
+          :secondary "#334155" :secondary-content "#ffffff"
+          :neutral "#1e293b" :neutral-content "#f8fafc"
+          :info "#0369a1" :info-content "#ffffff"
+          :success "#15803d" :success-content "#ffffff"
+          :warning "#f59e0b" :warning-content "#0f172a"
+          :error "#b91c1c" :error-content "#ffffff"
+          :muted "#475569"
+          :control-border "#64748b"}
+  :dark {:base-100 "#1e293b" :base-200 "#0f172a" :base-300 "#334155" :base-content "#f1f5f9"
+         :secondary "#cbd5e1" :secondary-content "#0f172a"
+         :neutral "#475569" :neutral-content "#f8fafc"
+         :info "#38bdf8" :info-content "#082f49"
+         :success "#4ade80" :success-content "#052e16"
+         :warning "#fbbf24" :warning-content "#451a03"
+         :error "#f87171" :error-content "#450a0a"
+         :muted "#94a3b8"
+         :control-border "#94a3b8"}}
+
+ ;; The tone of a reading: normal, and three degrees away from it (the severities of pulse.fhir.ranges,
+ ;; 1 elevated, 2 high, 3 critical), and information. Soft is the background, ink the text on it and edge
+ ;; the border or the icon. A tone is never shown by its colour alone: it has a word and an icon
+ :tones
+ {:light {:normal {:soft "#dcfce7" :ink "#14532d" :edge "#15803d"}
+          :elevated {:soft "#fef3c7" :ink "#78350f" :edge "#b45309"}
+          :high {:soft "#ffedd5" :ink "#7c2d12" :edge "#c2410c"}
+          :critical {:soft "#fee2e2" :ink "#7f1d1d" :edge "#b91c1c"}
+          :info {:soft "#e0f2fe" :ink "#0c4a6e" :edge "#0369a1"}}
+  :dark {:normal {:soft "#052e16" :ink "#bbf7d0" :edge "#4ade80"}
+         :elevated {:soft "#451a03" :ink "#fde68a" :edge "#fbbf24"}
+         :high {:soft "#431407" :ink "#fed7aa" :edge "#fb923c"}
+         :critical {:soft "#450a0a" :ink "#fecaca" :edge "#f87171"}
+         :info {:soft "#082f49" :ink "#bae6fd" :edge "#38bdf8"}}}
+
+ ;; A chart: the colours of up to four series (a keyword is a colour of the palette, here its primary),
+ ;; the grid (decoration, with no minimum) and the line of a threshold. A series is told from another
+ ;; by its marker and its dash as well as by its colour
+ :chart
+ {:light {:series [:primary "#c2410c" "#6d28d9" "#475569"] :grid "#cbd5e1"}
+  :dark {:series [:primary "#fb923c" "#a78bfa" "#94a3b8"] :grid "#475569"}}
+
+ ;; The brand: one per candidate, in the light and the dark scheme. Accent is the soft form of the primary
+ :palettes
+ {:teal {:label "Teal"
+         :light {:primary "#0f766e" :primary-content "#ffffff" :accent "#ccfbf1" :accent-content "#134e4a"}
+         :dark {:primary "#2dd4bf" :primary-content "#042f2e" :accent "#134e4a" :accent-content "#99f6e4"}}
+  :blue {:label "Blue"
+         :light {:primary "#1d4ed8" :primary-content "#ffffff" :accent "#dbeafe" :accent-content "#1e3a8a"}
+         :dark {:primary "#60a5fa" :primary-content "#172554" :accent "#1e3a8a" :accent-content "#bfdbfe"}}
+  :indigo {:label "Indigo"
+           :light {:primary "#4338ca" :primary-content "#ffffff" :accent "#e0e7ff" :accent-content "#312e81"}
+           :dark {:primary "#818cf8" :primary-content "#1e1b4b" :accent "#312e81" :accent-content "#c7d2fe"}}}
+
+ ;; WCAG 2.2 AA: 4.5 for text, 3 for what has to be seen to use a control or to read a graphic. A pair is
+ ;; [foreground background kind]; the names are those of the flat map `design/scheme-colors` makes
+ :contrast
+ {:text 4.5
+  :ui 3.0
+  :pairs
+  [;; the page and its text
+   [:base-content :base-100 :text] [:base-content :base-200 :text] [:base-content :base-300 :text]
+   [:muted :base-100 :text] [:muted :base-200 :text]
+   ;; the brand as text (links, headings) and as the ring of focus, on the page and on a card
+   [:primary :base-100 :text] [:primary :base-200 :text]
+   ;; what is written on a filled control or badge
+   [:primary-content :primary :text] [:accent-content :accent :text]
+   [:secondary-content :secondary :text] [:neutral-content :neutral :text]
+   [:info-content :info :text] [:success-content :success :text]
+   [:warning-content :warning :text] [:error-content :error :text]
+   ;; the border of a control against the page and against a card, and the border of one with an error
+   [:control-border :base-100 :ui] [:control-border :base-200 :ui]
+   [:error :base-100 :ui] [:error :base-200 :ui]
+   ;; the tones: the text on the soft background, and the edge or icon on it and on the page
+   [:tone-normal-ink :tone-normal-soft :text] [:tone-normal-edge :tone-normal-soft :ui] [:tone-normal-edge :base-100 :ui]
+   [:tone-elevated-ink :tone-elevated-soft :text] [:tone-elevated-edge :tone-elevated-soft :ui] [:tone-elevated-edge :base-100 :ui]
+   [:tone-high-ink :tone-high-soft :text] [:tone-high-edge :tone-high-soft :ui] [:tone-high-edge :base-100 :ui]
+   [:tone-critical-ink :tone-critical-soft :text] [:tone-critical-edge :tone-critical-soft :ui] [:tone-critical-edge :base-100 :ui]
+   [:tone-info-ink :tone-info-soft :text] [:tone-info-edge :tone-info-soft :ui] [:tone-info-edge :base-100 :ui]
+   ;; and the text of a tone written straight on the page, such as the error under a field
+   [:tone-normal-ink :base-100 :text] [:tone-elevated-ink :base-100 :text] [:tone-high-ink :base-100 :text]
+   [:tone-critical-ink :base-100 :text] [:tone-info-ink :base-100 :text]
+   [:tone-critical-ink :base-200 :text] [:tone-info-ink :base-200 :text]
+   ;; the lines of a chart against the card it is drawn on
+   [:series-1 :base-100 :ui] [:series-2 :base-100 :ui] [:series-3 :base-100 :ui] [:series-4 :base-100 :ui]
+   [:series-1 :base-200 :ui] [:series-2 :base-200 :ui] [:series-3 :base-200 :ui] [:series-4 :base-200 :ui]]}}

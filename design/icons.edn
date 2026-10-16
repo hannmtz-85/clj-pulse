@@ -1,0 +1,21 @@
+;; The Lucide icons the interface uses (ADR-0026). `bb design:icons` copies each one from the
+;; lucide-static package (ISC; the icons derived from Feather are MIT) into libs/ui/src/pulse/ui/icons.cljc
+;; as Clojure data, so that no page asks for an icon font or a file at run time and the stack starts without
+;; Node. To use another icon, add its name here (the file names of lucide.dev) and run the task again.
+[;; where you are
+ :house :layout-dashboard :users :user :user-round :user-check :calendar :calendar-check :calendar-clock
+ :calendar-plus :calendar-x :clock :history :bell :bell-ring :bell-off :inbox :clipboard-list
+ :clipboard-check :file-text :message-square :panel-left :menu :settings :server :radio-tower :bot
+ ;; what you can do
+ :plus :minus :x :check :search :funnel :sliders-horizontal :ellipsis :refresh-cw :download :external-link
+ :send :mail :phone :map-pin :pencil :trash-2 :copy :eye :eye-off :lock :key-round :log-in :log-out
+ :shield-check :languages :circle-help :list-checks :play :pause :rotate-ccw :timer
+ ;; the way
+ :chevron-down :chevron-up :chevron-left :chevron-right :arrow-up :arrow-down :arrow-left :arrow-right
+ ;; the body and the clinic
+ :activity :heart-pulse :heart :thermometer :droplet :droplets :weight :scale :gauge :wind :stethoscope
+ :pill :syringe :bed :hospital :ambulance :id-card :bandage :hand-heart :test-tube-diagonal :flask-conical
+ :chart-line :chart-no-axes-column :ruler :smartphone :watch :wifi :wifi-off :battery-low
+ ;; how it is
+ :circle-check :circle-alert :triangle-alert :octagon-alert :circle-x :info :trending-up :trending-down
+ :badge-check :circle-dot :zap :loader-circle :moon :sun :monitor :contrast :palette]

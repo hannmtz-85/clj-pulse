@@ -66,6 +66,9 @@
 | X-30 | Bilingual UI (EN/ES) | Message bundles in `web`, i18n in `spa`, Keycloak theme `messages_es` | English-only is enough for the MVP | Phases 6-8 | M |
 | X-31 | Patient portal as a PWA | Installable app shell with offline fallback | Not core | Phase 7 | M |
 | X-32 | Automated accessibility and visual checks | axe or Lighthouse CI, and screenshot regression tests | Phases 7-8 check accessibility by hand | Phases 7, 8 | S-M |
+| X-76 | Theme choice and a high-contrast theme | A control in `web` and `spa` for light, dark or the system, remembered (a cookie that the server reads, so that the first paint is right), and a third scheme in the tokens for `prefers-contrast: more` and forced colours, with 7:1 for text (WCAG AAA) and the same contrast test (ADR-0026) | Light and dark, with the system's preference, are enough for AA | Phases 7, 8 | S-M |
+| X-77 | Exploring a chart by keyboard | The arrow keys move through the points of a chart and a live region reads each one, beyond the table that anyone can open under it; for `web` a small script served with the page, for `spa` a Chart.js plugin | The table gives the same numbers to a screen reader and a keyboard | Phases 7, 8 | M |
+| X-78 | Colour-blind simulation of the tones | A test that simulates the three kinds of colour blindness on the colours of the tones and of the chart series and fails when two that must be told apart are too near; today the icon, the word, the dash and the marker carry the difference, and the colours were chosen by their contrast alone (ADR-0026) | A tone is never told by colour alone, so the simulation would confirm what the design already does | Phase 6 | S |
 
 ## E. Quality and delivery
 

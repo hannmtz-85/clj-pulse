@@ -16,11 +16,13 @@
   ;; clojure -M:test [kaocha args]    (config: tests.edn)
   ;; `test-support` holds test-only helpers shared by several suites, such as the fake
   ;; identity provider, the api's handler harness and the scheduler's fake time.
-  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support" "apps/scheduler/test-support" "dev/src" "tools"]
+  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support" "apps/scheduler/test-support" "libs/ui/test-support" "dev/src" "tools" "design/src"]
          :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                       pulse/platform {:local/root "libs/platform"}
+                      pulse/ui {:local/root "libs/ui"}
                       pulse/api {:local/root "apps/api"}
                       pulse/scheduler {:local/root "apps/scheduler"}
+                      hiccup/hiccup {:mvn/version "2.0.0"}
                       lambdaisland/kaocha {:mvn/version "1.91.1392"}
                       org.clojure/test.check {:mvn/version "1.1.3"}
                       nubank/matcher-combinators {:mvn/version "3.11.0"}}
@@ -28,7 +30,7 @@
 
   ;; clojure -M:lint
   :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}
-         :main-opts ["-m" "clj-kondo.main" "--lint" "libs" "apps" "tools" "dev" "--parallel"]}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "libs" "apps" "tools" "dev" "design/src" "design/test" "--parallel"]}
 
   ;; clojure -M:fmt check | fix
   :fmt {:replace-deps {dev.weavejester/cljfmt {:mvn/version "0.16.6"}}

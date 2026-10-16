@@ -1,0 +1,10 @@
+/* The entry of the stylesheet of every Pulse interface (ADR-0026). `bb design:css` compiles it with Tailwind
+   CSS 4 into design/dist/pulse.css. base.css is written by hand; theme.css is generated from the tokens. */
+@import "tailwindcss";
+@import "./base.css";
+@import "../theme.css";
+
+/* Tailwind finds the classes by reading these files, and it does not read the ones git ignores, so the
+   sources that write classes are listed here. */
+@source "../../libs/ui/src";
+@source "../src";

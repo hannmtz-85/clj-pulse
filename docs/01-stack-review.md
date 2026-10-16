@@ -78,7 +78,10 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | reitit in the SPA | declared, unused | reitit-frontend 0.11.0 | Use | Real routing with controllers |
 | hiccup (cljs) | 1.0.5 | none | Remove | Not used on the client |
 | keycloak-js | ^25.0.4 | 26.2.4 (latest); 26.0 line → **26.0.8** | Pin to 26.0.8 | Same line as the 26.0.x server |
-| Styling | minimal CSS | Tailwind 4.3.3 + daisyUI 5.7.48 | Add | Shared with `web` and the login theme |
+| Styling | minimal CSS | Tailwind 4.3.3 + daisyUI 5.7.50 | Add | Shared with `web` and the login theme; built with Node into one stylesheet, from the tokens of `design/tokens.edn` ([ADR-0026](adr/0026-design-system-as-data-tokens-theme-components-and-contrast-by-test.md)) |
+| Font | system fonts | Inter (variable, SIL OFL) from `@fontsource-variable/inter` 5.3.0 | Add | Two woff2 files committed in `design/fonts`, served by the apps: no request to a third party |
+| Icons | none | Lucide (ISC) from `lucide-static` 1.58.0 | Add | The ones used are turned into Clojure data by `bb design:icons`, so that nothing needs Node at run time |
+| Components | none | hiccup 2.0.0 and `libs/ui` (`.cljc`) | Add | One set of presentational functions for the server (Hiccup 2) and the SPA (Reagent) |
 | Charts | none | Chart.js 4.5.1 (SPA) and server-side SVG (web) | Add | |
 | Dev utilities | none | re-frame-10x 1.12.3, day8.re-frame/test 0.1.7, portal 0.68.1 | Add | |
 

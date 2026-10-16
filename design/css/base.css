@@ -1,0 +1,45 @@
+/* What is neither a theme nor a component (ADR-0026). These rules are in no layer, so they win over the rules
+   of daisyUI, which Tailwind puts in `@layer utilities`. */
+
+/* The border of a field is a token that has 3:1 against the page (WCAG 1.4.11); daisyUI's own is 20% of the
+   colour of the text, which has about 1.5:1. On focus it is the brand colour, and an error keeps its colour. */
+.input,
+.select,
+.textarea,
+.file-input {
+  --input-color: var(--color-control-border);
+}
+
+.input:focus-within,
+.select:focus,
+.textarea:focus,
+.file-input:focus {
+  --input-color: var(--color-primary);
+}
+
+.input.input-error,
+.select.select-error,
+.textarea.textarea-error,
+.file-input.file-input-error {
+  --input-color: var(--color-error);
+}
+
+/* A focus that can be seen, on everything that takes it, in the colour of the brand. Zero specificity, so a
+   component that draws its own (a button does) keeps it. */
+:where(a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Less motion for a person who asked for it. A spinner keeps turning: it is the only sign that something is
+   happening. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.loading),
+  *:not(.loading)::before,
+  *:not(.loading)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

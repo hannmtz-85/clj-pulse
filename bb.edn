@@ -1,4 +1,4 @@
-{:paths ["tools" "libs/fhir/src" "libs/fhir/resources"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "design/src"]
  :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])
@@ -23,8 +23,42 @@
   fmt:check {:doc "Fail if any source is not formatted (used by CI)"
              :task (shell "clojure" "-M:fmt" "check")}
 
-  check {:doc "Everything CI runs: format check, lint, realm check and tests"
-         :task (do (run 'fmt:check) (run 'lint) (run 'realm:check) (run 'test))}
+  check {:doc "Everything CI runs: format check, lint, realm and design checks, and tests"
+         :task (do (run 'fmt:check) (run 'lint) (run 'realm:check) (run 'design:check) (run 'test))}
+
+  ;; --- the design system (ADR-0026) ---------------------------------------
+  design:theme {:doc "Write design/theme.css from design/tokens.edn"
+                :requires ([design])
+                :task (design/write-theme!)}
+
+  design:check {:doc "Fail if design/theme.css is stale or a pair of colours is below its contrast"
+                :requires ([design])
+                :task (design/check!)}
+
+  design:contrast {:doc "Print the contrast ratio of every pair of colours of every palette"
+                   :requires ([design])
+                   :task (design/print-contrast)}
+
+  design:icons {:doc "Write libs/ui/src/pulse/ui/icons.cljc from the Lucide icons listed in design/icons.edn (needs `npm ci` in design/)"
+                :requires ([pulse.design.icons :as icons])
+                :task (icons/generate!)}
+
+  design:fonts {:doc "Copy the Inter font files from the npm package to design/fonts, where they are committed (needs `npm ci` in design/)"
+                :requires ([pulse.design.build :as build])
+                :task (build/install-fonts!)}
+
+  design:css {:doc "Write design/theme.css and compile design/dist/pulse.css with Tailwind CSS (needs `npm ci` in design/)"
+              :depends [design:theme]
+              :task (shell {:dir "design"} "npm" "run" "css")}
+
+  design:build {:doc "Make the mock-ups in design/dist from the components and the synthetic cohort (then open design/dist/index.html)"
+                :depends [design:css]
+                :requires ([pulse.design.build :as build])
+                :task (build/build!)}
+
+  design:shots {:doc "Take screenshots of the mock-ups into design/dist/shots with headless Chrome or Edge: bb design:shots [page-prefix ...]"
+                :requires ([pulse.design.shots :as shots])
+                :task (shots/take! *command-line-args*)}
 
   ;; --- infrastructure -----------------------------------------------------
   env:init {:doc "Create .env from .env.example with random local secrets (never overwrites)"
