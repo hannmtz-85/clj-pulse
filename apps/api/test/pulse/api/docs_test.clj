@@ -104,6 +104,13 @@
                (get (operation doc :get "/api/patients") "x-pulse-access")))
         (is (= {"any" "all"} (get (operation doc :get "/api/me") "x-pulse-access")))
         (is (= {"patient" "own"} (get (operation doc :post "/api/appointments") "x-pulse-access")))
+        (is (= {"patient" "own" "practitioner" "panel" "clinic-admin" "all"}
+               (get (operation doc :patch "/api/appointments/{id}") "x-pulse-access"))
+            "a patient may act on their own appointment, and the description says that it is only to cancel it")
+        (is (str/includes? (get (operation doc :patch "/api/appointments/{id}") "description")
+                           "A patient may only `cancel`, and only their own appointment"))
+        (is (str/includes? (get-in (operation doc :patch "/api/appointments/{id}") ["responses" "409" "description"])
+                           "A patient cannot cancel a `booked` appointment that has begun"))
         (is (= {"clinic-admin" "all" "practitioner" "panel"}
                (get (operation doc :get "/api/alerts") "x-pulse-access")))))))
 

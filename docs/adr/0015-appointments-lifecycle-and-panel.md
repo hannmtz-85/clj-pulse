@@ -28,7 +28,7 @@
 
 ## Consequences
 
-- Annex A gives patients no way to cancel, while the plan's page for the portal says "appointments (request/cancel)". The api follows Annex A. Letting a patient withdraw their own proposed request would be a new action with the `:own` scope, to be decided before Phase 7.
+- Annex A gives patients no way to cancel, while the plan's page for the portal says "appointments (request/cancel)". The api follows Annex A. Letting a patient withdraw their own proposed request would be a new action with the `:own` scope, to be decided before Phase 7. *Decided on 2026-10-17: [ADR-0027](0027-a-patient-cancels-their-own-appointment-the-lifecycle-says-who-and-me-names-the-doctor.md) lets a patient cancel their own appointment, a request at any time and a booked one until it begins, and makes the lifecycle say who may do what.*
 - Nothing stops two booked appointments of one doctor from overlapping (X-29), and an update can overwrite a concurrent one (X-28).
 - There is no `GET /api/appointments/{id}` and no `Location` header: the answer to a request or a change is the appointment itself.
 - The lifecycle is reusable: rule R5 of the scheduler reads `booked` and `start`, and the SPA gets its buttons from `available-actions`.

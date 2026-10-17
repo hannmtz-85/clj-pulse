@@ -27,8 +27,10 @@
 (defn access!
   "One event per decision on clinical data, allowed or not (ADR-0012): who, what, on which
   patient, with what outcome (`:allowed`, `:denied` or `:not-found`) and why. `decision` is what
-  `pulse.api.authz/authorize` answered and `descriptor` the resource it judged, or nil."
-  [request caller action outcome {:keys [scope reason]} descriptor]
+  `pulse.api.authz/authorize` answered and `descriptor` the resource it judged, or nil. When an
+  endpoint refuses a command that its route let through (a patient who asks to confirm an
+  appointment, ADR-0027), `decision` also says which with `:change`, a verb and never a value."
+  [request caller action outcome {:keys [scope reason change]} descriptor]
   (when-not (contains? unaudited action)
     (t/event! :pulse.audit/access
               {:level (if (= :allowed outcome) :info :warn)
@@ -36,7 +38,8 @@
                                     (about-request request))
                        (:patient descriptor) (assoc :patient (:patient descriptor))
                        scope (assoc :scope scope)
-                       reason (assoc :reason reason))})))
+                       reason (assoc :reason reason)
+                       change (assoc :change change))})))
 
 (defn write!
   "One event for a write the FHIR server has accepted: who, the action they were allowed, the

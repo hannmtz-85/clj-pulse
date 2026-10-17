@@ -197,14 +197,14 @@
         proposed (lifecycle/proposal {:id "it-appt-valid" :patient patient-id :practitioner "pr-rivera"
                                       :description "Integration test"
                                       :requestedStart "2026-10-20T00:00:00Z" :requestedEnd "2026-10-27T00:00:00Z"})
-        booked (:ok (lifecycle/change proposed {:action :confirm :start "2026-10-21T09:00:00Z" :end "2026-10-21T09:30:00Z"} now))
-        moved (:ok (lifecycle/change booked {:action :reschedule :start "2026-10-22T10:00:00Z" :end "2026-10-22T10:45:00Z"} now))]
+        booked (:ok (lifecycle/change proposed {:action :confirm :start "2026-10-21T09:00:00Z" :end "2026-10-21T09:30:00Z"} now :clinician))
+        moved (:ok (lifecycle/change booked {:action :reschedule :start "2026-10-22T10:00:00Z" :end "2026-10-22T10:45:00Z"} now :clinician))]
     (doseq [[label appointment] [["a request" proposed]
                                  ["confirmed" booked]
                                  ["rescheduled" moved]
-                                 ["a request, cancelled" (:ok (lifecycle/change proposed {:action :cancel} now))]
+                                 ["a request, cancelled" (:ok (lifecycle/change proposed {:action :cancel} now :clinician))]
                                  ["booked, then cancelled with a reason"
-                                  (:ok (lifecycle/change booked {:action :cancel :reason "The doctor is away that week"} now))]]
+                                  (:ok (lifecycle/change booked {:action :cancel :reason "The doctor is away that week"} now :clinician))]]
             :let [result (c/validate hapi appointment)]]
       (testing label
         (is (not (outcome/error? result)) (outcome/summary result))))))

@@ -36,7 +36,10 @@
     :identifiers  every patient, but only their identifiers
 
   A role that is not listed has no access; `:any` stands for every authenticated caller. The
-  rows follow Annex A of the plan, plus `:appointment/read`, implied by Annex B."
+  rows follow Annex A of the plan, plus `:appointment/read`, implied by Annex B. Whose
+  appointments a caller may act on is `:appointment/manage`; what each kind of person may do to
+  them (a patient may only cancel, and only until it begins) is the lifecycle's to say, in
+  `pulse.fhir.appointment/transitions` (ADR-0027)."
   {:identity/read {:any :all}
    :patient/list {:practitioner :panel :clinic-admin :all :rules-engine :identifiers}
    :patient/read {:patient :own :practitioner :panel :clinic-admin :all}
@@ -44,7 +47,7 @@
    :observation/record {:patient :own :practitioner :panel :rules-engine :all}
    :appointment/read {:patient :own :practitioner :panel :clinic-admin :all}
    :appointment/request {:patient :own}
-   :appointment/manage {:practitioner :panel :clinic-admin :all}
+   :appointment/manage {:patient :own :practitioner :panel :clinic-admin :all}
    :alert/read {:practitioner :panel :clinic-admin :all}
    :alert/ack {:practitioner :panel :clinic-admin :all}
    :alert/write {:rules-engine :all}

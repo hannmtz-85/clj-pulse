@@ -13,7 +13,8 @@ GET {{api}}/healthz
 ### Readiness: Keycloak's signing keys and the FHIR server answer (503 when one does not)
 GET {{api}}/readyz
 
-### Who am I: identity, roles and the FHIR resource that is me
+### Who am I: identity, roles, the FHIR resource that is me and, for a patient, their doctor
+# generalPractitioner is {reference, name, specialty}, or null for anyone who is not a patient with a doctor.
 GET {{api}}/api/me
 Authorization: Bearer {{token}}
 
@@ -121,6 +122,15 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"action": "cancel", "reason": "The doctor is away that week"}
+
+### A patient cancels their own appointment: a request at any time, a booked one until it begins (ADR-0027)
+# Use a patient's token (bb token ana.garcia@pulse.test). A patient can only cancel: anything else is a 403,
+# and so is an appointment of someone else. One that has begun is a 409: only the clinic can cancel it.
+PATCH {{api}}/api/appointments/appt-ana-1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"action": "cancel", "reason": "I cannot come"}
 
 ### The alerts of the caller's panel: a practitioner's patients', or everyone's for the admin
 # Active unless status=inactive asks for those that were acknowledged. The cohort has no alerts: the

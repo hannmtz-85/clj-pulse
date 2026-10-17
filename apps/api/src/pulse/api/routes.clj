@@ -64,8 +64,8 @@
    ["/api"
     ["/me" {:tags ["Identity"]
             :get {:authz {:action :identity/read}
-                  :summary "The caller: identity, roles and the FHIR resource that is them"
-                  :description "What the api read from the access token and, for a patient or a practitioner, their own `Patient` or `Practitioner` resource from the FHIR server."
+                  :summary "The caller: identity, roles, the FHIR resource that is them and, for a patient, their doctor"
+                  :description "What the api read from the access token and, for a patient or a practitioner, their own `Patient` or `Practitioner` resource from the FHIR server. For a patient who has a general practitioner, that doctor's name and specialty too, as the clinic writes them."
                   :responses {200 {:description "The caller."
                                    :body me/schema}}
                   :handler (me/handler deps)}}]
@@ -138,10 +138,10 @@
      {:tags ["Appointments"]
       :patch {:authz {:action :appointment/manage :resource (appointments/resolver fhir)}
               :summary "Confirm, reschedule or cancel an appointment"
-              :description "`confirm` books a `proposed` appointment at the time given, `reschedule` moves a `booked` one, and `cancel` ends a `proposed` or `booked` one for good. For a clinician, an appointment is in their panel when they take part in it."
+              :description "`confirm` books a `proposed` appointment at the time given, `reschedule` moves a `booked` one, and `cancel` ends a `proposed` or `booked` one for good. For a clinician, an appointment is in their panel when they take part in it. A patient may only `cancel`, and only their own appointment, a request at any time and a booked appointment until it begins; asking for anything else is a 403."
               :parameters {:path appointment-path
                            :body appointments/change-body}
-              :problems {409 "The status of the appointment does not allow the action: only a `proposed` appointment can be confirmed, a `booked` one rescheduled, and a `proposed` or `booked` one cancelled."
+              :problems {409 "The status of the appointment does not allow the action: only a `proposed` appointment can be confirmed, a `booked` one rescheduled, and a `proposed` or `booked` one cancelled. A patient cannot cancel a `booked` appointment that has begun."
                          422 (let [[shortest longest] (:slot-minutes limits)]
                                (str "The command has the right shape and its values cannot be right: a time must be in the future and within "
                                     (:slot-ahead-days limits) " days, and end after it starts, " shortest " to " longest " minutes later; "

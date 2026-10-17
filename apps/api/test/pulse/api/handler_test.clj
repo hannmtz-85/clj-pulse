@@ -7,6 +7,7 @@
             [pulse.api.authz :as authz]
             [pulse.api.handler :as handler]
             [pulse.api.test.harness :as h :refer [access-token call content-type header with-api]]
+            [pulse.fhir.client :as fc]
             [pulse.platform.jwt :as jwt]
             [pulse.platform.test.idp :as idp]))
 
@@ -141,6 +142,61 @@
         (is (= "Practitioner/pr-rivera" (:fhirUser body)))
         (is (= "Practitioner" (get-in body [:resource :resourceType])))
         (is (= "pr-rivera" (get-in body [:resource :id])))))))
+
+(deftest me-names-the-doctor-of-a-patient
+  (with-api {}
+    (fn [api]
+      (testing "a patient gets their general practitioner, with the name as the clinic writes it"
+        (is (= {:reference "Practitioner/pr-rivera" :name "Dr. Elena Rivera" :specialty "Internal medicine"}
+               (:generalPractitioner (:json (call api :get "/api/me" :token (h/token-for :ana))))))
+        (is (= {:reference "Practitioner/pr-okafor" :name "Dr. Chidi Okafor" :specialty "Cardiology"}
+               (:generalPractitioner (:json (call api :get "/api/me" :token (h/token-for :maya)))))))
+      (testing "a practitioner, the administrator and the scheduler have none to name"
+        (doseq [who [:rivera :admin :scheduler]
+                :let [body (:json (call api :get "/api/me" :token (h/token-for who)))]]
+          (is (contains? body :generalPractitioner) (str who))
+          (is (nil? (:generalPractitioner body)) (str who)))))))
+
+(deftest me-for-a-patient-whose-doctor-cannot-be-named
+  (let [client (h/demo-cohort)
+        patient (fn [id & {:as changes}] (merge (fc/read-resource client "Patient" "pt-ana") {:id id} changes))]
+    (fc/put! client (dissoc (patient "pt-solo") :generalPractitioner))
+    (fc/put! client (patient "pt-ghostdoc" :generalPractitioner [{:reference "Practitioner/pr-ghost"}]))
+    (fc/put! client (patient "pt-clinic" :generalPractitioner [{:reference "Organization/org-pulse-demo"}]))
+    (fc/put! client (-> (fc/read-resource client "Practitioner" "pr-rivera")
+                        (assoc :id "pr-bare" :name [{:family "Bare"}])
+                        (dissoc :qualification)))
+    (fc/put! client (patient "pt-baredoc" :generalPractitioner [{:reference "Practitioner/pr-bare"}]))
+    (with-api {:fhir client}
+      (fn [api]
+        (doseq [[id expected] [["pt-solo" nil]
+                               ["pt-ghostdoc" nil]
+                               ["pt-clinic" nil]
+                               ["pt-baredoc" {:reference "Practitioner/pr-bare" :name "Bare" :specialty nil}]]]
+          (testing id
+            (let [r (call api :get "/api/me" :token (access-token :fhirUser (str "Patient/" id)))]
+              (is (= 200 (:status r)))
+              (is (= expected (:generalPractitioner (:json r)))))))))))
+
+(deftest me-reads-the-caller-and-the-doctor-of-a-patient-and-nothing-else
+  (let [calls (atom [])]
+    (with-api {:fhir (h/spy (h/demo-cohort) calls)}
+      (fn [api]
+        (call api :get "/api/me" :token (h/token-for :ana))
+        (is (= [[:read "Patient" "pt-ana"] [:read "Practitioner" "pr-rivera"]] @calls))
+        (reset! calls [])
+        (call api :get "/api/me" :token (h/token-for :rivera))
+        (is (= [[:read "Practitioner" "pr-rivera"]] @calls))
+        (reset! calls [])
+        (call api :get "/api/me" :token (h/token-for :admin))
+        (is (empty? @calls))))))
+
+(deftest me-when-the-doctor-cannot-be-read-is-a-502-as-when-the-patient-cannot
+  (with-api {:fhir (h/misbehaving (h/demo-cohort) {"Practitioner" :fail})}
+    (fn [api]
+      (let [r (call api :get "/api/me" :token (h/token-for :ana))]
+        (is (= 502 (:status r)))
+        (is (= "The FHIR server could not be reached." (:detail (:json r))))))))
 
 (deftest me-for-the-admin-and-the-scheduler
   (with-api {}

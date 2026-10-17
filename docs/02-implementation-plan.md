@@ -291,9 +291,19 @@ Rough effort: **S** ≈ 1 working session · **M** ≈ 2 · **L** ≈ 3-4. Every
 
 ### Phase 7 · `web`: patient portal (L)
 
+**Order, validated by the owner on 2026-10-17** (one commit for each step, asked for first):
+
+1. [x] ADR-0027 and the api: a patient cancels their own appointment (the lifecycle says who may do what: `transitions` have a `:by`, a patient may only cancel and only until it begins) and `GET /api/me` names a patient's doctor, which the portal shows beside every appointment and on the profile. Verified on 2026-10-17: `bb check` is green with 1 296 tests and 23 452 assertions; `bb test:it` with 39 tests and 595 assertions (one new, against the real Keycloak and HAPI: a patient withdraws a request, cancels a booked appointment, is refused the rest and one that has begun, and is told who their doctor is); no reflection warnings in 78 namespaces; a mutation analysis of 136 mutations of the new code left 28 survivors at first: 5 were missing assertions about messages, now there, 6 do nothing (the ClojureScript branch of a reader conditional, `if-let` for `if-some` over a map, `mod` for `rem`), and 17 are texts of the documentation of the api that no test reads word for word.
+2. [ ] The spike of `ring-oauth2` (PKCE, what the session holds, refresh; at most an hour) and ADR-0028 for the portal (a server-side session, the sign-in, the refresh, CSRF, CSP, htmx), which the owner validates before any code.
+3. [ ] The skeleton of `apps/web`: Integrant, configuration, Jetty, security headers with a strict CSP, the stylesheet, the font and htmx served from the portal, `/healthz`, `/readyz`, the pages for 404 and 500, `bb web`, and `bb dev` starting it on 3300.
+4. [ ] Signing in, the session, signing out and the refresh of a token that lasts five minutes: PKCE against the real Keycloak, the tokens only on the server, CSRF, "Your session has ended", and the portal for patients only.
+5. [ ] The home. 6. [ ] Readings and recording one. 7. [ ] Appointments, with the dialog to cancel. 8. [ ] The record, the profile, the empty state of a new patient, the errors, and the acceptance with the real Keycloak and a headless browser.
+
+Decisions of the owner for the phase: the portal is a server-side client of the api (the tokens never reach the browser); only a `patient` may use it; the new dependencies are `ring-oauth2` 0.3.0, `ring-anti-forgery` 1.4.0, `ring-mock` (tests) and htmx 2.x as an npm development dependency, copied into the portal with its licence in `NOTICE`; the readings of the home refreshing by themselves is X-89.
+
 - [ ] Integrant system; secure session (`HttpOnly`, `SameSite=Lax`), CSRF, CSP and security headers.
 - [ ] Login with ring-oauth2 + PKCE and verification through the shared JWT facade; expiry and refresh (**spike**: ring-oauth2's documentation does not mention refresh); application-initiated logout.
-- [ ] Pages: home, trends, medication, appointments (request/cancel) and profile; htmx partials; SVG charts as Hiccup. A patient can cancel their own appointment (decided by the owner on 2026-10-16): Annex A gave the patient only the request, so the api gets one more action with the `:own` scope for it, with its ADR, before the page.
+- [ ] Pages: home, trends, medication, appointments (request/cancel) and profile; htmx partials; SVG charts as Hiccup. A patient can cancel their own appointment (decided by the owner on 2026-10-16; the api has it since step 1, [ADR-0027](adr/0027-a-patient-cancels-their-own-appointment-the-lifecycle-says-who-and-me-names-the-doctor.md): a request at any time, a booked appointment until it begins).
 - [ ] Accessibility (landmarks, focus, contrast, tables with headers) and empty/error states.
 - [ ] Tests: handlers with ring-mock, Hiccup snapshots, properties of the SVG generator.
 
@@ -379,7 +389,7 @@ All eight open questions were answered by the owner on 2026-10-13.
 - **Licence.** MIT is the working proposal (EPL-2.0 is the alternative). It only matters at publication (Phase 10): confirm the choice and the copyright holder's name for `LICENSE` then.
 - **RAM.** Decide whether to stop the Ubuntu WSL distribution or disable its Docker integration (see §8).
 - **Node.** Optionally upgrade Node to ≥ 24.15 to use npm 12.
-- ~~**Patients cancelling.**~~ Decided by the owner on 2026-10-16: a patient can cancel their own appointment. Annex A gave patients no way to do it, while the page of the portal in Phase 7 says "appointments (request/cancel)", and the api follows Annex A (ADR-0015); so the api gets one more action with the `:own` scope, with its ADR, in Phase 7, and the mock-ups of Phase 6 have the button.
+- ~~**Patients cancelling.**~~ Decided by the owner on 2026-10-16: a patient can cancel their own appointment. Annex A gave patients no way to do it, while the page of the portal in Phase 7 says "appointments (request/cancel)", and the api follows Annex A (ADR-0015); so the api gets one more action with the `:own` scope, with its ADR, in Phase 7, and the mock-ups of Phase 6 have the button. Done in Phase 7, step 1, on 2026-10-17 ([ADR-0027](adr/0027-a-patient-cancels-their-own-appointment-the-lifecycle-says-who-and-me-names-the-doctor.md)): the lifecycle says who may do what, a patient may cancel a request at any time and a booked appointment until it begins.
 
 ---
 
@@ -391,7 +401,8 @@ All eight open questions were answered by the owner on 2026-10-13.
 | List patients | No | Their panel (`general-practitioner`) | All | Identifiers only |
 | Record an observation | Own (self-reported) | On their panel | No | Yes (simulator, `dev` only) |
 | Request an appointment | Own | – | – | – |
-| Confirm or cancel an appointment | No | Their panel | All | – |
+| Confirm or reschedule an appointment | No | Their panel | All | – |
+| Cancel an appointment | Own, until it begins ([ADR-0027](adr/0027-a-patient-cancels-their-own-appointment-the-lifecycle-says-who-and-me-names-the-doctor.md)) | Their panel | All | – |
 | View and acknowledge alerts | No | Their panel | All | Creates and updates `Flag` |
 | Job status | No | No | Yes | – |
 
@@ -401,14 +412,14 @@ All eight open questions were answered by the owner on 2026-10-13.
 |---|---|---|
 | `GET /healthz`, `/readyz` | Public | Liveness and dependencies (Keycloak JWKS, HAPI) |
 | `GET /docs` | Public | Swagger UI (OpenAPI) |
-| `GET /api/me` | Any user | Identity, roles and linked FHIR resource |
+| `GET /api/me` | Any user | Identity, roles and linked FHIR resource, and a patient's doctor (name and specialty) |
 | `GET /api/patients` | `practitioner`, `clinic-admin` | Panel with filters, sorting and paging |
 | `GET /api/patients/{id}` | Own · their panel · admin | Demographics |
 | `GET /api/patients/{id}/summary` | Same | Conditions, medication, allergies, latest vitals, appointments and alerts |
 | `GET /api/patients/{id}/observations` | Same | Series by code and date range |
 | `POST /api/patients/{id}/observations` | Patient (own) · their clinician | Record a validated measurement |
 | `GET`/`POST /api/appointments` | By role | List / request |
-| `PATCH /api/appointments/{id}` | `practitioner`, `clinic-admin` | Confirm, cancel or reschedule |
+| `PATCH /api/appointments/{id}` | `patient` (to cancel their own), `practitioner`, `clinic-admin` | Confirm, cancel or reschedule; a patient may only cancel, a request at any time and a booked appointment until it begins |
 | `GET /api/alerts` | `practitioner`, `clinic-admin` | Alerts (`Flag`) for their panel |
 | `POST /api/alerts/{id}/ack` | `practitioner`, `clinic-admin` | Acknowledge an alert |
 | `GET /api/admin/jobs` | `clinic-admin` | Scheduler status, through `api`, which asks the scheduler with its own service account ([ADR-0025](adr/0025-job-status-through-the-api-its-own-service-account-and-a-role-for-it.md)) |

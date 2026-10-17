@@ -201,9 +201,10 @@
     (is (= ["Confirmed" "Requested"] (map #(first (filter #{"Confirmed" "Requested"} (map hx/words (hx/by-tag % :span)))) coming)))
     (is (str/includes? (hx/words (first cancelled)) "Cancelled"))))
 
-(deftest a-patient-can-cancel-what-the-lifecycle-lets-be-cancelled
+(deftest a-patient-can-cancel-what-the-lifecycle-lets-them-cancel
   (let [doc (portal/appointments context)
-        cancelable (get-in appointment/transitions [:cancel :from])
+        cancelable (set (filter #(contains? (appointment/available-actions {:status %} :patient data/now-text) :cancel)
+                                ["proposed" "booked" "cancelled"]))
         statuses (fn [list-el] (map #(count (filter (fn [b] (#{"Cancel appointment" "Cancel request"} (hx/words b))) (buttons %))) (rows list-el)))]
     (is (= #{"proposed" "booked"} cancelable))
     (testing "a confirmed appointment and a request have the button, and what was cancelled has none"
@@ -239,7 +240,9 @@
     (is (= "Cancel this appointment?" (hx/words (hx/by-id dialog "cancel-appointment-title"))))
     (is (str/includes? (hx/words dialog) "Hypertension follow-up"))
     (is (str/includes? (hx/words dialog) "Wed 14 Oct, 10:00–10:30 · Dr. Elena Rivera"))
-    (is (str/includes? (hx/words dialog) "Your care team will be told."))
+    (testing "it promises what the system does: the care team sees a cancelled appointment, and nobody is notified"
+      (is (str/includes? (hx/words dialog) "Your care team will see it."))
+      (is (not (re-find #"(?i)told|notified|informed" (hx/words dialog)))))
     (is (= ["Cancel the appointment" "Keep it"]
            (sort-by {"Cancel the appointment" 0 "Keep it" 1} (map hx/words (buttons dialog)))))
     (is (hx/has-class? (button-named dialog "Cancel the appointment") "btn-error"))

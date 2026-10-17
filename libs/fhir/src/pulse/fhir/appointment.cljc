@@ -1,9 +1,10 @@
 (ns pulse.fhir.appointment
-  "The lifecycle of an appointment as Pulse has it (ADR-0015). A patient asks for one and it is
-  `proposed`; a clinician `confirm`s it with a time and it is `booked`, may `reschedule` it, and
-  may `cancel` it, after which it is `cancelled` for good. The rules are data, `transitions`, and
-  `change` applies one of them as a pure function of the appointment, what is asked and the time
-  it is asked at.
+  "The lifecycle of an appointment as Pulse has it (ADR-0015, ADR-0027). A patient asks for one
+  and it is `proposed`; a clinician `confirm`s it with a time and it is `booked`, may `reschedule`
+  it, and may `cancel` it, after which it is `cancelled` for good. A patient may cancel their own
+  until it begins. The rules are data, `transitions`, and say who may take each action, a
+  `:patient` or a `:clinician`; `change` applies one of them as a pure function of the
+  appointment, what is asked, the time it is asked at and who asks.
 
   Times are instant strings as FHIR has them (\"2026-10-20T09:00:00Z\"), compared as the epoch
   milliseconds `pulse.fhir.time` gives. They are stored as they are given, so a caller that wants
@@ -24,22 +25,22 @@
    :window-ahead-days 180
    :text-length 200})
 
-(def transitions
-  "What a clinician can do to an appointment: the statuses it may be in (`:from`), the status it
-  is in afterwards (`:to`) and how the answer to the caller words it (`:done`). A `cancelled`
-  appointment is in no `:from`: it is over."
-  {:confirm {:from #{"proposed"} :to "booked" :done "confirmed"}
-   :reschedule {:from #{"booked"} :to "booked" :done "rescheduled"}
-   :cancel {:from #{"proposed" "booked"} :to "cancelled" :done "cancelled"}})
+(def actors
+  "The kinds of person who act on an appointment: a `:patient`, on their own, and a `:clinician`,
+  a practitioner or the administrator."
+  #{:patient :clinician})
 
-(defn available-actions
-  "The actions the status of `appointment` allows, as a set of keywords. Whether the caller may
-  take them is for authorization to say."
-  [appointment]
-  (into #{}
-        (for [[action {:keys [from]}] transitions
-              :when (contains? from (:status appointment))]
-          action)))
+(def transitions
+  "What can be done to an appointment: the statuses it may be in (`:from`), the status it is in
+  afterwards (`:to`), how the answer to the caller words it (`:done`) and who may do it (`:by`),
+  a map from the kind of actor to what restricts them. A clinician is not restricted. A patient
+  can only cancel, and only until the appointment begins (`:until-start?`). A kind of actor that
+  is not in `:by` may not take the action. A `cancelled` appointment is in no `:from`: it is
+  over."
+  {:confirm {:from #{"proposed"} :to "booked" :done "confirmed" :by {:clinician {}}}
+   :reschedule {:from #{"booked"} :to "booked" :done "rescheduled" :by {:clinician {}}}
+   :cancel {:from #{"proposed" "booked"} :to "cancelled" :done "cancelled"
+            :by {:clinician {} :patient {:until-start? true}}}})
 
 ;; ---------------------------------------------------------------------------
 ;; Reading times and checking text
@@ -131,6 +132,38 @@
                          (str "must be at most " (:window-days limits) " days after the start")))))))
 
 ;; ---------------------------------------------------------------------------
+;; What an appointment allows
+
+(defn- begun?
+  "Whether `appointment` has begun as of `now-ms`: it has a time, and that time is not ahead. A
+  request, which has none yet, has not."
+  [appointment now-ms]
+  (let [start (millis (:start appointment))]
+    (boolean (and start (<= start now-ms)))))
+
+(defn- open-to?
+  "Whether what `restrictions` says of a kind of actor (an entry of `:by`) leaves `appointment`
+  open to them as of `now-ms`."
+  [restrictions appointment now-ms]
+  (not (and (:until-start? restrictions) (begun? appointment now-ms))))
+
+(defn available-actions
+  "The actions that `actor`, a `:patient` or a `:clinician`, may take on `appointment` at `now`,
+  as a set of keywords: its status allows them, `transitions` lets that kind of actor take them,
+  and nothing that restricts them has happened (a patient may no longer cancel an appointment
+  that has begun). Whether this caller may touch this appointment at all is for authorization to
+  say. Any other kind of actor may take none. Pure."
+  [appointment actor now]
+  (let [now-ms (now-millis now)]
+    (into #{}
+          (for [[action {:keys [from by]}] transitions
+                :let [restrictions (get by actor)]
+                :when (and (some? restrictions)
+                           (contains? from (:status appointment))
+                           (open-to? restrictions appointment now-ms))]
+            action))))
+
+;; ---------------------------------------------------------------------------
 ;; Asking for an appointment
 
 (defn request-errors
@@ -183,25 +216,42 @@
   (let [{:keys [from done]} (get transitions action)]
     (str "Only a " (str/join " or " (sort from)) " appointment can be " done "; this one is " (or status "of no known status") ".")))
 
+(defn- forbidden-message [action actor]
+  (str "A " (if (keyword? actor) (name actor) "caller of that kind") " may not " (name action) " an appointment."))
+
+(defn- begun-message [action]
+  (str "This appointment has already begun, so only the clinic can " (name action) " it."))
+
 (defn change
   "Applies `command`, `{:action :confirm :start s :end e}`, `{:action :reschedule :start s :end e}`
-  or `{:action :cancel :reason r}` (the reason is optional), to `appointment` as of `now`. Returns
+  or `{:action :cancel :reason r}` (the reason is optional), to `appointment` as of `now`, for
+  `actor`, the kind of person who asks: `:patient` or `:clinician`. Returns
 
     {:ok appointment'}            the appointment, changed
-    {:conflict message}           its status does not allow the action
+    {:forbidden message}          that kind of actor may not take the action
+    {:conflict message}           its status, or the time, does not allow the action
     {:errors {field [message]}}   the values cannot be right, named as in the command
 
-  The status is checked before the values. It does not throw, whatever the command holds, except
-  for a `now` that is not an instant. Pure."
-  [appointment {:keys [action reason] :as command} now]
+  What the kind of actor may do is checked first, then the status and the time, then the values.
+  A kind of actor that `transitions` does not name may do nothing. It does not throw, whatever
+  the command holds, except for a `now` that is not an instant. Pure."
+  [appointment {:keys [action reason] :as command} now actor]
   (let [now-ms (now-millis now)]
-    (if-let [{:keys [from]} (get transitions action)]
-      (if-not (contains? from (:status appointment))
-        {:conflict (conflict-message appointment action)}
-        (if-let [errors (case action
-                          (:confirm :reschedule) (slot-errors (:start command) (:end command) now-ms)
-                          :cancel (when (some? reason)
-                                    (errors-of :reason (text-error reason))))]
-          {:errors errors}
-          {:ok (apply-action appointment action command)}))
+    (if-let [{:keys [from by]} (get transitions action)]
+      (if-let [restrictions (get by actor)]
+        (cond
+          (not (contains? from (:status appointment)))
+          {:conflict (conflict-message appointment action)}
+
+          (not (open-to? restrictions appointment now-ms))
+          {:conflict (begun-message action)}
+
+          :else
+          (if-let [errors (case action
+                            (:confirm :reschedule) (slot-errors (:start command) (:end command) now-ms)
+                            :cancel (when (some? reason)
+                                      (errors-of :reason (text-error reason))))]
+            {:errors errors}
+            {:ok (apply-action appointment action command)}))
+        {:forbidden (forbidden-message action actor)})
       {:errors {:action [(str "must be one of " (str/join ", " (map name (sort (keys transitions)))))]}})))

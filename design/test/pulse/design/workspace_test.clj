@@ -135,7 +135,7 @@
         "what is to come first, the patient's own name left out")
     (testing "what a clinician may do is what the lifecycle says of the status"
       (is (= (for [status ["booked" "proposed" "cancelled"]]
-               (set (map button-label (appointment/available-actions {:status status}))))
+               (set (map button-label (appointment/available-actions {:status status} :clinician data/now-text))))
              (map (fn [row] (set (map hx/words (buttons row)))) list-rows)))
       (is (= [["Reschedule" "Cancel"] ["Confirm" "Cancel"] []]
              (map (fn [row] (map hx/words (buttons row))) list-rows))))
@@ -245,7 +245,7 @@
 (deftest what-a-clinician-may-do-with-an-appointment-is-what-the-lifecycle-says
   (let [doc (workspace/appointments context)
         offered (fn [id] (map #(set (map hx/words (buttons %))) (rows (section-of doc id))))
-        allowed (fn [status] (set (map button-label (appointment/available-actions {:status status}))))]
+        allowed (fn [status] (set (map button-label (appointment/available-actions {:status status} :clinician data/now-text))))]
     (is (= [(allowed "proposed") (allowed "proposed")] (offered "requests")))
     (is (= [(allowed "booked") (allowed "booked")] (offered "booked")))
     (is (= [(allowed "cancelled")] (offered "cancelled")))

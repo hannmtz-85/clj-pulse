@@ -180,7 +180,7 @@
 (defn- appointment-actions
   "The buttons an appointment gets from its status: what a clinician may do with it is `pulse.fhir.appointment`'s to say."
   [status]
-  (let [actions (appointment/available-actions {:status status})]
+  (let [actions (appointment/available-actions {:status status} :clinician data/now-text)]
     (list (when (:confirm actions) (c/button {:size :sm :icon :calendar-check :href (link "workspace-confirm.html")} "Confirm"))
           (when (:reschedule actions) (c/button {:variant :outline :size :sm :icon :calendar-clock :href "#"} "Reschedule"))
           (when (:cancel actions) (c/button {:variant :ghost :size :sm :icon :calendar-x :href "#"} "Cancel")))))

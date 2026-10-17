@@ -4,9 +4,9 @@
   the headless authorization-code flow with PKCE that the SPA uses.
 
   Needs the stack and the demo cohort (`bb up`, `bb seed`) and runs with `bb test:it`. It only
-  reads, except `the-observations-...`, `the-appointments-...` and `the-alerts-against-the-real-stack`,
-  which write two readings, an appointment and three alerts in HAPI and delete them before they
-  end, whatever happens."
+  reads, except `the-observations-...`, `the-appointments-...`, `a-patient-cancels-...` and
+  `the-alerts-against-the-real-stack`, which write two readings, some appointments and three alerts
+  in HAPI and delete them before they end, whatever happens."
   (:require [babashka.http-client :as http]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -365,6 +365,85 @@
         (doseq [id @created]
           (fc/delete! hapi "Appointment" id))))))
 
+(deftest ^:integration a-patient-cancels-their-own-appointment-against-the-real-stack
+  ;; ADR-0027. The test asks for appointments as Ana and has Dr. Rivera confirm them, and deletes them
+  ;; at the end, whatever happens; the appointments of the cohort are only read.
+  (let [hapi (fhir-http/client {:base-url (get-in (dev-config) [:pulse.api/fhir :base-url])})
+        created (atom [])]
+    (try
+      (with-running-api
+        (fn [base-url]
+          (let [token-of (memoize token-for)
+                url (str base-url "/api/appointments")
+                ana "ana.garcia@pulse.test"
+                rivera "dr.rivera@pulse.test"
+                list! (fn [who & [query]] (get-json (str url (when query (str "?" query))) :token (token-of who)))
+                request! (fn [body]
+                           (let [response (post-json url body :token (token-of ana))]
+                             (when-let [new-id (get-in response [:json :id])]
+                               (swap! created conj new-id))
+                             response))
+                change! (fn [who id body] (patch-json (str url "/" id) body :token (token-of who)))
+                a-request (fn [why] (get-in (request! {:description (str "Integration test: " why)
+                                                       :requestedStart (in-days 1) :requestedEnd (in-days 6)})
+                                            [:json :id]))
+                booked (fn [why] (let [id (a-request why)]
+                                   (is (= 200 (:status (change! rivera id {:action "confirm" :start (in-days 2) :end (in-days 2 30)}))))
+                                   id))
+                stored (fn [id] (fc/read-resource hapi "Appointment" id))
+                valid-on-hapi (fn [id]
+                                (let [validation (fc/validate hapi (stored id))]
+                                  (is (not (outcome/error? validation)) (outcome/summary validation))))
+                ids (fn [response] (set (map :id (get-in response [:json :items]))))]
+            (testing "a patient withdraws a request, with a reason, and the doctor sees it cancelled"
+              (let [id (a-request "withdrawn")
+                    r (change! ana id {:action "cancel" :reason "Integration test: I found a time elsewhere"})]
+                (is (= 200 (:status r)))
+                (is (= "cancelled" (get-in r [:json :status])))
+                (is (= {:text "Integration test: I found a time elsewhere"} (:cancelationReason (stored id))))
+                (valid-on-hapi id)
+                (is (contains? (ids (list! rivera "status=cancelled")) id))
+                (is (not (contains? (ids (list! rivera "status=proposed")) id)))))
+            (testing "a patient cancels an appointment that is booked and has not begun, and cannot do it twice"
+              (let [id (booked "cancelled once")
+                    r (change! ana id {:action "cancel"})]
+                (is (= 200 (:status r)))
+                (is (= "cancelled" (:status (stored id))))
+                (is (not (contains? (stored id) :cancelationReason)) "no reason was given")
+                (valid-on-hapi id)
+                (is (= 409 (:status (change! ana id {:action "cancel"}))))))
+            (testing "what a patient may not do: another patient's appointment, and anything but cancelling"
+              (let [id (booked "not for others")
+                    before (stored id)]
+                (is (= 403 (:status (change! "liam.chen@pulse.test" id {:action "cancel"}))))
+                (is (= 403 (:status (change! "maya.patel@pulse.test" id {:action "cancel"}))))
+                (let [r (change! ana id {:action "reschedule" :start (in-days 3) :end (in-days 3 30)})]
+                  (is (= 403 (:status r)))
+                  (is (= "You are not allowed to do this." (get-in r [:json :detail]))))
+                (is (= 403 (:status (change! ana id {:action "confirm" :start (in-days 3) :end (in-days 3 30)}))))
+                (is (= before (stored id)) "nothing was written")))
+            (testing "one that has begun is the clinic's to cancel: a 409 for the patient, a 200 for the doctor"
+              (let [id (booked "has begun")
+                    began (-> (stored id)
+                              (assoc :start (str (.minus (.truncatedTo (Instant/now) ChronoUnit/SECONDS) (Duration/ofHours 1)))
+                                     :end (str (.plus (.truncatedTo (Instant/now) ChronoUnit/SECONDS) (Duration/ofMinutes 30)))))]
+                (fc/put! hapi began)
+                (let [r (change! ana id {:action "cancel"})]
+                  (is (= 409 (:status r)))
+                  (is (= "This appointment has already begun, so only the clinic can cancel it." (get-in r [:json :detail]))))
+                (is (= "booked" (:status (stored id))) "nothing was written")
+                (is (= 200 (:status (change! rivera id {:action "cancel"}))))
+                (is (= "cancelled" (:status (stored id))))))
+            (testing "an appointment of the cohort is not touched by a refusal"
+              (let [before (stored "appt-liam-1")]
+                (is (= 403 (:status (change! ana "appt-liam-1" {:action "cancel"}))))
+                (is (= before (stored "appt-liam-1")))))
+            (testing "one that does not exist is a 404, for a patient too"
+              (is (= 404 (:status (change! ana "appt-ghost" {:action "cancel"}))))))))
+      (finally
+        (doseq [id @created]
+          (fc/delete! hapi "Appointment" id))))))
+
 (deftest ^:integration the-alerts-against-the-real-stack
   ;; The cohort has no alerts (the scheduler raises them), so the test raises three in HAPI and
   ;; removes them at the end. Only those whose id starts with `it-flag-` are looked at, so that
@@ -442,6 +521,14 @@
                   (is (= type (get-in json [:resource :resourceType])))
                   (is (= id (get-in json [:resource :id]))))
                 (is (nil? (:resource json))))))))
+      (testing "a patient is told who their doctor is, as the clinic writes the name (ADR-0027)"
+        (doseq [[who doctor] [["ana.garcia@pulse.test"
+                               {:reference "Practitioner/pr-rivera" :name "Dr. Elena Rivera" :specialty "Internal medicine"}]
+                              ["maya.patel@pulse.test"
+                               {:reference "Practitioner/pr-okafor" :name "Dr. Chidi Okafor" :specialty "Cardiology"}]
+                              ["dr.rivera@pulse.test" nil]
+                              ["admin@pulse.test" nil]]]
+          (is (= doctor (:generalPractitioner (:json (get-json (str base-url "/api/me") :token (token-for who))))) who)))
       (testing "a token with one character of its signature changed is refused"
         (let [token (token-for "ana.garcia@pulse.test")
               i (- (count token) 5)

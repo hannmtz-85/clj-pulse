@@ -1,11 +1,13 @@
 (ns pulse.api.appointments
-  "The appointment endpoints (ADR-0015): the list, GET /api/appointments; a patient's request
-  for one, POST on the same path; and what a clinician does to one, PATCH /api/appointments/{id}.
+  "The appointment endpoints (ADR-0015, ADR-0027): the list, GET /api/appointments; a patient's
+  request for one, POST on the same path; and what is done to one, PATCH /api/appointments/{id}:
+  a clinician confirms, moves or cancels it, and a patient may cancel their own.
 
-  Who may do each is decided before this namespace runs (`pulse.api.authz`, ADR-0012). The
-  lifecycle, what an appointment can become and within which limits, is `pulse.fhir.appointment`.
-  This namespace is the HTTP side: the shape of the requests, the FHIR queries, the views, the
-  writes and their audit."
+  Whose appointments a caller may act on is decided before this namespace runs
+  (`pulse.api.authz`, ADR-0012). What each kind of person may do to them, what an appointment can
+  become and within which limits, is the lifecycle, `pulse.fhir.appointment`. This namespace is
+  the HTTP side: the shape of the requests, the FHIR queries, the views, the writes and their
+  audit."
   (:require [pulse.api.audit :as audit]
             [pulse.api.fhir :as fhir]
             [pulse.api.times :as times]
@@ -190,8 +192,9 @@
 ;; A change
 
 (def change-body
-  "What a clinician does to an appointment: confirm it or move it (`start` and `end`), or cancel
-  it, for a `reason` if they like. The shape depends on the action, which is why this is a `:multi`.
+  "What is done to an appointment: confirm it or move it (`start` and `end`), which only a clinician
+  may, or cancel it, for a `reason` if they like, which a patient may too (ADR-0027). The shape
+  depends on the action, which is why this is a `:multi`.
   A body that names no action is an error of the `action` field, worded as for an enum of the
   three: the message is the `:multi`'s own, so that no branch of the schema exists only for it
   (it would overlap the others in the description of the api)."
@@ -210,22 +213,35 @@
               [:reason {:optional true :description (str "Why it is cancelled: 1 to " (:text-length lifecycle/limits) " characters.")}
                [:string {:max 1000 :json-schema/maxLength (:text-length lifecycle/limits)}]]]]])
 
+(defn actor-kind
+  "The kind of person `caller` is to the lifecycle (ADR-0027): a `:clinician` if they are a
+  practitioner or the administrator, and otherwise the `:patient` that the route let in."
+  [caller]
+  (if (some (:roles caller) [:practitioner :clinic-admin]) :clinician :patient))
+
 (defn change-handler
   "PATCH /api/appointments/{id}: applies the action to the appointment that authorization read, so
-  the decision and the change are about the same version. What the status does not allow is a 409
-  and times that cannot be right are a 422, both from `pulse.fhir.appointment/change`. `deps` may
-  hold a `:clock`."
+  the decision and the change are about the same version. What the kind of person who asks may do
+  is the lifecycle's to say, and an action they may not take is a 403 (audited as a denial, with
+  the command named; the reason is for the log and not for the client). What the status, or the
+  time, does not allow is a 409 and times that cannot be right are a 422. All four come from
+  `pulse.fhir.appointment/change`. `deps` may hold a `:clock`."
   [{fhir-client :fhir clock :clock}]
   (let [^Clock clock (or clock (Clock/systemUTC))]
-    (fn [{caller :identity {:keys [appointment patient]} :descriptor :as request}]
+    (fn [{caller :identity {:keys [appointment patient] :as descriptor} :descriptor :as request}]
       (let [body (get-in request [:parameters :body])
             action (keyword (:action body))
             command (cond-> {:action action}
                       (:start body) (assoc :start (str (times/parse-instant (:start body))))
                       (:end body) (assoc :end (str (times/parse-instant (:end body))))
                       (some? (:reason body)) (assoc :reason (:reason body)))
-            {:keys [ok conflict errors]} (lifecycle/change appointment command (str (Instant/now clock)))]
+            {:keys [ok forbidden conflict errors]}
+            (lifecycle/change appointment command (str (Instant/now clock)) (actor-kind caller))]
         (cond
+          forbidden (do (audit/access! request caller :appointment/manage :denied
+                                       {:scope (:scope request) :reason :action-not-allowed-for-actor :change action}
+                                       descriptor)
+                        (throw (problem/ex 403 "You are not allowed to do this.")))
           conflict (throw (problem/ex 409 conflict))
           errors (throw (unprocessable "The appointment cannot be changed as asked." errors))
           :else (do (fhir/put! fhir-client ok)

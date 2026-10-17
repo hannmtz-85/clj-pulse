@@ -33,7 +33,7 @@
    [:patient/list          nil      :panel        :all          :identifiers]  ; list patients
    [:observation/record    :own     :panel        nil           :all]          ; record an observation
    [:appointment/request   :own     nil           nil           nil]           ; request an appointment
-   [:appointment/manage    nil      :panel        :all          nil]           ; confirm or cancel an appointment
+   [:appointment/manage    :own     :panel        :all          nil]           ; act on an appointment: a patient only cancels (ADR-0027)
    [:alert/read            nil      :panel        :all          nil]           ; view alerts
    [:alert/ack             nil      :panel        :all          nil]           ; acknowledge alerts
    [:alert/write           nil      nil           nil           :all]          ; the rules engine creates and updates Flags

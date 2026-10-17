@@ -9,6 +9,7 @@
             [pulse.design.mockup :as mockup]
             [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
+            [pulse.fhir.appointment :as appointment]
             [pulse.ui.component :as c]
             [pulse.ui.icon :as i]
             [pulse.ui.layout :as layout]))
@@ -48,19 +49,22 @@
 
 (defn- appointment-item
   "A row of a list of appointments of a patient: the day, or a clock for a request, what it is, with whom and when, its
-  status, and what the patient may do: cancel a confirmed appointment or withdraw a request."
+  status, and what the patient may do, which is the lifecycle's to say (ADR-0027): cancel a confirmed appointment, until
+  it begins, or withdraw a request."
   [{:keys [status description doctor month day reason asked] when-text :when}]
-  (c/list-row
-   {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
-    :trailing-wraps? true
-    :trailing (list (views/appointment-chip status)
-                    (case status
-                      "booked" (c/button {:variant :outline :size :lg :icon :calendar-x :href (link "portal-cancel.html")} "Cancel appointment")
-                      "proposed" (c/button {:variant :outline :size :lg :icon :x :href (link "portal-appointments.html")} "Cancel request")
-                      nil))}
-   [:p {:class "text-base font-semibold"} description]
-   [:p {:class "text-sm text-muted"} (str (or when-text asked) " · " doctor)]
-   (when reason [:p {:class "text-sm text-muted"} (str "Reason: " reason)])))
+  (let [cancel? (contains? (appointment/available-actions {:status status} :patient data/now-text) :cancel)]
+    (c/list-row
+     {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
+      :trailing-wraps? true
+      :trailing (list (views/appointment-chip status)
+                      (when cancel?
+                        (case status
+                          "booked" (c/button {:variant :outline :size :lg :icon :calendar-x :href (link "portal-cancel.html")} "Cancel appointment")
+                          "proposed" (c/button {:variant :outline :size :lg :icon :x :href (link "portal-appointments.html")} "Cancel request")
+                          nil)))}
+     [:p {:class "text-base font-semibold"} description]
+     [:p {:class "text-sm text-muted"} (str (or when-text asked) " · " doctor)]
+     (when reason [:p {:class "text-sm text-muted"} (str "Reason: " reason)]))))
 
 (defn- readings-grid [patient-id kinds]
   (let [vitals (data/vitals patient-id)]
@@ -261,7 +265,7 @@
                                     (c/button {:variant :danger :size :lg :icon :calendar-x :href (link "portal-appointments.html")} "Cancel the appointment"))}
                     [:p {:class "text-base font-medium"} (:description booked)]
                     [:p {:class "text-base text-muted"} (str (:when booked) " · " (:doctor booked))]
-                    [:p {:class "mt-3 text-base"} "Your care team will be told. You can ask for another visit at any time."]
+                    [:p {:class "mt-3 text-base"} "Your care team will see it. You can ask for another visit at any time."]
                     [:div {:class "mt-4"}
                      (c/textarea-field {:id "why" :name "why" :label "Why? It helps your care team" :optional? true :rows 2
                                         :hint "Up to 200 characters."})]))))

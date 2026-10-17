@@ -28,8 +28,8 @@
 
 (def ^:private clock (Clock/fixed now ZoneOffset/UTC))
 
-(defn- days [n] (Duration/ofDays n))
-(defn- hours [n] (Duration/ofHours n))
+(defn- days ^Duration [n] (Duration/ofDays n))
+(defn- hours ^Duration [n] (Duration/ofHours n))
 (defn- in [^Duration d] (str (.plus ^Instant now d)))
 (defn- ago [^Duration d] (str (.minus ^Instant now d)))
 
@@ -83,7 +83,7 @@
   [from to]
   {:start (in from) :end (in to)})
 
-(def ^:private half-hour (.plusMinutes Duration/ZERO 30))
+(def ^:private ^Duration half-hour (.plusMinutes Duration/ZERO 30))
 
 (defn- a-slot [] (slot (days 3) (.plus (days 3) half-hour)))
 
@@ -94,6 +94,17 @@
         client (h/demo-cohort)]
     (with-api {:fhir (h/spy client calls) :clock clock}
       (fn [api] (f api calls client)))))
+
+(defn- appointment-in
+  "A new appointment of Ana's with Dr. Rivera, with the id `id`, in the status `status`."
+  [id status]
+  (let [proposed (lifecycle/proposal {:id id :patient "pt-ana" :practitioner "pr-rivera" :description "Fuzz"
+                                      :requestedStart (in (days 1)) :requestedEnd (in (days 8))})
+        booked #(:ok (lifecycle/change proposed (assoc (a-slot) :action :confirm) (str now) :clinician))]
+    (case status
+      "proposed" proposed
+      "booked" (booked)
+      "cancelled" (:ok (lifecycle/change (booked) {:action :cancel} (str now) :clinician)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The list
@@ -398,13 +409,12 @@
 (deftest an-appointment-that-does-not-exist
   (with-spied-api
     (fn [api calls _]
-      (testing "for staff who may look: 404"
-        (doseq [who [:rivera :okafor :admin]]
+      (testing "for whoever may look, a patient included (ADR-0027): 404"
+        (doseq [who [:rivera :okafor :admin :ana]]
           (is (= 404 (:status (change! api who "appt-ghost" {:action "cancel"}))) (str who))))
-      (is (= 3 (count @calls)) "one read each")
+      (is (= 4 (count @calls)) "one read each")
       (reset! calls [])
       (testing "for whoever has no right to change any: 403, before anything is looked up"
-        (is (= 403 (:status (change! api :ana "appt-ghost" {:action "cancel"}))))
         (is (= 403 (:status (change! api :scheduler "appt-ghost" {:action "cancel"}))))
         (is (empty? @calls)))
       (testing "an id that cannot be a FHIR id cannot exist, and never reaches the server"
@@ -670,6 +680,199 @@
             (is (= before (stored client "appt-ana-1")))))))))
 
 ;; ---------------------------------------------------------------------------
+;; A patient cancels their own (ADR-0027)
+
+(def ^:private denied-text "You are not allowed to do this.")
+
+(defn- begun-at
+  "A copy of Ana's booked appointment with Dr. Rivera that begins `ago` before the time of the tests
+  (after it, if negative) and lasts half an hour from then."
+  [client id ^Duration ago-by]
+  (let [start (.minus ^Instant now ago-by)]
+    (assoc (stored client "appt-ana-1") :id id :start (str start) :end (str (.plus start half-hour)))))
+
+(deftest a-patient-withdraws-a-request-and-cancels-a-booked-appointment
+  (let [client (h/demo-cohort)]
+    (with-api {:fhir client :clock clock}
+      (fn [api]
+        (testing "a request is withdrawn, with a reason that the doctor can read"
+          (let [id (get-in (request! api :ana (ask)) [:json :id])
+                r (change! api :ana id {:action "cancel" :reason "I found a time at another clinic"})
+                appointment (stored client id)]
+            (is (= 200 (:status r)))
+            (is (= "application/json" (h/content-type r)))
+            (is (= {:id id :status "cancelled" :patient "Patient/pt-ana" :practitioner "Practitioner/pr-rivera"
+                    :reason "I found a time at another clinic"}
+                   (select-keys (:json r) [:id :status :patient :practitioner :reason])))
+            (is (= "cancelled" (:status appointment)))
+            (is (= {:text "I found a time at another clinic"} (:cancelationReason appointment)))
+            (is (schema/valid? appointment))
+            (testing "and the doctor sees it cancelled, with the reason, and no longer as a request"
+              (let [seen (first (filter #(= id (:id %)) (items (list! api :rivera "status=cancelled"))))]
+                (is (= "cancelled" (:status seen)))
+                (is (= "I found a time at another clinic" (:reason seen))))
+              (is (empty? (filter #(= id (:id %)) (items (list! api :rivera "status=proposed"))))))))
+        (testing "a booked appointment that has not begun is cancelled, with no reason if she gives none"
+          (let [r (change! api :ana "appt-ana-1" {:action "cancel"})
+                appointment (stored client "appt-ana-1")]
+            (is (= 200 (:status r)))
+            (is (= "cancelled" (:status appointment)))
+            (is (not (contains? appointment :cancelationReason)))
+            (is (some? (:start appointment)) "its time stays on record")
+            (is (schema/valid? appointment))))
+        (testing "and that is the end of it: she cannot cancel it again"
+          (let [r (change! api :ana "appt-ana-1" {:action "cancel"})]
+            (is (= 409 (:status r)))
+            (is (str/includes? (get-in r [:json :detail]) "this one is cancelled"))))))))
+
+(deftest a-patient-cannot-cancel-an-appointment-that-has-begun-but-the-clinic-can
+  (let [client (h/demo-cohort)]
+    (doseq [[label ago-by] [["an hour ago" (hours 1)] ["a second ago" (Duration/ofSeconds 1)] ["this very moment" Duration/ZERO]]]
+      (fc/put! client (begun-at client "appt-begun" ago-by))
+      (with-api {:fhir client :clock clock}
+        (fn [api]
+          (testing label
+            (let [before (stored client "appt-begun")
+                  r (change! api :ana "appt-begun" {:action "cancel"})]
+              (is (= 409 (:status r)))
+              (is (= "This appointment has already begun, so only the clinic can cancel it." (get-in r [:json :detail])))
+              (is (= "application/problem+json" (h/content-type r)))
+              (is (= before (stored client "appt-begun")) "nothing was written")
+              (is (empty? (h/audit-writes r))))
+            (testing "the clinic can"
+              (is (= 200 (:status (change! api :rivera "appt-begun" {:action "cancel"}))))
+              (is (= "cancelled" (:status (stored client "appt-begun")))))))))
+    (testing "one that is about to begin can still be cancelled"
+      (fc/put! client (begun-at client "appt-soon" (.negated (Duration/ofSeconds 1))))
+      (with-api {:fhir client :clock clock}
+        (fn [api]
+          (is (= 200 (:status (change! api :ana "appt-soon" {:action "cancel"})))))))))
+
+(deftest a-patient-may-only-cancel-and-only-their-own
+  (let [client (h/demo-cohort)]
+    (with-api {:fhir client :clock clock}
+      (fn [api]
+        (testing "someone else's appointment: a 403, whatever they ask"
+          (doseq [who [:liam :maya]
+                  body [{:action "cancel"} {:action "cancel" :reason "mine"} (assoc (a-slot) :action "reschedule")]
+                  :let [before (stored client "appt-ana-1")
+                        r (change! api who "appt-ana-1" body)]]
+            (is (= 403 (:status r)) (str who " " (pr-str body)))
+            (is (= before (stored client "appt-ana-1")) "nothing was written")))
+        (testing "her own, but to confirm or to move it: a 403 that says nothing of why"
+          (let [proposed-id (get-in (request! api :ana (ask)) [:json :id])]
+            (doseq [[id action] [["appt-ana-1" "reschedule"] ["appt-ana-1" "confirm"]
+                                 [proposed-id "confirm"] [proposed-id "reschedule"]]
+                    :let [before (stored client id)
+                          r (change! api :ana id (assoc (a-slot) :action action))]]
+              (testing (str id " " action)
+                (is (= 403 (:status r)))
+                (is (= denied-text (get-in r [:json :detail])))
+                (is (= "application/problem+json" (h/content-type r)))
+                (is (= before (stored client id)) "nothing was written")))))
+        (testing "the shape of the body is judged first, so a command that is not understood is a 400"
+          (is (= 400 (:status (change! api :ana "appt-ana-1" {:action "confirm"}))))
+          (is (= 400 (:status (change! api :ana "appt-ana-1" {:action "delete"})))))
+        (testing "a reason that cannot be right is a 422, as it is for a clinician"
+          (doseq [reason ["  " (apply str (repeat 201 "x"))]
+                  :let [r (change! api :ana "appt-ana-1" {:action "cancel" :reason reason})]]
+            (is (= 422 (:status r)))
+            (is (= #{:reason} (errored-fields r)))
+            (is (= "booked" (:status (stored client "appt-ana-1"))))))))))
+
+(deftest a-patients-cancellation-is-audited-with-the-verb-and-never-the-reason
+  (with-api {:clock clock}
+    (fn [api]
+      (let [actor {:subject "u-ana" :username "ana.garcia@pulse.test" :roles ["patient"] :client "pulse-spa"}
+            path "/api/appointments/appt-ana-1"
+            r (change! api :ana "appt-ana-1" {:action "cancel" :reason "A private reason"})]
+        (is (= [{:level :info
+                 :data {:actor actor :action :appointment/manage :outcome :allowed :scope :own
+                        :patient "Patient/pt-ana" :method "PATCH" :path path}}]
+               (map #(select-keys % [:level :data]) (audit-events r))))
+        (is (= [{:level :info
+                 :data {:actor actor :action :appointment/manage :outcome :updated :change :cancel
+                        :patient "Patient/pt-ana" :resource "Appointment/appt-ana-1"
+                        :method "PATCH" :path path}}]
+               (map #(select-keys % [:level :data]) (h/audit-writes r))))
+        (is (not (str/includes? (pr-str (:signals r)) "private")) "the reason is not logged")))))
+
+(deftest a-patient-who-asks-for-more-than-cancelling-is-refused-and-the-refusal-is-audited
+  (with-api {:clock clock}
+    (fn [api]
+      (let [actor {:subject "u-ana" :username "ana.garcia@pulse.test" :roles ["patient"] :client "pulse-spa"}
+            r (change! api :ana "appt-ana-1" (assoc (a-slot) :action "reschedule"))
+            [allowed denied :as events] (map #(select-keys % [:level :data]) (audit-events r))]
+        (is (= 403 (:status r)))
+        (testing "the route let her in, and then the command was refused"
+          (is (= 2 (count events)))
+          (is (= [:info :allowed] [(:level allowed) (get-in allowed [:data :outcome])]))
+          (is (= {:level :warn
+                  :data {:actor actor :action :appointment/manage :outcome :denied :scope :own
+                         :reason :action-not-allowed-for-actor :change :reschedule
+                         :patient "Patient/pt-ana" :method "PATCH" :path "/api/appointments/appt-ana-1"}}
+                 denied)))
+        (is (empty? (h/audit-writes r)))))))
+
+(deftest a-patient-changes-an-appointment-with-one-read-and-one-write
+  (with-spied-api
+    (fn [api calls _]
+      (change! api :ana "appt-ana-1" {:action "cancel"})
+      (is (= [[:read "Appointment" "appt-ana-1"] [:put "Appointment" "appt-ana-1"]] @calls))
+      (reset! calls [])
+      (testing "a command that is refused reads and writes nothing more"
+        (change! api :ana "appt-sofia-1" {:action "cancel"})
+        (change! api :ana "appt-liam-1" (assoc (a-slot) :action "reschedule"))
+        (is (= [[:read "Appointment" "appt-sofia-1"] [:read "Appointment" "appt-liam-1"]] @calls))))))
+
+(defn- appointment-at
+  "A new appointment of Ana's with Dr. Rivera, with the id `id` and the status `status`; a booked one
+  begins `hours-ahead` hours from the time of the tests (before it, if negative)."
+  [id status hours-ahead]
+  (let [booked (assoc (appointment-in id "booked")
+                      :start (in (hours hours-ahead))
+                      :end (in (.plusMinutes (hours hours-ahead) 30)))]
+    (case status
+      "proposed" (appointment-in id "proposed")
+      "booked" booked
+      "cancelled" (assoc booked :status "cancelled"))))
+
+(deftest whatever-a-patient-sends-only-cancelling-what-has-not-begun-changes-anything
+  (let [client (h/demo-cohort)
+        counter (atom 0)]
+    (with-api {:fhir client :clock clock}
+      (fn [api]
+        (let [token (h/token-for :ana)
+              result (tc/quick-check
+                      300
+                      (prop/for-all [status (gen/frequency [[4 (gen/return "proposed")] [4 (gen/return "booked")] [1 (gen/return "cancelled")]])
+                                     hours-ahead (gen/choose -48 48)
+                                     action (gen/elements ["confirm" "reschedule" "cancel"])
+                                     reason (gen/elements [nil "away" "  " (apply str (repeat 201 "x"))])]
+                        (let [id (str "appt-patient-fuzz-" (swap! counter inc))
+                              _ (fc/put! client (appointment-at id status hours-ahead))
+                              before (stored client id)
+                              body (cond-> {"action" action}
+                                     (not= "cancel" action) (assoc "start" (in (days 3)) "end" (in (.plusMinutes (days 3) 30)))
+                                     (and (= "cancel" action) (some? reason)) (assoc "reason" reason))
+                              r (call api :patch (str "/api/appointments/" id) :token token
+                                      :body (json/write-value-as-string body))
+                              after (stored client id)
+                              begun? (and (= "booked" status) (<= hours-ahead 0))
+                              expected (cond (not= "cancel" action) 403
+                                             (= "cancelled" status) 409
+                                             begun? 409
+                                             (and (some? reason) (or (str/blank? reason) (> (count reason) 200))) 422
+                                             :else 200)]
+                          (and (= expected (:status r))
+                               (if (= 200 expected)
+                                 (and (= "cancelled" (:status after))
+                                      (= (dissoc before :status :cancelationReason) (dissoc after :status :cancelationReason)))
+                                 (= before after))
+                               (schema/valid? after)))))]
+          (is (:pass? result) (pr-str (select-keys result [:fail :shrunk :seed]))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Asked, answered and read back
 
 (deftest a-patient-asks-and-the-doctor-answers
@@ -768,17 +971,6 @@
              "end" (in (.plusMinutes (hours start-hours) length-minutes))}
       (some? reason) (assoc "reason" reason)
       (some? junk) (assoc "start" junk))))
-
-(defn- appointment-in
-  "A new appointment of Ana's with Dr. Rivera, with the id `id`, in the status `status`."
-  [id status]
-  (let [proposed (lifecycle/proposal {:id id :patient "pt-ana" :practitioner "pr-rivera" :description "Fuzz"
-                                      :requestedStart (in (days 1)) :requestedEnd (in (days 8))})
-        booked #(:ok (lifecycle/change proposed (assoc (a-slot) :action :confirm) (str now)))]
-    (case status
-      "proposed" proposed
-      "booked" (booked)
-      "cancelled" (:ok (lifecycle/change (booked) {:action :cancel} (str now))))))
 
 (deftest whatever-a-clinician-sends-the-appointment-is-changed-validly-or-not-at-all
   (let [client (h/demo-cohort)
