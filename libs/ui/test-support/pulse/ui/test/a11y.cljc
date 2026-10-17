@@ -118,9 +118,16 @@
 
 (defn- page-problems [tree]
   (let [html-el (first (hx/by-tag tree :html))
-        head (first (hx/by-tag tree :head))]
+        head (first (hx/by-tag tree :head))
+        ids (set (keep #(:id (hx/attributes %)) (hx/elements tree)))]
     (concat
      (when-not html-el ["the page has no html element"])
+     ;; a link inside the page (the skip link above all) that leads nowhere is a way past the navigation that does not work
+     (for [el (hx/by-tag tree :a)
+           :let [target (str (:href (hx/attributes el)))]
+           :when (and (> (count target) 1) (str/starts-with? target "#"))
+           :when (not (contains? ids (subs target 1)))]
+       (str "a link to " target " points at an id that is not in the page"))
      (when (and html-el (str/blank? (:lang (hx/attributes html-el)))) ["the html element has no lang"])
      (when (and head (str/blank? (hx/words (first (hx/by-tag head :title))))) ["the page has no title"])
      (when (and head (not-any? #(= "viewport" (:name (hx/attributes %))) (hx/by-tag head :meta)))

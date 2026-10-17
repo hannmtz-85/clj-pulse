@@ -1,57 +1,77 @@
 (ns pulse.design.signin
   "The pages of Keycloak that the realm uses (ADR-0026), as mock-ups of the login theme: the sign-in, with and without an
-  error, the message that one has signed out, the question before signing out, and the page that has expired. Each is
-  a function from the context of the build to the document of its frame."
-  (:require [pulse.design.mockup :as mockup]
+  error, the question before signing out, the message after it, a page that says something went wrong and the page that
+  has expired. They are made of the same components as the templates of the theme and say what they say, since the
+  English is the theme's own (`pulse.design.keycloak/messages`): what is reviewed here is what Keycloak shows. Each is a
+  function from the context of the build to the document of its frame."
+  (:require [pulse.design.keycloak :as kc]
+            [pulse.design.mockup :as mockup]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]))
 
+(def ^:private client-name
+  "How the realm names the client that sends the person to the sign-in: the portal."
+  "Pulse web portal")
+
+(def ^:private message kc/message)
+
 (defn- sign-in-form
-  "The form of the sign-in. `:error?` shows what Keycloak says when the name or the password are wrong."
+  "The form of the sign-in. `:error?` shows what Keycloak says when the name or the password are wrong. The line with
+  the choice to be kept signed in and the way to a new password, which the template shows when the realm allows them, is
+  not here: this realm allows neither (a new password is sent by email, and there is no mail server)."
   [{:keys [error? username]}]
   [:form {:class "flex flex-col gap-5" :action "#" :method "post"}
    (when error?
-     (c/alert {:tone :critical :title "Invalid email or password" :role "alert"}
-              "Check them and try again."))
-   (c/text-field (cond-> {:id "username" :name "username" :label "Email" :type "email" :autocomplete "username"
-                          :value username}
-                   (not error?) (assoc :autofocus true)
-                   error? (assoc :aria-invalid "true" :class "input-error")))
-   (c/text-field (cond-> {:id "password" :name "password" :label "Password" :type "password" :autocomplete "current-password"}
+     (c/alert {:tone :critical :role "alert" :title (message :invalidUserMessage)} (message :loginErrorHint)))
+   (c/text-field (cond-> {:id "username" :name "username" :label (message :usernameOrEmail) :type "text"
+                          :dir "ltr" :autocomplete "username" :value username}
+                   error? (assoc :aria-invalid "true" :class "input-error")
+                   (not error?) (assoc :autofocus true)))
+   (c/text-field (cond-> {:id "password" :name "password" :label (message :password) :type "password"
+                          :autocomplete "current-password"}
                    error? (assoc :aria-invalid "true" :class "input-error" :autofocus true)))
-   [:div {:class "flex flex-wrap items-center justify-between gap-x-4 gap-y-2"}
-    (c/checkbox-field {:id "remember" :name "rememberMe" :label "Keep me signed in"})
-    [:a {:href "#" :class "link link-primary text-sm font-medium"} "Forgot your password?"]]
-   (c/button {:type "submit" :size :lg :block? true} "Sign in")])
+   (c/button {:type "submit" :size :lg :block? true :id "kc-login" :name "login"} (message :doLogIn))])
+
+(defn- sign-in-card
+  "The card of the sign-in, with the hint for a person that has no account."
+  [options & {:as card-options}]
+  (layout/login-card (merge {:title (message :loginAccountTitle) :subtitle (message :loginSubtitle client-name)} card-options)
+                     (sign-in-form options)
+                     (layout/login-info [:span (message :noAccountHint)])))
 
 (defn sign-in
-  "The sign-in page, as a patient meets it when the portal sends them here."
+  "The sign-in page, as a person meets it when an application sends them here."
   [_context]
   (mockup/frame-document
-   {:title "Sign in"}
-   (layout/login-shell {:title "Sign in" :subtitle "to continue to the Pulse patient portal"}
-                       (sign-in-form {})
-                       [:p {:class "mt-6 text-center text-sm text-muted"}
-                        "No account yet? Your clinic gives you one."])))
+   {:title (message :loginAccountTitle)}
+   (layout/login-frame {:notice (message :demoNotice)} (sign-in-card {}))))
 
-(defn- other-pages
-  "The four pages of Keycloak that are not the sign-in, as cards."
+(defn- sign-out-card []
+  (layout/login-card {:title (message :logoutConfirmTitle) :subtitle (message :logoutConfirmHeader) :heading :h2}
+                     [:div {:class "flex flex-col gap-3"}
+                      (c/button {:type "submit" :size :lg :block? true :id "kc-logout" :name "confirmLogout"} (message :doLogout))
+                      (c/button {:variant :ghost :size :lg :block? true :href "#"} (message :doStaySignedIn))]))
+
+(defn- signed-out-card []
+  (layout/login-card {:title (message :successLogout) :heading :h2}
+                     (c/button {:size :lg :block? true :href "#"} (message :backToApplication))))
+
+(defn- error-card
+  "What Keycloak says when something is wrong with the request, such as `Invalid parameter: redirect_uri`."
   []
-  [(layout/login-card {:title "Sign in" :subtitle "to continue to the Pulse patient portal" :heading :h2}
-                      (sign-in-form {:error? true :username "ana.garcia@pulse.test"}))
-   (layout/login-card {:title "Sign out?" :subtitle "Do you want to sign out of Pulse?" :heading :h2}
-                      [:div {:class "flex flex-col gap-3"}
-                       (c/button {:size :lg :block? true} "Yes, sign me out")
-                       (c/button {:variant :ghost :size :lg :block? true :href "#"} "No, stay signed in")])
-   (layout/login-card {:title "You have been signed out" :subtitle "Thank you for using Pulse." :heading :h2}
-                      (c/alert {:tone :info :title "Your session has ended"} "You can close this window, or sign in again.")
-                      [:div {:class "mt-5"} (c/button {:variant :outline :size :lg :block? true :href "#"} "Sign in again")])
-   (layout/login-card {:title "Your login page has expired" :subtitle "It stayed open for too long." :heading :h2}
-                      [:p "To continue, go back to the sign-in."]
-                      [:div {:class "mt-5"} (c/button {:size :lg :block? true :href "#"} "Back to sign in")])])
+  (layout/login-card {:title (message :errorTitle) :heading :h2}
+                     [:div {:class "flex flex-col gap-5"}
+                      (c/alert {:tone :critical :role "alert" :title "Invalid parameter: redirect_uri"})
+                      (c/button {:variant :outline :size :lg :block? true :href "#"} (message :backToApplication))]))
+
+(defn- expired-card []
+  (layout/login-card {:title (message :pageExpiredTitle) :subtitle (message :pageExpiredText) :heading :h2}
+                     [:div {:class "flex flex-col gap-3"}
+                      (c/button {:size :lg :block? true :href "#"} (message :pageExpiredRestart))
+                      (c/button {:variant :ghost :size :lg :block? true :href "#"} (message :pageExpiredContinue))]))
 
 (defn other-states
-  "The error, the message after signing out, the question before it, and the expired page, side by side."
+  "A wrong password, the question before signing out, the message after it, an error and the expired page, side by side."
   [_context]
   (mockup/frame-document
    {:title "The other pages of Keycloak"}
@@ -61,4 +81,9 @@
      [:div {:class "mb-8 flex flex-wrap items-center justify-between gap-4"}
       (c/logo)
       [:h1 {:class "text-xl font-semibold"} "The other pages of Keycloak"]]
-     (into [:div {:class "grid gap-6 md:grid-cols-2"}] (other-pages))]]))
+     (into [:div {:class "grid items-start gap-6 md:grid-cols-2"}]
+           [(sign-in-card {:error? true :username "ana.garcia@pulse.test"} :heading :h2)
+            (sign-out-card)
+            (signed-out-card)
+            (error-card)
+            (expired-card)])]]))

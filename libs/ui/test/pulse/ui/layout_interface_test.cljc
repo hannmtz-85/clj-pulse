@@ -175,15 +175,69 @@
       (is (empty? (hx/by-tag card :h1)))
       (is (= "Sign out?" (hx/words (first (hx/by-tag card :h2))))))))
 
-(deftest a-login-page-has-the-mark-the-card-and-the-note-that-it-is-a-demonstration
-  (let [shell (layout/login-shell {:title "Sign in" :subtitle "to continue"} [:form "The form"])
-        main (first (hx/by-tag shell :main))]
+(deftest the-pieces-of-a-login-card-are-the-ones-a-template-of-keycloak-is-made-of
+  (testing "the card is its class, and the title and the subtitle are what the card puts in it"
+    (is (= layout/login-card-class (:class (hx/attributes (layout/login-card {:title "T"} "x")))))
+    (is (every? (set (str/split layout/login-card-class #" "))
+                ["rounded-box" "border" "border-base-300" "bg-base-100" "p-6" "shadow-raised" "sm:p-8"])))
+  (testing "a title is an h1 unless it is told otherwise, and keeps the attributes it is given"
+    (let [title (layout/login-title "Sign in")]
+      (is (= :h1 (hx/tag title)))
+      (is (= "Sign in" (hx/words title)))
+      (is (every? (hx/classes title) ["text-2xl" "font-semibold" "tracking-tight"])))
+    (let [title (layout/login-title :h2 {:id "kc-page-title" :class "extra"} "Sign out?")]
+      (is (= :h2 (hx/tag title)))
+      (is (= "kc-page-title" (:id (hx/attributes title))))
+      (is (every? (hx/classes title) ["extra" "text-2xl" "font-semibold" "tracking-tight"]))))
+  (testing "a subtitle is a line of muted text"
+    (let [subtitle (layout/login-subtitle "to continue")]
+      (is (= :p (hx/tag subtitle)))
+      (is (= "to continue" (hx/words subtitle)))
+      (is (every? (hx/classes subtitle) ["mt-1" "text-base" "text-muted"]))))
+  (testing "what is under the title has room above it, unless there is nothing in it"
+    (is (= "mt-6 empty:mt-0" layout/login-content-class))
+    (is (= layout/login-content-class (:class (hx/attributes (last (hx/child-nodes (layout/login-card {:title "T"} "x"))))))))
+  (testing "the line under a form is small, muted and in the middle, and keeps the attributes it is given"
+    (let [info (layout/login-info [:span "No account yet?"])]
+      (is (= :div (hx/tag info)))
+      (is (= "No account yet?" (hx/words info)))
+      (is (every? (hx/classes info) ["mt-6" "text-center" "text-sm" "text-muted"])))
+    (let [info (layout/login-info {:id "kc-info" :class "extra"} "x")]
+      (is (= "kc-info" (:id (hx/attributes info))))
+      (is (every? (hx/classes info) ["extra" "mt-6" "text-center" "text-sm" "text-muted"])))))
+
+(deftest a-login-frame-has-the-mark-the-content-and-the-note-if-there-is-one
+  (let [frame (layout/login-frame {:notice "A demonstration."} [:section "The card"])
+        main (first (hx/by-tag frame :main))]
     (is (= "main" (:id (hx/attributes main))))
-    (is (= "#main" (:href (hx/attributes (first (hx/by-tag shell :a))))))
+    (is (= "#main" (:href (hx/attributes (first (hx/by-tag frame :a))))))
     (is (= "Pulse" (hx/words (first (hx/select main #(hx/has-class? % "inline-flex"))))))
+    (is (= "The card" (hx/words (first (hx/by-tag main :section)))))
+    (is (every? (hx/classes frame) ["grid" "min-h-screen" "place-items-center" "bg-base-200"]))
+    (is (hx/has-class? main "max-w-md"))
+    (testing "the note is the last thing in the frame, small and muted"
+      (let [note (last (hx/child-nodes main))]
+        (is (= :p (hx/tag note)))
+        (is (= "A demonstration." (hx/words note)))
+        (is (every? (hx/classes note) ["mt-6" "text-center" "text-xs" "text-muted"])))))
+  (testing "with no note there is no line for it, and the content may be several things"
+    (let [frame (layout/login-frame {} [:section "One"] [:section "Two"])
+          main (first (hx/by-tag frame :main))]
+      (is (empty? (hx/by-tag frame :p)))
+      (is (= ["One" "Two"] (map hx/words (hx/by-tag main :section)))))))
+
+(deftest a-login-page-has-the-mark-the-card-and-the-note-it-is-given
+  (let [shell (layout/login-shell {:title "Sign in" :subtitle "to continue" :notice "All the data is synthetic."}
+                                  [:form "The form"])
+        main (first (hx/by-tag shell :main))]
     (is (= "Sign in" (hx/words (first (hx/by-tag main :h1)))))
     (is (= "The form" (hx/words (first (hx/by-tag main :form)))))
-    (is (str/includes? (hx/words main) "All the data is synthetic"))
-    (is (every? (hx/classes shell) ["grid" "min-h-screen" "place-items-center" "bg-base-200"]))
-    (is (hx/has-class? main "max-w-md")))
+    (is (str/includes? (hx/words main) "All the data is synthetic."))
+    (is (= (layout/login-frame {:notice "All the data is synthetic."}
+                               (layout/login-card {:title "Sign in" :subtitle "to continue" :notice "All the data is synthetic."}
+                                                  [:form "The form"]))
+           shell)
+        "a frame around a card, and the note is the frame's and not the card's"))
+  (testing "it says nothing about a demonstration of its own: the note is the page's to give"
+    (is (not (str/includes? (hx/words (layout/login-shell {:title "T"} "x")) "synthetic"))))
   (is (= [] (a11y/problems (layout/document {:title "Sign in"} (layout/login-shell {:title "Sign in"} [:p "x"])) {:page? true}))))

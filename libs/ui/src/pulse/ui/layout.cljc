@@ -118,22 +118,55 @@
       (c/user-menu (assoc user :name-class "lg:hidden"))]]
     (into [:main {:id "main" :class "min-w-0 flex-1 p-4 lg:p-6"}] content)]])
 
+(def login-card-class
+  "The classes of the card of a page of Keycloak, which the templates of the theme use as the pages of the review do."
+  "rounded-box border border-base-300 bg-base-100 p-6 shadow-raised sm:p-8")
+
+(defn login-title
+  "The title of a card of Keycloak: an `h1` unless `heading` says otherwise. `attributes` are those of the element."
+  ([title] (login-title :h1 nil title))
+  ([heading attributes title]
+   [heading (attrs/with-classes (or attributes {}) "text-2xl font-semibold tracking-tight") title]))
+
+(defn login-subtitle
+  "The line under the title of a card of Keycloak."
+  [subtitle]
+  [:p {:class "mt-1 text-base text-muted"} subtitle])
+
+(def login-content-class
+  "The classes of what a card of Keycloak holds under its title: room above it, unless there is nothing in it, which is
+  how a card with only a title is not followed by an empty space."
+  "mt-6 empty:mt-0")
+
+(defn login-info
+  "What a card of Keycloak says under its form, such as how to get an account: small, muted and in the middle.
+  `attributes` are those of the element."
+  ([content] (login-info nil content))
+  ([attributes content]
+   [:div (attrs/with-classes (or attributes {}) "mt-6 text-center text-sm text-muted") content]))
+
 (defn login-card
   "The card of a page of Keycloak: the `:title`, an `h1` unless `:heading` says otherwise, an optional `:subtitle`, and
   the children."
   [{:keys [title subtitle heading] :or {heading :h1}} & content]
-  [:div {:class "rounded-box border border-base-300 bg-base-100 p-6 shadow-raised sm:p-8"}
-   [heading {:class "text-2xl font-semibold tracking-tight"} title]
-   (when subtitle [:p {:class "mt-1 text-base text-muted"} subtitle])
-   (into [:div {:class "mt-6"}] content)])
+  [:div {:class login-card-class}
+   (login-title heading nil title)
+   (when subtitle (login-subtitle subtitle))
+   (into [:div {:class login-content-class}] content)])
+
+(defn login-frame
+  "The frame around what a page of Keycloak shows: a skip link, the mark, the children, and a line, `:notice`, that
+  says that the data is a demonstration."
+  [{:keys [notice]} & content]
+  [:div {:class "grid min-h-screen place-items-center bg-base-200 px-4 py-10"}
+   (skip-link "main")
+   (into [:main {:id "main" :class "w-full max-w-md"}
+          [:div {:class "mb-6 flex justify-center"} (c/logo)]]
+         (concat content
+                 (when notice [[:p {:class "mt-6 text-center text-xs text-muted"} notice]])))])
 
 (defn login-shell
   "The frame of the pages of Keycloak (sign-in, an error, a message): the mark, a `login-card` with the `:title` and an
-  optional `:subtitle`, and a line that says that the data is a demo. The children are in the card."
+  optional `:subtitle`, and the `:notice` that the data is a demo. The children are in the card."
   [options & content]
-  [:div {:class "grid min-h-screen place-items-center bg-base-200 px-4 py-10"}
-   (skip-link "main")
-   [:main {:id "main" :class "w-full max-w-md"}
-    [:div {:class "mb-6 flex justify-center"} (c/logo)]
-    (apply login-card options content)
-    [:p {:class "mt-6 text-center text-xs text-muted"} "Pulse is a demonstration. All the data is synthetic, and it is not a medical device."]]])
+  (login-frame {:notice (:notice options)} (apply login-card options content)))

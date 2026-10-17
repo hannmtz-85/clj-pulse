@@ -26,8 +26,9 @@ The UCUM Organization, and is used here under its free license (https://ucum.org
 Inter
 The Inter typeface is copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
 and is licensed under the SIL Open Font License, Version 1.1, a copy of which is in
-design/fonts/OFL.txt. The font files are served from this repository (design/fonts), not from
-a third party.
+design/fonts/OFL.txt. The font files are served from this repository (design/fonts, and a copy
+of them with the license in the login theme of Keycloak, infra/keycloak/themes/pulse/login/resources/fonts),
+not from a third party.
 
 Lucide and Feather
 The icons of the interfaces (libs/ui/src/pulse/ui/icons.cljc, made from design/icons.edn) are from

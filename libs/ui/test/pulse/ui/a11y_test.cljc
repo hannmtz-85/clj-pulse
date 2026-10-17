@@ -92,6 +92,23 @@
   (testing "a fragment is not asked to be a page"
     (is (empty? (a11y/problems [:main [:p "x"]])))))
 
+(deftest a-link-inside-the-page-leads-somewhere
+  (let [page (fn [body] [:html {:lang "en"} [:head [:title "T"] [:meta {:name "viewport" :content "width=device-width"}]]
+                         [:body body]])
+        skip-to (fn [target main-id] (page (list [:a {:href target} "Skip to the content"] [:main {:id main-id} [:h1 "T"]])))]
+    (testing "a skip link to an id the page has"
+      (is (= [] (a11y/problems (skip-to "#main" "main") {:page? true}))))
+    (testing "to one it has not, whichever of the two is wrong"
+      (is (flagged? #"link to #content points at an id that is not in the page" (skip-to "#content" "main") {:page? true}))
+      (is (flagged? #"link to #main points at an id that is not in the page" (skip-to "#main" "content") {:page? true})))
+    (testing "a link to the page itself, to another page or with a fragment of another page is not one of these"
+      (is (= [] (a11y/problems (skip-to "#" "main") {:page? true})))
+      (is (= [] (a11y/problems (page (list [:a {:href "/x#nowhere"} "Elsewhere"] [:main [:h1 "T"]])) {:page? true})))
+      (is (= [] (a11y/problems (page (list [:a {:href "/"} "Home"] [:a [:span "no href"]] [:main [:h1 "T"]])) {:page? true}))))
+    (testing "the id may be on any element, and a fragment is not asked"
+      (is (= [] (a11y/problems (page (list [:a {:href "#top"} "Top"] [:header {:id "top"} "H"] [:main [:h1 "T"]])) {:page? true})))
+      (is (empty? (a11y/problems [:a {:href "#nowhere"} "x"]))))))
+
 (deftest sequences-from-for-are-read-like-any-other-children
   (is (flagged? #"input with id \"i0\" has no label" [:div (for [i (range 2)] [:input {:id (str "i" i)}])]))
   (is (empty? (a11y/problems [:div (for [i (range 2)] [:label {:for (str "i" i)} i]) (for [i (range 2)] [:input {:id (str "i" i)}])]))))

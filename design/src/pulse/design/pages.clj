@@ -38,13 +38,14 @@
    ;; Sign-in
    {:file "login.html" :title "Sign in" :group "Sign-in" :devices phone-and-desk :frame signin/sign-in
     :summary "The page of Keycloak where a patient or a clinician signs in: the same for the portal and the workspace."
-    :notes ["Keycloak serves this page, in the theme of Pulse: the same stylesheet as the interfaces, compiled once."
-            "The form is the real one: email, password, remember me and the way to a new password."
-            "A wrong password, signing out and an expired page are on the next mock-up."]}
+    :notes ["Keycloak serves this page, in the theme of Pulse: a stylesheet compiled from the same tokens and components as the interfaces, and the words of the theme, which are written once."
+            "The form is the real one: email and password. The realm allows neither to be kept signed in nor a new password by email (there is no mail server), so the line for them is not here; the template shows it when a realm does."
+            "A wrong password, signing out, an error and an expired page are on the next mock-up."]}
    {:file "login-states.html" :title "Other pages of Keycloak" :group "Sign-in" :devices phone-and-desk :frame signin/other-states
-    :summary "The error of a wrong password, the question before signing out, the message after it and the expired page."
+    :summary "The error of a wrong password, the question before signing out, the message after it, an error of the request and the expired page."
     :notes ["These are the pages of the flows of the realm that the theme has to cover; each is a card like the sign-in."
-            "The error is in words and with an icon, and it is announced to a screen reader."]}
+            "The error is in words and with an icon, and it is announced to a screen reader."
+            "The message after signing out has one way on, back to the application; the page only has it when Keycloak knows which application."]}
 
    ;; -------------------------------------------------------------------------
    ;; Patient portal

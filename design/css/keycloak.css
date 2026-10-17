@@ -1,0 +1,10 @@
+/* The stylesheet of the login theme of Keycloak (ADR-0026): the same tokens, the same base rules and the same
+   components as the interfaces, and only the classes that the templates of the theme use. `bb design:keycloak`
+   writes the templates and compiles this into infra/keycloak/themes/pulse/login/resources/pulse.css. */
+@import "tailwindcss" source(none);
+@import "./base.css";
+@import "../theme.css";
+
+/* Tailwind finds the classes by reading the templates, and the properties that name classes for the pages of the
+   base theme. It reads nothing else: the page of the review has its own stylesheet. */
+@source "../../infra/keycloak/themes/pulse/login";

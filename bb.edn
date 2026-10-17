@@ -51,6 +51,12 @@
               :depends [design:theme]
               :task (shell {:dir "design"} "npm" "run" "css")}
 
+  design:keycloak {:doc "Write the login theme of Keycloak (templates, messages, icon, fonts) into infra/keycloak/themes/pulse/login and compile its stylesheet (needs `npm ci` in design/)"
+                   :depends [design:theme]
+                   :requires ([pulse.design.keycloak :as keycloak])
+                   :task (do (keycloak/write!)
+                             (shell {:dir "design"} "npm" "run" "css:keycloak"))}
+
   design:build {:doc "Make the mock-ups in design/dist from the components and the synthetic cohort (then open design/dist/index.html)"
                 :depends [design:css]
                 :requires ([pulse.design.build :as build])

@@ -23,6 +23,8 @@
                       pulse/api {:local/root "apps/api"}
                       pulse/scheduler {:local/root "apps/scheduler"}
                       hiccup/hiccup {:mvn/version "2.0.0"}
+                      ;; the templating engine of Keycloak (26.0.0 ships 2.3.32): the tests of the login theme parse and render it
+                      org.freemarker/freemarker {:mvn/version "2.3.32"}
                       lambdaisland/kaocha {:mvn/version "1.91.1392"}
                       org.clojure/test.check {:mvn/version "1.1.3"}
                       nubank/matcher-combinators {:mvn/version "3.11.0"}}

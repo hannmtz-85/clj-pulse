@@ -6,6 +6,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [env]
+            [loginpage]
             [realm])
   (:import (java.net URLEncoder)
            (java.nio.charset StandardCharsets)
@@ -32,9 +33,6 @@
 
 (defn- form [m]
   (str/join "&" (map (fn [[k v]] (str (url-encode k) "=" (url-encode v))) m)))
-
-(defn- html-unescape [s]
-  (-> s (str/replace "&amp;" "&") (str/replace "&quot;" "\"") (str/replace "&#x3D;" "=")))
 
 (defn decode-jwt
   "The payload (claims) of a JWT as a map with keyword keys. The signature is NOT checked."
@@ -82,9 +80,7 @@
                                        "state" "smoke"
                                        "code_challenge" (challenge verifier)
                                        "code_challenge_method" "S256"}})
-        action (some-> (re-find #"id=\"kc-form-login\"[^>]*?action=\"([^\"]+)\"" (:body page))
-                       second
-                       html-unescape)]
+        action (loginpage/form-action (:body page))]
     (when-not action
       (throw (ex-info "Login form not found" {:status (:status page)})))
     (let [resp (http/post action

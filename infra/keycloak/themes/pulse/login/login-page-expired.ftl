@@ -1,0 +1,2 @@
+<#import "template.ftl" as layout>
+<@layout.registrationLayout; section><#if section = "header">${msg("pageExpiredTitle")}<#elseif section = "subtitle">${msg("pageExpiredText")}<#elseif section = "form"><div class="flex flex-col gap-3" id="kc-page-expired"><a class="btn btn-primary btn-lg btn-block" href="${url.loginRestartFlowUrl}" id="loginRestartLink">${msg("pageExpiredRestart")}</a><a class="btn btn-ghost btn-lg btn-block" href="${url.loginAction}" id="loginContinueLink">${msg("pageExpiredContinue")}</a></div></#if></@layout.registrationLayout>
