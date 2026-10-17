@@ -5,6 +5,7 @@
             [malli.core :as m]
             [pulse.api.alerts :as api-alerts]
             [pulse.api.appointments :as api-appointments]
+            [pulse.api.jobs :as api-jobs]
             [pulse.api.observations :as api-observations]
             [pulse.design.data :as data]
             [pulse.fhir.measurement :as measurement]
@@ -111,3 +112,66 @@
   (is (= 1 (count (data/allergies "pt-sofia"))))
   (is (= "Skin rash" (:reaction (first (data/allergies "pt-sofia")))))
   (is (empty? (data/allergies "pt-ana"))))
+
+(deftest the-panel-of-a-practitioner-is-the-patients-whose-doctor-they-are
+  (is (= ["pt-liam" "pt-ana" "pt-omar" "pt-sofia"] (map :id (data/panel-of "pr-rivera"))) "by family name")
+  (is (= ["pt-noah" "pt-maya"] (map :id (data/panel-of "pr-okafor"))))
+  (is (empty? (data/panel-of "pr-nobody"))))
+
+(deftest the-appointments-written-by-hand-have-the-shape-the-api-gives
+  (is (= ["appt-ana-2" "appt-ana-0"] (map :id data/other-appointments)))
+  (doseq [appointment data/other-appointments]
+    (is (m/validate api-appointments/item-schema appointment) (:id appointment))
+    (is (= #{:id :status :description :start :end :requestedStart :requestedEnd :practitioner :reason :patient}
+           (set (keys appointment)))
+        "and nothing the api does not give"))
+  (testing "they are Ana's, with her doctor, and do not collide with the cohort"
+    (is (every? #(= "Patient/pt-ana" (:patient %)) data/other-appointments))
+    (is (every? #(= "Practitioner/pr-rivera" (:practitioner %)) data/other-appointments))
+    (is (empty? (filter (set (map :id data/other-appointments)) (map :id (data/appointments))))))
+  (testing "a request has the days asked for and no time, and a cancelled appointment has its time and its reason"
+    (let [[request cancelled] data/other-appointments]
+      (is (= "proposed" (:status request)))
+      (is (and (:requestedStart request) (:requestedEnd request) (nil? (:start request)) (nil? (:end request))))
+      (is (nil? (:reason request)))
+      (is (= "cancelled" (:status cancelled)))
+      (is (= "I had to travel that week." (:reason cancelled)))
+      (is (.isBefore (java.time.Instant/parse (:start cancelled)) data/now) "it was before the moment of the mock-ups"))))
+
+(defn- instant ^java.time.Instant [text] (java.time.Instant/parse text))
+
+(def ^:private ^java.time.Instant jobs-moment (instant "2026-10-13T12:00:15Z"))
+
+(deftest the-jobs-are-in-the-shape-the-api-gives
+  (is (m/validate api-jobs/list-schema data/jobs))
+  (is (= (count (:items data/jobs)) (:total data/jobs)))
+  (is (= ["evaluate-rules" "simulate-devices" "send-reminders"] (map :id (:items data/jobs)))))
+
+(deftest the-jobs-tell-a-story-that-holds-at-the-moment-they-are-seen
+  (let [items (:items data/jobs)]
+    (testing "a job is running exactly when it says since when"
+      (doseq [{:keys [id state runningSince]} items]
+        (is (= (= "running" state) (some? runningSince)) id)))
+    (testing "everything that happened is before the moment, and what is due is after it"
+      (doseq [{:keys [id nextRun runningSince lastRun]} items]
+        (is (.isAfter (instant nextRun) jobs-moment) (str id " is due later"))
+        (when runningSince (is (not (.isAfter (instant runningSince) jobs-moment)) id))
+        (is (not (.isAfter (instant (:finishedAt lastRun)) jobs-moment)) id)
+        (is (not (.isAfter (instant (:startedAt lastRun)) (instant (:finishedAt lastRun)))) id)))
+    (testing "the schedule is a grid from the epoch, so every run begins on a multiple of the interval"
+      (doseq [{:keys [id schedule nextRun runningSince lastRun]} items
+              :let [every (:everyMs schedule)]
+              start (remove nil? [nextRun runningSince (:startedAt lastRun)])]
+        (is (zero? (mod (.toEpochMilli (instant start)) every)) (str id " at " start))))
+    (testing "the last run took as long as it says, to the second"
+      (doseq [{:keys [id lastRun]} items
+              :let [seconds (/ (- (.toEpochMilli (instant (:finishedAt lastRun))) (.toEpochMilli (instant (:startedAt lastRun)))) 1000.0)]]
+        (is (<= (Math/abs (- seconds (/ (:durationMs lastRun) 1000.0))) 1.0) id)))
+    (testing "a run that failed says the class of its error and no result, and one that went well has a result"
+      (is (= ["ok" "ok" "failed"] (map (comp :outcome :lastRun) items)))
+      (is (= "HttpTimeoutException" (get-in (last items) [:lastRun :error])))
+      (is (nil? (get-in (last items) [:lastRun :result])))
+      (is (every? #(map? (get-in % [:lastRun :result])) (butlast items))))
+    (testing "the counts are those of a scheduler that has been up a while"
+      (is (= [214 428 105] (map (comp :ok :counts) items)))
+      (is (= [0 1 1] (map (comp :failed :counts) items))))))

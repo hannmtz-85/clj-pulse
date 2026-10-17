@@ -12,27 +12,32 @@
 
 (def tones
   "For each tone: its default `:label`, its `:icon`, and the classes of its parts: `:surface` (the soft
-  background, the text on it and the border), `:icon-colour` and `:dot` (a filled mark: the bar on the edge of an
-  alert or a tile)."
+  background, the text on it and the border), `:icon-colour`, `:ink` (the text of the tone on the page, as a figure
+  or a word that is not in a chip) and `:dot` (a filled mark: the bar on the edge of an alert or a tile)."
   {:normal {:label "Normal" :icon :circle-check
             :surface "border-tone-normal-edge bg-tone-normal-soft text-tone-normal-ink"
             :icon-colour "text-tone-normal-edge"
+            :ink "text-tone-normal-ink"
             :dot "bg-tone-normal-edge"}
    :elevated {:label "Elevated" :icon :trending-up
               :surface "border-tone-elevated-edge bg-tone-elevated-soft text-tone-elevated-ink"
               :icon-colour "text-tone-elevated-edge"
+              :ink "text-tone-elevated-ink"
               :dot "bg-tone-elevated-edge"}
    :high {:label "High" :icon :triangle-alert
           :surface "border-tone-high-edge bg-tone-high-soft text-tone-high-ink"
           :icon-colour "text-tone-high-edge"
+          :ink "text-tone-high-ink"
           :dot "bg-tone-high-edge"}
    :critical {:label "Critical" :icon :octagon-alert
               :surface "border-tone-critical-edge bg-tone-critical-soft text-tone-critical-ink"
               :icon-colour "text-tone-critical-edge"
+              :ink "text-tone-critical-ink"
               :dot "bg-tone-critical-edge"}
    :info {:label "Information" :icon :info
           :surface "border-tone-info-edge bg-tone-info-soft text-tone-info-ink"
           :icon-colour "text-tone-info-edge"
+          :ink "text-tone-info-ink"
           :dot "bg-tone-info-edge"}})
 
 (def bands

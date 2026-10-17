@@ -119,3 +119,12 @@
     (is (= "stroke-series-1" (stroke "pt-maya" :weight)) "no band: no tone"))
   (is (= "Blood pressure over the last 14 days"
          (:aria-label (hx/attributes (specimen/sparkline "pt-ana" :blood-pressure 14))))))
+
+(deftest the-readings-of-the-last-days-are-those-from-the-same-moment-that-many-days-back
+  (let [readings (data/readings "pt-ana" :blood-pressure)]
+    (is (= ["2026-10-12T20:00:00Z" "2026-10-13T08:00:00Z"] (map :at (specimen/within readings 1))))
+    (is (= 4 (count (specimen/within readings 2))))
+    (is (= 59 (count (specimen/within readings 30))) "all of them, in a month of readings")
+    (is (= [] (specimen/within [] 7))))
+  (testing "a reading of the very moment it begins is in, and one a second before it is not"
+    (is (= ["2026-10-12T12:00:00Z"] (map :at (specimen/within [{:at "2026-10-12T11:59:59Z"} {:at "2026-10-12T12:00:00Z"}] 1))))))

@@ -1,0 +1,387 @@
+(ns pulse.design.portal
+  "The mock-ups of the patient portal (ADR-0026), the interface of `web`: what a patient sees of their own record, on
+  a phone and at a desk. The patient is Ana García, who has hypertension and whose last readings are very high; Noah
+  Kim, who has no readings yet, is the one of the empty state. Each page is a function from the context of the build
+  to the document of its frame."
+  (:require [clojure.string :as str]
+            [pulse.design.data :as data]
+            [pulse.design.format :as fmt]
+            [pulse.design.mockup :as mockup]
+            [pulse.design.specimen :as specimen]
+            [pulse.design.views :as views]
+            [pulse.ui.component :as c]
+            [pulse.ui.icon :as i]
+            [pulse.ui.layout :as layout]))
+
+(defn- link [file] (mockup/href file))
+
+(def ^:private nav
+  [{:id :home :href (link "portal-home.html") :label "Home" :icon :house}
+   {:id :readings :href (link "portal-readings.html") :label "Readings" :icon :activity}
+   {:id :appointments :href (link "portal-appointments.html") :label "Appointments" :icon :calendar}
+   {:id :record :href (link "portal-record.html") :label "My record" :icon :clipboard-list}
+   {:id :profile :href (link "portal-profile.html") :label "Profile" :icon :user}])
+
+(defn- menu-of [patient]
+  {:name (:name patient)
+   :items [{:href (link "portal-profile.html") :label "Profile" :icon :user}
+           {:href (link "login.html") :label "Sign out" :icon :log-out}]})
+
+(defn- page
+  "The frame of a page of the portal: the shell with the navigation, and the content in it. `:patient` is the person
+  who is signed in (Ana by default)."
+  [{:keys [title current patient]} & content]
+  (mockup/frame-document
+   {:title title}
+   (apply layout/portal-shell {:current current :nav nav :user (menu-of (or patient (data/patient "pt-ana")))} content)))
+
+(defn- section-heading
+  ([text] (section-heading nil text))
+  ([id text] [:h2 (cond-> {:class "text-xl font-semibold tracking-tight"} id (assoc :id id)) text]))
+
+(defn- phone-only [content] [:div {:class "md:hidden"} content])
+
+(defn- from-tablet [content] [:div {:class "hidden md:block"} content])
+
+;; ---------------------------------------------------------------------------
+;; The parts several pages share
+
+(defn- appointment-item
+  "A row of a list of appointments of a patient: the day, or a clock for a request, what it is, with whom and when, its
+  status, and what the patient may do: cancel a confirmed appointment or withdraw a request."
+  [{:keys [status description doctor month day reason asked] when-text :when}]
+  (c/list-row
+   {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
+    :trailing-wraps? true
+    :trailing (list (views/appointment-chip status)
+                    (case status
+                      "booked" (c/button {:variant :outline :size :lg :icon :calendar-x :href (link "portal-cancel.html")} "Cancel appointment")
+                      "proposed" (c/button {:variant :outline :size :lg :icon :x :href (link "portal-appointments.html")} "Cancel request")
+                      nil))}
+   [:p {:class "text-base font-semibold"} description]
+   [:p {:class "text-sm text-muted"} (str (or when-text asked) " · " doctor)]
+   (when reason [:p {:class "text-sm text-muted"} (str "Reason: " reason)])))
+
+(defn- readings-grid [patient-id kinds]
+  (let [vitals (data/vitals patient-id)]
+    (into [:div {:class "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"}]
+          (for [kind kinds
+                :let [reading (get vitals kind)]
+                :when reading]
+            (specimen/vital-tile kind reading)))))
+
+(defn- recent-readings
+  "The last `n` readings of a patient, whatever they measure, newest first, as the rows of a list."
+  [patient-id n]
+  (let [all (for [kind data/kinds
+                  reading (data/readings patient-id kind)]
+              (assoc reading :kind kind))]
+    (c/list-group
+     {:aria-label "Recent readings"}
+     (for [{:keys [kind band at unit] :as reading} (take n (sort-by (comp - fmt/millis :at) all))
+           :let [{:keys [label icon]} (specimen/kind-info kind)]]
+       (c/list-row
+        {:leading (c/icon-disc {:icon icon :variant :muted})
+         :trailing (c/band-badge band)}
+        [:p {:class "font-medium"} label]
+        [:p {:class "text-sm text-muted"}
+         (str (specimen/reading-text kind reading) " " (fmt/unit unit) " · " (fmt/when-text at data/now-text))])))))
+
+;; ---------------------------------------------------------------------------
+;; Home
+
+(defn- pressure-notice
+  "What a patient is told when their latest blood pressure is very high. The portal knows the band of the reading and
+  nothing more, so it does not say that anyone has been told."
+  [reading]
+  (c/alert {:tone :critical :title "Your last blood pressure reading is very high"
+            :actions (c/button {:variant :outline :size :lg :href (link "portal-readings.html")} "See my readings")}
+           (str (specimen/reading-text :blood-pressure reading) " mmHg, " (fmt/when-phrase (:at reading) data/now-text)
+                ". If you feel unwell, with a headache, chest pain or trouble breathing, call 112. "
+                "Otherwise, rest and measure again, and tell your care team.")))
+
+(defn home
+  "The home of a patient with readings: a greeting, what to know now, the next appointment and the latest readings."
+  [_context]
+  (let [ana (data/patient "pt-ana")
+        pressure (data/latest "pt-ana" :blood-pressure)
+        booked (first (filter #(= "booked" (:status %)) (views/appointments-of "pt-ana")))]
+    (page {:title "Home" :current :home}
+          [:div {:class "space-y-8"}
+           (c/page-header {:title (str "Good " (fmt/part-of-day data/now-text) ", " (first (:given ana)))
+                           :description (fmt/long-date data/now-text)
+                           :actions (c/button {:size :lg :icon :plus :href (link "portal-new-reading.html")} "Record a reading")})
+           (when (= "very-high" (:band pressure)) (pressure-notice pressure))
+           [:section {:aria-labelledby "next"}
+            [:div {:class "mb-3"} (section-heading "next" "Your next appointment")]
+            (c/card {:flush? true} (c/list-group {:aria-label "Your next appointment"} (appointment-item booked)))]
+           [:section {:aria-labelledby "latest"}
+            [:div {:class "mb-3 flex items-center justify-between gap-3"}
+             (section-heading "latest" "Your latest readings")
+             [:a {:href (link "portal-readings.html") :class "link link-primary inline-flex min-h-11 items-center gap-1 font-medium"}
+              "See all" (i/icon :arrow-right {:size :sm})]]
+            (readings-grid "pt-ana" [:blood-pressure :heart-rate :weight])]
+           [:section {:aria-labelledby "recent"}
+            [:div {:class "mb-3"} (section-heading "recent" "Recent readings")]
+            (c/card {:flush? true} (recent-readings "pt-ana" 5))
+            [:p {:class "mt-3 text-sm text-muted"}
+             "The words beside a reading, such as Very high, compare it with a reference range. They are not a diagnosis."]]])))
+
+;; ---------------------------------------------------------------------------
+;; Readings
+
+(defn- stats-row [patient-id kind days]
+  (let [readings (specimen/within (data/readings patient-id kind) days)
+        key-of #(or (:systolic %) (:value %))
+        latest (last readings)
+        highest (apply max-key key-of readings)
+        lowest (apply min-key key-of readings)
+        text (fn [reading] (str (specimen/reading-text kind reading) " " (fmt/unit (:unit reading))))]
+    [:div {:class "grid gap-4 sm:grid-cols-3"}
+     (c/stat {:label "Latest" :value (text latest) :hint (fmt/when-text (:at latest) data/now-text)})
+     (c/stat {:label (str "Highest, " days " days") :value (text highest) :hint (fmt/when-text (:at highest) data/now-text)})
+     (c/stat {:label (str "Lowest, " days " days") :value (text lowest) :hint (fmt/when-text (:at lowest) data/now-text)})]))
+
+(defn- readings-table [patient-id kind n]
+  (let [label (get-in specimen/kind-info [kind :label])]
+    (c/data-table
+     {:caption (str label ", the last " n " readings")
+      :dense? true
+      :columns [{:key :at :label "When" :header? true :class "whitespace-nowrap"}
+                {:key :value :label "Reading" :align :end :class "whitespace-nowrap"}
+                {:key :band :label (list [:span {:class "hidden sm:inline"} "Compared with the range"] [:span {:class "sm:hidden"} "Range"])}]
+      :rows (for [reading (reverse (take-last n (data/readings patient-id kind)))]
+              {:at (fmt/when-text (:at reading) data/now-text)
+               :value (str (specimen/reading-text kind reading) " " (fmt/unit (:unit reading)))
+               :band (or (c/band-badge (:band reading) {:size :sm}) "–")})})))
+
+(defn readings
+  "The trend of one measurement of a patient: the chart, drawn for the width of the screen, the figures and the table."
+  [_context]
+  (page {:title "Readings" :current :readings}
+        [:div {:class "space-y-6"}
+         (c/page-header {:title "My readings"
+                         :description "What you and your devices have recorded."
+                         :actions (c/button {:size :lg :icon :plus :href (link "portal-new-reading.html")} "Record a reading")})
+         [:div {:class "flex flex-wrap items-center justify-between gap-x-6 gap-y-3"}
+          (c/pill-nav {:label "Measurement" :size :lg
+                       :items [{:href "#" :label "Blood pressure" :current? true}
+                               {:href "#" :label "Heart rate"}
+                               {:href "#" :label "Weight"}]})
+          (c/pill-nav {:label "Period" :size :lg
+                       :items [{:href "#" :label "7 days"} {:href "#" :label "14 days"} {:href "#" :label "30 days" :current? true}]})]
+         (c/card {:title "Blood pressure" :subtitle "Last 30 days"}
+                 (from-tablet (specimen/line-chart "pt-ana" :blood-pressure {:days 30 :width 950 :height 320 :ticks-every 5 :id "bp-wide"}))
+                 (phone-only (specimen/line-chart "pt-ana" :blood-pressure {:days 30 :width 318 :height 260 :ticks-every 10 :id "bp-narrow"
+                                                                            :thresholds? false :bands? false})))
+         (stats-row "pt-ana" :blood-pressure 30)
+         [:section {:aria-labelledby "last"}
+          [:div {:class "mb-3"} (section-heading "last" "The last readings")]
+          (readings-table "pt-ana" :blood-pressure 8)]]))
+
+(defn new-reading
+  "The form to record a reading, as it looks when the api has refused one: a diastolic that cannot be a pressure."
+  [_context]
+  (page {:title "Record a reading" :current :readings}
+        [:div {:class "space-y-6"}
+         (c/page-header {:title "Record a reading" :description "Your care team can see it as soon as you save it."})
+         (c/card
+          [:form {:class "flex max-w-xl flex-col gap-5" :action "#" :method "post"}
+           (c/alert {:tone :high :title "The reading was not saved" :role "alert"}
+                    "Check the diastolic pressure and save it again.")
+           (c/select-field {:id "measurement" :name "measurement" :label "What did you measure?" :value "blood-pressure"
+                            :options [["blood-pressure" "Blood pressure"] ["heart-rate" "Heart rate"] ["spo2" "Oxygen saturation"]
+                                      ["glucose" "Glucose"] ["weight" "Weight"] ["temperature" "Temperature"]]})
+           [:div {:class "grid gap-4 sm:grid-cols-2"}
+            (c/text-field {:id "systolic" :name "systolic" :label "Systolic (mmHg)" :type "number" :inputmode "numeric" :value "132"
+                           :hint "The higher number."})
+            (c/text-field {:id "diastolic" :name "diastolic" :label "Diastolic (mmHg)" :type "number" :inputmode "numeric" :value "310"
+                           :hint "The lower number." :error "Enter a number between 20 and 200 mmHg."})]
+           (c/text-field {:id "taken" :name "taken" :label "Taken at" :type "datetime-local" :value "2026-10-13T14:00"
+                          :hint "Now, or up to 30 days ago."})
+           [:div {:class "flex flex-wrap gap-3"}
+            (c/button {:type "submit" :size :lg :icon :send} "Save the reading")
+            (c/button {:variant :ghost :size :lg :href (link "portal-readings.html")} "Cancel")]])]))
+
+;; ---------------------------------------------------------------------------
+;; Appointments
+
+(defn- request-form
+  "The patient's request: what it is about and the days that would suit, which go to their general practitioner."
+  []
+  (let [doctor (:name (data/practitioner (:practitioner (data/patient "pt-ana"))))]
+    (c/card {:title "Ask for a visit" :subtitle (str "Your request goes to " doctor ", who will confirm a time.")}
+            [:form {:class "flex max-w-xl flex-col gap-5" :action "#" :method "post"}
+             (c/textarea-field {:id "reason" :name "reason" :label "What is it about?" :rows 3
+                                :hint "A few words are enough, up to 200 characters."})
+             [:fieldset {:class "grid gap-4 sm:grid-cols-2"}
+              [:legend {:class "mb-1 text-sm font-medium sm:col-span-2"} "When would suit you?"]
+              (c/text-field {:id "from" :name "from" :label "From" :type "date" :value "2026-10-20"})
+              (c/text-field {:id "to" :name "to" :label "Until" :type "date" :value "2026-10-27"
+                             :hint "At most 30 days after the first day."})]
+             [:div (c/button {:type "submit" :size :lg :icon :send} "Send the request")]])))
+
+(defn- appointment-list [title rows]
+  (c/card {:flush? true} (c/list-group {:aria-label title} (map appointment-item rows))))
+
+(defn- appointments-content
+  "The page of appointments. `:form?` and `:cancelled?` leave out the request form and the cancelled ones."
+  [{:keys [form? cancelled?]}]
+  (let [rows (views/appointments-of "pt-ana")
+        coming (filter #(#{"booked" "proposed"} (:status %)) rows)
+        cancelled (filter #(= "cancelled" (:status %)) rows)]
+    [:div {:class "space-y-8"}
+     (c/page-header {:title "Appointments" :description "Visits with your care team."
+                     :actions (when form? (c/button {:size :lg :icon :calendar-plus :href "#ask"} "Ask for a visit"))})
+     [:section {:aria-labelledby "coming"}
+      [:div {:class "mb-3"} (section-heading "coming" "Coming up")]
+      (appointment-list "Appointments that are coming" coming)]
+     (when cancelled?
+       [:section {:aria-labelledby "cancelled"}
+        [:div {:class "mb-3"} (section-heading "cancelled" "Cancelled")]
+        (appointment-list "Cancelled appointments" cancelled)])
+     (when form?
+       [:section {:id "ask" :aria-label "Ask for a visit"} (request-form)])]))
+
+(defn appointments
+  "The appointments of a patient: the one that is confirmed, the request that has not been answered, the one that was
+  cancelled, and the form to ask for another."
+  [_context]
+  (page {:title "Appointments" :current :appointments}
+        (appointments-content {:form? true :cancelled? true})))
+
+(defn cancel
+  "The appointments with the question before one is cancelled: what is cancelled, who is told, and a way back."
+  [_context]
+  (let [booked (first (filter #(= "booked" (:status %)) (views/appointments-of "pt-ana")))]
+    (page {:title "Cancel appointment" :current :appointments}
+          (appointments-content {})
+          (c/dialog {:id "cancel-appointment" :title "Cancel this appointment?" :open? true
+                     :actions (list (c/button {:variant :ghost :size :lg :href (link "portal-appointments.html")} "Keep it")
+                                    (c/button {:variant :danger :size :lg :icon :calendar-x :href (link "portal-appointments.html")} "Cancel the appointment"))}
+                    [:p {:class "text-base font-medium"} (:description booked)]
+                    [:p {:class "text-base text-muted"} (str (:when booked) " · " (:doctor booked))]
+                    [:p {:class "mt-3 text-base"} "Your care team will be told. You can ask for another visit at any time."]
+                    [:div {:class "mt-4"}
+                     (c/textarea-field {:id "why" :name "why" :label "Why? It helps your care team" :optional? true :rows 2
+                                        :hint "Up to 200 characters."})]))))
+
+;; ---------------------------------------------------------------------------
+;; The record and the profile
+
+(defn- record-card [title rows empty-text]
+  (c/card {:title title :flush? true}
+          (if (seq rows)
+            (c/list-group {:aria-label title} rows)
+            [:p {:class "px-5 pb-5 text-base text-muted"} empty-text])))
+
+(defn record
+  "What the clinic has on file about a patient: their medication, their conditions and their allergies."
+  [_context]
+  (page {:title "My record" :current :record}
+        [:div {:class "space-y-6"}
+         (c/page-header {:title "My record" :description "What your clinic has on file. Tell them if something is wrong."})
+         (record-card "Medication"
+                      (for [{:keys [display dosage authoredOn]} (data/medications "pt-ana")]
+                        (c/list-row {:leading (c/icon-disc {:icon :pill})
+                                     :trailing (c/badge {:variant :outline} (str "Since " (fmt/month-year authoredOn)))}
+                                    [:p {:class "font-medium"} (str/capitalize display)]
+                                    [:p {:class "text-sm text-muted"} dosage]))
+                      "No medication is prescribed.")
+         (record-card "Conditions"
+                      (for [{:keys [display onset]} (data/conditions "pt-ana")]
+                        (c/list-row {:leading (c/icon-disc {:icon :stethoscope})
+                                     :trailing (c/badge {:variant :outline} (str "Since " (fmt/month-year onset)))}
+                                    [:p {:class "font-medium"} display]
+                                    [:p {:class "text-sm text-muted"} "Active"]))
+                      "No conditions are recorded.")
+         (record-card "Allergies"
+                      (for [{:keys [display reaction]} (data/allergies "pt-ana")]
+                        (c/list-row {:leading (c/icon-disc {:icon :triangle-alert})}
+                                    [:p {:class "font-medium"} display]
+                                    [:p {:class "text-sm text-muted"} reaction]))
+                      "No allergies are recorded. If you have one, tell your clinic.")]))
+
+(defn profile
+  "The profile of a patient: who they are to the clinic, their doctor, and the way out."
+  [_context]
+  (let [ana (data/patient "pt-ana")
+        doctor (data/practitioner (:practitioner ana))]
+    (page {:title "Profile" :current :profile}
+          [:div {:class "space-y-6"}
+           (c/page-header {:title "Profile" :description "What the clinic knows about you. To change it, tell them."})
+           (c/card {:title "Who you are"}
+                   [:div {:class "mb-5 flex items-center gap-4"}
+                    (c/avatar {:name (:name ana) :size :lg})
+                    [:div [:p {:class "text-lg font-semibold"} (:name ana)] [:p {:class "text-muted"} (:email ana)]]]
+                   (c/facts [["Date of birth" (fmt/birth-date (:birthDate ana))]
+                             ["Patient number" (:identifier ana)]
+                             ["City" (:city ana)]]))
+           (c/card {:title "Your care team"}
+                   (c/person {:name (:name doctor) :detail (:specialty doctor) :size :lg})
+                   [:p {:class "mt-4 text-sm text-muted"} "Pulse Demo Clinic. Requests for a visit go to your doctor."])
+           [:div (c/button {:variant :outline :size :lg :icon :log-out :href (link "login.html")} "Sign out")]])))
+
+;; ---------------------------------------------------------------------------
+;; A new patient, and what goes wrong
+
+(defn- first-step [icon title text]
+  (c/list-row {:leading (c/icon-disc {:icon icon})}
+              [:p {:class "font-medium"} title]
+              [:p {:class "text-sm text-muted"} text]))
+
+(defn new-patient
+  "The home of a patient who has no readings yet: what to do first, and the request that is waiting."
+  [_context]
+  (let [noah (data/patient "pt-noah")]
+    (page {:title "Home, new patient" :current :home :patient noah}
+          [:div {:class "space-y-8"}
+           (c/page-header {:title (str "Welcome, " (first (:given noah))) :description "Your clinic has set up your account."})
+           [:section {:aria-labelledby "first"}
+            [:div {:class "mb-3"} (section-heading "first" "Your first steps")]
+            (c/card {:flush? true}
+                    (c/list-group {:aria-label "First steps"}
+                                  (list (first-step :activity "Record your first reading"
+                                                    "Blood pressure, heart rate, oxygen, glucose, weight or temperature.")
+                                        (first-step :clipboard-list "Look at your record"
+                                                    "Your doctor sees what you see there."))))]
+           [:section {:aria-labelledby "latest"}
+            [:div {:class "mb-3"} (section-heading "latest" "Your latest readings")]
+            (c/card (c/empty-state {:icon :activity :title "No readings yet"
+                                    :actions (c/button {:size :lg :icon :plus :href (link "portal-new-reading.html")} "Record a reading")}
+                                   "When you record one, or a device sends one, you will see it here and how it compares with the usual range."))]
+           [:section {:aria-labelledby "next"}
+            [:div {:class "mb-3"} (section-heading "next" "Your next appointment")]
+            (c/card {:flush? true}
+                    (c/list-group {:aria-label "Your next appointment"} (map appointment-item (views/appointments-of "pt-noah"))))]])))
+
+(defn errors
+  "What the portal says when something is wrong: part of a page that could not be loaded, a page that is not there,
+  one the patient may not see, a failure on our side and a session that ended."
+  [_context]
+  (page {:title "When something goes wrong" :current :home}
+        [:div {:class "space-y-8"}
+         (c/page-header {:title "When something goes wrong"
+                         :description "The messages of the portal: what happened and what to do."})
+         [:section {:aria-labelledby "partial"}
+          [:div {:class "mb-3"} (section-heading "partial" "Part of a page could not be loaded")]
+          [:div {:class "space-y-4"}
+           (c/alert {:tone :high :title "Your appointments could not be loaded"
+                     :actions (c/button {:variant :outline :size :lg :icon :refresh-cw :href "#"} "Try again")}
+                    "The rest of the page is up to date. The problem is on our side, not yours.")
+           (readings-grid "pt-ana" [:blood-pressure :heart-rate :weight])]]
+         [:section {:aria-labelledby "stopped"}
+          [:div {:class "mb-3"} (section-heading "stopped" "A whole page")]
+          [:div {:class "grid gap-4 md:grid-cols-2"}
+           (c/card (c/empty-state {:icon :search :title "We cannot find that page"
+                                   :actions (c/button {:size :lg :href (link "portal-home.html")} "Go to the home page")}
+                                  "The address may be old, or mistyped."))
+           (c/card (c/empty-state {:icon :lock :title "You cannot see this"
+                                   :actions (c/button {:variant :outline :size :lg :href (link "portal-home.html")} "Go to the home page")}
+                                  "This page is about someone else. You can only see your own record."))
+           (c/card (c/empty-state {:icon :triangle-alert :title "Something went wrong on our side"
+                                   :actions (c/button {:size :lg :icon :refresh-cw :href "#"} "Try again")}
+                                  "Your information is safe and nothing was lost. If it keeps happening, tell your clinic."))
+           (c/card (c/empty-state {:icon :clock :title "Your session has ended"
+                                   :actions (c/button {:size :lg :icon :log-in :href (link "login.html")} "Sign in again")}
+                                  "For your safety, you are signed out after a while without activity."))]]]))

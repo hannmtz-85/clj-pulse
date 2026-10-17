@@ -24,6 +24,16 @@
   --input-color: var(--color-error);
 }
 
+/* The text of a placeholder is the muted colour, which has 4.5:1 on the page and on a card; the default of the
+   browser is a lighter grey that does not. */
+.input::placeholder,
+.textarea::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
 /* A focus that can be seen, on everything that takes it, in the colour of the brand. Zero specificity, so a
    component that draws its own (a button does) keeps it. */
 :where(a, summary, [tabindex]):focus-visible {

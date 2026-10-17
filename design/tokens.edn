@@ -63,7 +63,7 @@
  {:light {:normal {:soft "#dcfce7" :ink "#14532d" :edge "#15803d"}
           :elevated {:soft "#fef3c7" :ink "#78350f" :edge "#b45309"}
           :high {:soft "#ffedd5" :ink "#7c2d12" :edge "#c2410c"}
-          :critical {:soft "#fee2e2" :ink "#7f1d1d" :edge "#b91c1c"}
+          :critical {:soft "#fee7e7" :ink "#7f1d1d" :edge "#b91c1c"}
           :info {:soft "#e0f2fe" :ink "#0c4a6e" :edge "#0369a1"}}
   :dark {:normal {:soft "#052e16" :ink "#bbf7d0" :edge "#4ade80"}
          :elevated {:soft "#451a03" :ink "#fde68a" :edge "#fbbf24"}
@@ -113,6 +113,9 @@
    [:tone-normal-ink :base-100 :text] [:tone-elevated-ink :base-100 :text] [:tone-high-ink :base-100 :text]
    [:tone-critical-ink :base-100 :text] [:tone-info-ink :base-100 :text]
    [:tone-critical-ink :base-200 :text] [:tone-info-ink :base-200 :text]
+   ;; the brand as the text and the border of an outline button inside a message of a tone
+   [:primary :tone-normal-soft :text] [:primary :tone-elevated-soft :text] [:primary :tone-high-soft :text]
+   [:primary :tone-critical-soft :text] [:primary :tone-info-soft :text]
    ;; the lines of a chart against the card it is drawn on
    [:series-1 :base-100 :ui] [:series-2 :base-100 :ui] [:series-3 :base-100 :ui] [:series-4 :base-100 :ui]
    [:series-1 :base-200 :ui] [:series-2 :base-200 :ui] [:series-3 :base-200 :ui] [:series-4 :base-200 :ui]]}}

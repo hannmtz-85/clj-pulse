@@ -1,11 +1,11 @@
 (ns pulse.design.shots
   "Screenshots of the mock-ups (ADR-0026), taken by `design/shots.mjs` with headless Chrome or Edge, so that the pages
-  can be looked at without opening each. They go to `design/dist/shots`, which git ignores."
+  can be looked at without opening each. They go to `design/dist/shots`, which git ignores. What is taken is
+  `pulse.design.shotplan`'s to say."
   (:require [babashka.fs :as fs]
             [babashka.process :as process]
             [cheshire.core :as json]
-            [clojure.string :as str]
-            [pulse.design.pages :as pages]))
+            [pulse.design.shotplan :as plan]))
 
 (def dist "design/dist")
 (def out "design/dist/shots")
@@ -25,42 +25,12 @@
       (first (filter fs/exists? browser-candidates))
       (throw (ex-info "No Chrome or Edge found: set CHROME to its path" {}))))
 
-(defn- file-name [page theme width clip]
-  (str (str/replace (:file page) #"\.html$" "") "-" (if (= "pulse" theme) "light" (str/replace theme #"^pulse-" "")) "-" width
-       (when clip (str "-y" (:y clip)))
-       ".png"))
-
-(defn- parse-args
-  "`[prefix ... --theme name --clip y:height --width pixels]` as a map."
-  [args]
-  (loop [args args
-         acc {:only []}]
-    (if-let [[a & more] (seq args)]
-      (case a
-        "--theme" (recur (rest more) (assoc acc :theme (first more)))
-        "--width" (recur (rest more) (assoc acc :width (parse-long (first more))))
-        "--clip" (recur (rest more) (assoc acc :clip (let [[y h] (map parse-long (str/split (first more) #":"))]
-                                                       {:y y :height h})))
-        (recur more (update acc :only conj a)))
-      acc)))
-
-(defn default-shots
-  "The pictures of every page in the light theme and in the dark one. `only` limits them to pages whose file starts
-  with one of the prefixes; `:theme`, `:width` and `:clip` ask for one theme, one width and a slice of the page."
-  [{:keys [only theme width clip]}]
-  (for [page pages/pages
-        :when (or (empty? only) (some #(str/starts-with? (:file page) %) only))
-        theme (if theme [theme] ["pulse" "pulse-dark"])
-        :let [width (or width 1280)]]
-    (cond-> {:page (:file page) :theme theme :width width :mobile (< width 600) :name (file-name page theme width clip)}
-      clip (assoc :clip clip))))
-
 (defn take!
   "Takes the pictures. `args` are the file name prefixes of the pages (`components`) and the options of
-  `parse-args`; none means every page."
+  `plan/parse-args`; none means every page."
   [args]
   (let [spec-file (str (fs/create-temp-file {:prefix "pulse-shots-" :suffix ".json"}))
-        shots (vec (default-shots (parse-args args)))]
+        shots (vec (plan/default-shots (plan/parse-args args)))]
     (spit spec-file (json/generate-string {:browser (browser) :dist (str (fs/absolutize dist)) :out (str (fs/absolutize out))
                                            :shots shots}))
     (try

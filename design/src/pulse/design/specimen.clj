@@ -2,8 +2,7 @@
   "The pieces the pages of the mock-ups share (ADR-0026): what a reading looks like as a tile and as a chart, made
   from the cohort. This is the layer between the shape of the api and the components of `libs/ui`, which the
   pages of `web` and `spa` will have too."
-  (:require [clojure.string :as str]
-            [pulse.design.data :as data]
+  (:require [pulse.design.data :as data]
             [pulse.design.format :as fmt]
             [pulse.fhir.ranges :as ranges]
             [pulse.ui.chart :as chart]
@@ -40,7 +39,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Charts
 
-(defn- within
+(defn within
   "The readings of the last `days` days up to the moment of the mock-ups."
   [readings days]
   (let [from (- (.toEpochMilli data/now) (* days 24 3600 1000))]
@@ -93,7 +92,7 @@
         newest (last series-readings)]
     (str label " over the last " days " days: between " (fmt/number (apply min values)) " and "
          (fmt/number (apply max values)) " " unit "; the latest, "
-         (str/lower-case (fmt/when-text (:at newest) data/now-text)) ", is " (reading-text kind newest) " " unit ".")))
+         (fmt/when-phrase (:at newest) data/now-text) ", is " (reading-text kind newest) " " unit ".")))
 
 (defn line-chart
   "The chart of a patient's `kind` over `days` days, in a drawing of `width` by `height` pixels. Options:

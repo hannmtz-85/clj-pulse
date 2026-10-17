@@ -43,8 +43,14 @@
                             ["Look" "Approved: medium radii, flat surfaces with a soft shadow, Inter, and a reading away from normal with an icon, a word and an edge bar"]
                             ["Components" "Approved: the ones on the page Components"]
                             ["Appointments" "A patient can cancel their own appointment: the mock-ups have the button, and the api gets the action in Phase 7"]]))
-         (for [[group group-pages] (group-by :group (remove #(= "index.html" (:file %)) pages))]
-           (section (str "pages-" (str/lower-case (str/replace group #"\W+" "-"))) group nil
+         (section "review" "How to look at the mock-ups"
+                  "Each mock-up is the interface itself in a frame. The page answers to the width of the frame, not to the width of the window: 390 pixels is a phone, 820 a tablet and 1280 a desk."
+                  (c/facts [["Width" "The buttons above the frame choose it"]
+                            ["Theme" "The choice at the top right changes the frame as well, and is remembered"]
+                            ["Links" "Inside a mock-up they lead to the other mock-ups; a link that goes nowhere is something the page only shows"]
+                            ["People" "Ana García, a patient with hypertension and very high readings; Noah Kim, a new patient; Dr. Elena Rivera, a practitioner; Sam Admin, the administrator"]]))
+         (for [[group group-pages] (chrome/groups (remove #(= "index.html" (:file %)) pages))]
+           (section (str "pages-" (chrome/slug group)) group nil
                     (into [:ul {:class "grid gap-3 md:grid-cols-2"}]
                           (for [{:keys [file title summary]} group-pages]
                             [:li (c/card {:class "h-full"}

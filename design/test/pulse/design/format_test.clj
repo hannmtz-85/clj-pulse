@@ -73,3 +73,66 @@
     (is (= [21600000] (distinct (map - (rest (map :at ticks)) (map :at ticks)))) "six hours apart"))
   (is (= ["00:00" "03:00" "06:00" "09:00" "12:00"]
          (map :label (fmt/hour-ticks (fmt/millis "2026-10-12T22:00:00Z") (fmt/millis "2026-10-13T10:00:00Z") 3)))))
+
+;; ---------------------------------------------------------------------------
+;; For the pages of the interfaces
+
+(deftest a-day-with-its-weekday-a-month-and-a-day-of-the-month-for-a-calendar-page
+  (is (= "Wed 14 Oct" (fmt/weekday-date "2026-10-14T08:00:00Z")))
+  (is (= "Tue 29 Sep" (fmt/weekday-date "2026-09-29T07:00:00Z")))
+  (is (= ["Oct" "Sep" "Dec"] (map fmt/month-abbreviation ["2026-10-14T08:00:00Z" "2026-09-29T07:00:00Z" "2026-12-01T08:00:00Z"])))
+  (is (= ["14" "5" "29"] (map fmt/day-of-month ["2026-10-14T08:00:00Z" "2026-10-05T08:00:00Z" "2026-09-29T07:00:00Z"]))
+      "no zero in front of a single digit")
+  (testing "by the day in Madrid"
+    (is (= "Thu 15 Oct" (fmt/weekday-date "2026-10-14T22:30:00Z")))
+    (is (= "15" (fmt/day-of-month "2026-10-14T22:30:00Z")))
+    (is (= "Nov" (fmt/month-abbreviation "2026-10-31T23:30:00Z")))))
+
+(deftest a-time-range-is-two-clocks-and-a-date-range-two-dates
+  (is (= "10:00–10:30" (fmt/time-range "2026-10-14T08:00:00Z" "2026-10-14T08:30:00Z")) "with an en dash")
+  (is (= "23:30–00:15" (fmt/time-range "2026-10-14T21:30:00Z" "2026-10-14T22:15:00Z")))
+  (is (= "Oct 14 to Oct 20" (fmt/date-range "2026-10-14T00:00:00Z" "2026-10-20T00:00:00Z"))))
+
+(deftest a-month-is-written-with-its-year-from-an-instant-or-a-date
+  (is (= "Nov 2025" (fmt/month-year "2025-11-04T09:00:00Z")))
+  (is (= "May 2019" (fmt/month-year "2019-05-02")))
+  (is (= "Jan 2026" (fmt/month-year "2025-12-31T23:30:00Z")) "an instant is the day in Madrid"))
+
+(deftest the-part-of-the-day-is-by-the-clock-of-the-clinic
+  (is (= ["morning" "afternoon" "evening"]
+         (map fmt/part-of-day ["2026-10-13T06:00:00Z" "2026-10-13T12:00:00Z" "2026-10-13T19:00:00Z"])))
+  (testing "the edges: noon and eight in the evening"
+    (is (= ["morning" "afternoon"] (map fmt/part-of-day ["2026-10-13T09:59:00Z" "2026-10-13T10:00:00Z"])))
+    (is (= ["afternoon" "evening"] (map fmt/part-of-day ["2026-10-13T17:59:00Z" "2026-10-13T18:00:00Z"])))))
+
+(deftest a-moment-in-the-middle-of-a-sentence-has-a-small-letter-for-the-day-and-a-capital-for-a-date
+  (is (= "today, 10:00" (fmt/when-phrase "2026-10-13T08:00:00Z" now)))
+  (is (= "yesterday, 22:02" (fmt/when-phrase "2026-10-12T20:02:00Z" now)))
+  (is (= "tomorrow, 10:00" (fmt/when-phrase "2026-10-14T08:00:00Z" now)))
+  (is (= "Oct 10, 10:00" (fmt/when-phrase "2026-10-10T08:00:00Z" now)) "the month keeps its capital"))
+
+(deftest the-seconds-of-a-clock-are-shown-for-the-jobs
+  (is (= "14:00:30" (fmt/clock-seconds "2026-10-13T12:00:30Z")))
+  (is (= "00:00:05" (fmt/clock-seconds "2026-10-13T22:00:05Z"))))
+
+(deftest an-interval-is-said-the-way-people-say-it
+  (is (= ["Every second" "Every 15 seconds" "Every 30 seconds" "Every minute" "Every 5 minutes" "Every hour" "Every 2 hours"]
+         (map fmt/interval-text [1000 15000 30000 60000 300000 3600000 7200000])))
+  (testing "a number that is not whole in a unit is said in the smaller one"
+    (is (= "Every 90 seconds" (fmt/interval-text 90000)))
+    (is (= "Every 1500 ms" (fmt/interval-text 1500)))
+    (is (= "Every 61 seconds" (fmt/interval-text 61000)))
+    (is (= "Every 150 minutes" (fmt/interval-text 9000000)) "two hours and a half")))
+
+(deftest a-schedule-is-an-interval-or-a-time-of-day
+  (is (= "Every 30 seconds" (fmt/schedule-text {:type "interval" :everyMs 30000})))
+  (is (= "Every day at 08:00 (Europe/Madrid)" (fmt/schedule-text {:type "daily" :at "08:00" :zone "Europe/Madrid"}))))
+
+(deftest a-duration-is-in-milliseconds-seconds-with-a-decimal-or-whole-seconds
+  (is (= ["0 ms" "620 ms" "999 ms" "1.0 s" "1.8 s" "9.9 s" "10 s" "10 s" "65 s"]
+         (map fmt/duration-text [0 620 999 1000 1840 9900 10012 9950 65000]))))
+
+(deftest a-key-in-camel-case-is-written-as-words
+  (is (= ["already raised" "patients" "not applicable" "still active"]
+         (map fmt/words [:alreadyRaised :patients :notApplicable "stillActive"])))
+  (is (= "ok2 go" (fmt/words :ok2Go)) "a digit followed by a capital is a break too"))

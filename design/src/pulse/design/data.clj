@@ -68,6 +68,11 @@
 
 (defn practitioner [id] (get (practitioners) id))
 
+(defn panel-of
+  "The patients whose general practitioner is `practitioner-id`, by family name."
+  [practitioner-id]
+  (filterv #(= practitioner-id (:practitioner %)) (patients)))
+
 ;; ---------------------------------------------------------------------------
 ;; Readings
 
@@ -191,6 +196,18 @@
 (defn appointments-of [patient-id]
   (filterv #(= (str "Patient/" patient-id) (:patient %)) (appointments)))
 
+(def other-appointments
+  "Two appointments of Ana that the cohort does not hold, as `GET /api/appointments` shows them: a request that the
+  clinic has not answered and one that was cancelled, with the reason she gave. They are for the pages that need a
+  patient with a history. Written by hand, because the cohort holds only appointments to come, one for each
+  patient."
+  [{:id "appt-ana-2" :status "proposed" :description "Medication review"
+    :start nil :end nil :requestedStart "2026-10-20T00:00:00Z" :requestedEnd "2026-10-27T00:00:00Z"
+    :practitioner "Practitioner/pr-rivera" :reason nil :patient "Patient/pt-ana"}
+   {:id "appt-ana-0" :status "cancelled" :description "Blood pressure check"
+    :start "2026-09-29T07:00:00Z" :end "2026-09-29T07:30:00Z" :requestedStart nil :requestedEnd nil
+    :practitioner "Practitioner/pr-rivera" :reason "I had to travel that week." :patient "Patient/pt-ana"}])
+
 ;; ---------------------------------------------------------------------------
 ;; Alerts
 
@@ -206,3 +223,41 @@
     :since "2026-10-12T08:30:00Z" :until nil}
    {:id "flag-pt-liam-R3" :patient "Patient/pt-liam" :text "Glucose out of range" :status "inactive"
     :since "2026-10-11T20:30:00Z" :until "2026-10-13T07:40:00Z"}])
+
+;; ---------------------------------------------------------------------------
+;; The jobs of the scheduler
+
+(def jobs
+  "The jobs of the scheduler as `GET /api/admin/jobs` shows them, fifteen seconds after the moment of the other
+  mock-ups (the schedule is a grid from the epoch, so a run begins on a multiple of the interval of its job): the
+  device simulator has just begun a run, and the last run of the reminders failed because FHIR was slow. Written by
+  hand, because the scheduler is another process."
+  {:total 3
+   :items [{:id "evaluate-rules"
+            :description "Evaluates the clinical rules over the latest readings and raises alerts"
+            :schedule {:type "interval" :everyMs 30000}
+            :state "idle"
+            :runningSince nil
+            :nextRun "2026-10-13T12:00:30Z"
+            :lastRun {:trigger "schedule" :startedAt "2026-10-13T12:00:00Z" :finishedAt "2026-10-13T12:00:02Z"
+                      :durationMs 1840 :outcome "ok"
+                      :result {:patients 6 :raised 0 :alreadyRaised 4 :stillActive 3 :notApplicable 5 :failed 0}}
+            :counts {:ok 214 :failed 0 :interrupted 0 :skipped 0}}
+           {:id "simulate-devices"
+            :description "Simulates the readings of the devices of the demo cohort and writes them to FHIR"
+            :schedule {:type "interval" :everyMs 15000}
+            :state "running"
+            :runningSince "2026-10-13T12:00:15Z"
+            :nextRun "2026-10-13T12:00:30Z"
+            :lastRun {:trigger "schedule" :startedAt "2026-10-13T12:00:00Z" :finishedAt "2026-10-13T12:00:01Z"
+                      :durationMs 620 :outcome "ok" :result {:readings 7 :written 7 :failed 0}}
+            :counts {:ok 428 :failed 1 :interrupted 0 :skipped 2}}
+           {:id "send-reminders"
+            :description "Sends a reminder to the patients whose confirmed appointment is about to begin"
+            :schedule {:type "interval" :everyMs 60000}
+            :state "idle"
+            :runningSince nil
+            :nextRun "2026-10-13T12:01:00Z"
+            :lastRun {:trigger "schedule" :startedAt "2026-10-13T12:00:00Z" :finishedAt "2026-10-13T12:00:10Z"
+                      :durationMs 10012 :outcome "failed" :error "HttpTimeoutException"}
+            :counts {:ok 105 :failed 1 :interrupted 0 :skipped 0}}]})

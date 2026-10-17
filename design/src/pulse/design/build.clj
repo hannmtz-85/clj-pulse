@@ -7,6 +7,7 @@
             [design]
             [hiccup2.core :as h]
             [pulse.design.chrome :as chrome]
+            [pulse.design.mockup :as mockup]
             [pulse.design.pages :as pages]))
 
 (def dist "design/dist")
@@ -26,6 +27,17 @@
    {:tokens tokens
     :pages pages/pages
     :themes (chrome/theme-options tokens)}))
+
+(defn documents
+  "Every document the build writes, as `{:file :hiccup}` with the file relative to `design/dist`: the pages of the
+  review, and for each mock-up its page of the review and its frame, the interface itself, under `frames/`."
+  [{:keys [pages] :as ctx}]
+  (mapcat (fn [{:keys [file frame] render-page :render :as page}]
+            (if frame
+              [{:file file :hiccup (mockup/wrapper ctx page)}
+               {:file (mockup/frame-path file) :hiccup (frame ctx)}]
+              [{:file file :hiccup (render-page ctx)}]))
+          pages))
 
 (defn- copy! [from to]
   (io/make-parents to)
@@ -77,11 +89,11 @@
 
 (defn- check-classes!
   "Fails when a page uses a class that the compiled stylesheet has no rule for."
-  []
+  [files]
   (let [css-file (io/file dist "pulse.css")]
     (when (.exists css-file)
       (let [css (slurp css-file :encoding "UTF-8")
-            unknown (for [{:keys [file]} pages/pages
+            unknown (for [file files
                           :let [missing (unknown-classes (slurp (io/file dist file) :encoding "UTF-8") css)]
                           :when (seq missing)]
                       [file missing])]
@@ -95,13 +107,13 @@
   `dist/pulse.css`, which `bb design:css` writes. Fails when a page uses a class the stylesheet lacks."
   []
   (let [tokens (design/read-tokens)
-        ctx (context tokens)]
-    (doseq [{:keys [file] render-page :render} pages/pages]
+        docs (documents (context tokens))]
+    (doseq [{:keys [file hiccup]} docs]
       (let [target (io/file dist file)]
         (io/make-parents target)
-        (spit target (render (render-page ctx)) :encoding "UTF-8")
+        (spit target (render hiccup) :encoding "UTF-8")
         (println "Wrote" (str dist "/" file))))
-    (check-classes!)
+    (check-classes! (map :file docs))
     (doseq [file (font-files tokens)
             :let [from (io/file fonts-dir file)]]
       (when-not (.exists from)

@@ -178,13 +178,15 @@
         t (tone/tone tone-key)]
     [:div (-> attributes
               (attrs/owned :tone :title :actions)
-              (attrs/with-classes "relative flex items-start gap-3 overflow-hidden rounded-box border p-4 pl-5" (:surface t)))
+              (attrs/with-classes "relative grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-3 overflow-hidden rounded-box border p-4 pl-5"
+                (when actions "sm:grid-cols-[auto_1fr_auto]") (:surface t)))
      (edge-bar tone-key)
      (i/icon (:icon t) {:size :md :class (attrs/classes "mt-0.5" (:icon-colour t))})
-     [:div {:class "min-w-0 flex-1"}
+     [:div {:class "min-w-0"}
       (when title [:p {:class "font-semibold"} title])
       (when (seq children) (into [:div {:class "text-sm"}] children))]
-     (when actions [:div {:class "flex shrink-0 items-center gap-2"} actions])]))
+     ;; under the text on a phone, and at the end of the row from a small screen on
+     (when actions [:div {:class "col-start-2 flex flex-wrap items-center gap-2 sm:col-start-3 sm:row-start-1"} actions])]))
 
 (defn empty-state
   "What a list shows when it has nothing: an icon, a `:title`, a text for the children and `:actions`."
@@ -307,10 +309,10 @@
   [:div {:class "flex items-start gap-3"}
    [:input (-> (attrs/owned attributes :label :hint)
                (assoc :type "checkbox")
-               (attrs/with-classes "checkbox checkbox-primary mt-0.5")
+               (attrs/with-classes "checkbox checkbox-primary")
                (cond-> hint (assoc :aria-describedby (str id "-hint"))))]
    [:div {:class "flex flex-col"}
-    [:label {:for id :class "text-sm font-medium"} label]
+    [:label {:for id :class "text-sm leading-6 font-medium"} label]
     (when hint [:p {:id (str id "-hint") :class "text-sm text-muted"} hint])]])
 
 (defn toggle-field
@@ -318,7 +320,7 @@
   [{:keys [id label hint] :as attributes}]
   [:div {:class "flex items-start justify-between gap-4"}
    [:div {:class "flex flex-col"}
-    [:label {:for id :class "text-sm font-medium"} label]
+    [:label {:for id :class "text-sm leading-6 font-medium"} label]
     (when hint [:p {:id (str id "-hint") :class "text-sm text-muted"} hint])]
    [:input (-> (attrs/owned attributes :label :hint)
                (assoc :type "checkbox" :role "switch")
@@ -347,8 +349,9 @@
 
 (defn data-table
   "A table. `:caption` names it (it is read, not shown, unless `:show-caption?`); `:columns` is
-  `[{:key :label :align :header?} ...]`, where `:align` is `:start`, `:end` or `:center` and `:header?` makes the
-  cells of that column the headings of their rows; `:rows` are maps and a cell is anything hiccup can show;
+  `[{:key :label :align :header? :class} ...]`, where `:align` is `:start`, `:end` or `:center`, `:header?` makes the
+  cells of that column the headings of their rows and `:class` is added to the heading and the cells (a column that a
+  narrow screen hides is `\"hidden xl:table-cell\"`); `:rows` are maps and a cell is anything hiccup can show;
   `:dense?` makes it tighter. It scrolls sideways inside its own region, which a keyboard can reach."
   [{:keys [caption columns rows dense? show-caption?]}]
   [:div {:class "overflow-x-auto rounded-box border border-base-300 bg-base-100" :role "region"
@@ -357,14 +360,14 @@
     [:caption {:class (if show-caption? "px-4 py-3 text-left text-sm font-semibold" "sr-only")} caption]
     [:thead
      (into [:tr]
-           (for [{:keys [label align]} columns]
-             [:th {:scope "col" :class (attrs/classes "text-xs font-semibold text-muted" (pick alignments (or align :start) "alignment"))}
+           (for [{:keys [label align] column-class :class} columns]
+             [:th {:scope "col" :class (attrs/classes "text-xs font-semibold text-muted" (pick alignments (or align :start) "alignment") column-class)}
               label]))]
     (into [:tbody]
           (for [row rows]
             (into [:tr {:class "hover:bg-base-200"}]
-                  (for [{k :key :keys [align header?]} columns
-                        :let [cell-class (attrs/classes "tabular-nums" (pick alignments (or align :start) "alignment"))]]
+                  (for [{k :key column-class :class :keys [align header?]} columns
+                        :let [cell-class (attrs/classes "tabular-nums" (pick alignments (or align :start) "alignment") column-class)]]
                     (if header?
                       [:th {:scope "row" :class (attrs/classes cell-class "font-medium")} (get row k)]
                       [:td {:class cell-class} (get row k)])))))]])
@@ -393,3 +396,185 @@
     [:h1 {:class "text-2xl font-semibold tracking-tight"} title]
     (when description [:p {:class "mt-1 text-base text-muted"} description])]
    (when actions [:div {:class "flex flex-wrap items-center gap-2"} actions])])
+
+;; ---------------------------------------------------------------------------
+;; Figures, people, lists and dates
+
+(defn stat
+  "A figure with its label, for a summary: `:label`, `:value` (as text), `:hint` (a line under it), `:icon` and `:tone`
+  (the colour of the icon and of the figure, for one that asks for attention)."
+  [{:keys [label value hint icon tone] :as attributes}]
+  (let [t (some-> tone tone/tone)]
+    [:div (-> attributes
+              (attrs/owned :label :value :hint :icon :tone)
+              (attrs/with-classes "rounded-box border border-base-300 bg-base-100 p-4 shadow-card"))
+     [:p {:class "flex items-center gap-2 text-sm font-medium text-muted"}
+      (when icon (i/icon icon {:size :md :class (:icon-colour t)}))
+      label]
+     [:p {:class (attrs/classes "mt-2 text-3xl font-semibold tracking-tight tabular-nums" (:ink t))} value]
+     (when hint [:p {:class "mt-1 text-sm text-muted"} hint])]))
+
+(defn person
+  "A person: an avatar, the `:name` and a line under it, the `:detail`. `:size` is the size of the avatar."
+  [{:keys [name detail size] :or {size :md} :as attributes}]
+  [:div (-> attributes
+            (attrs/owned :name :detail :size)
+            (attrs/with-classes "flex items-center gap-3"))
+   (avatar {:name name :size size})
+   [:div {:class "min-w-0"}
+    [:p {:class "truncate font-medium"} name]
+    (when detail [:p {:class "truncate text-xs text-muted"} detail])]])
+
+(defn list-group
+  "A list whose rows are `list-row`s, with a line between them."
+  [& args]
+  (let [[attributes children] (attrs/args args)]
+    (into [:ul (attrs/with-classes attributes "divide-y divide-base-300")] children)))
+
+(defn list-row
+  "A row of a `list-group`: `:leading` (an avatar, an icon or a date), the children (the text) and `:trailing` (a chip,
+  the buttons). When there is no room the text gives way, unless `:trailing-wraps?` is true, which is for chips and
+  buttons that are wider than a short word: then the trailing part goes under the text."
+  [& args]
+  (let [[{:keys [leading trailing trailing-wraps?] :as attributes} children] (attrs/args args)]
+    [:li (-> attributes
+             (attrs/owned :leading :trailing :trailing-wraps?)
+             (attrs/with-classes "flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4"))
+     leading
+     (into [:div {:class (attrs/classes "min-w-0 flex-1" (when trailing-wraps? "basis-44"))}] children)
+     (when trailing [:div {:class "flex max-w-full shrink-0 flex-wrap items-center gap-2"} trailing])]))
+
+(defn date-block
+  "A small calendar page: the `:month` (\"Oct\") over the `:day` (\"14\"), or, for what has no day yet, an `:icon` in
+  its place and a paler page. It is hidden from a screen reader: the date is always written beside it."
+  [{:keys [month day icon] :as attributes}]
+  [:div (-> attributes
+            (attrs/owned :month :day :icon)
+            (attrs/with-classes "grid min-h-14 w-14 shrink-0 place-items-center rounded-field py-1.5"
+              (if icon "bg-base-200 text-muted" "bg-accent text-accent-content"))
+            (assoc :aria-hidden "true"))
+   (if icon
+     (i/icon icon {:size :lg})
+     (list [:span {:class "text-xs font-semibold uppercase tracking-wide"} month]
+           [:span {:class "text-2xl leading-none font-semibold tabular-nums"} day]))])
+
+(def ^:private disc-sizes
+  {:md "size-10" :lg "size-12"})
+
+(def ^:private disc-variants
+  {:accent "bg-accent text-accent-content" :muted "bg-base-200 text-muted"})
+
+(defn icon-disc
+  "A circle with an icon in it, for the start of a row: `:icon`, `:size` (`:md`, 40 px, or `:lg`, 48) and `:variant`
+  (`:accent` or `:muted`). It is hidden from a screen reader: the words beside it say what it is."
+  [{:keys [icon size variant] :or {size :md variant :accent} :as attributes}]
+  [:span (-> attributes
+             (attrs/owned :icon :size :variant)
+             (attrs/with-classes "inline-grid shrink-0 place-items-center rounded-full"
+               (pick disc-sizes size "icon disc size") (pick disc-variants variant "icon disc variant"))
+             (assoc :aria-hidden "true"))
+   (i/icon icon {:size :md})])
+
+;; ---------------------------------------------------------------------------
+;; Navigation and search
+
+(def ^:private pill-sizes
+  {:md "px-3.5 py-1.5 text-sm" :lg "min-h-11 px-4 text-base"})
+
+(defn pill-nav
+  "Links as pills, to filter a list: `:label` names the navigation and `:items` is `[{:href :label :count :current?}
+  ...]`. The current one is marked for a screen reader as well. `:size` is `:md`, for a desk, or `:lg`, whose pills
+  are 44 px high, for a finger."
+  [{:keys [label items size] :or {size :md}}]
+  [:nav {:aria-label label}
+   (into [:ul {:class "flex flex-wrap gap-2"}]
+         (for [{:keys [href current? count] text :label} items]
+           [:li
+            [:a (cond-> {:href href
+                         :class (attrs/classes "inline-flex items-center gap-2 rounded-full border font-medium whitespace-nowrap"
+                                               (pick pill-sizes size "pill size")
+                                               (if current?
+                                                 "border-primary bg-accent text-accent-content"
+                                                 "border-base-300 bg-base-100 text-base-content hover:bg-base-200"))}
+                  current? (assoc :aria-current "page"))
+             text
+             (when count
+               [:span {:class "rounded-full bg-base-100 px-2 text-xs text-base-content tabular-nums"} (str count)])]]))])
+
+(defn breadcrumbs
+  "The path to this page: `:items` is `[{:href :label} ...]`, the last being the page itself, which has no link."
+  [{:keys [items]}]
+  (let [n (count items)]
+    [:nav {:aria-label "Breadcrumb"}
+     (into [:ol {:class "flex flex-wrap items-center gap-1.5 text-sm text-muted"}]
+           (map-indexed
+            (fn [index {:keys [href] text :label}]
+              (if (= (inc index) n)
+                [:li {:aria-current "page" :class "font-medium text-base-content"} text]
+                [:li {:class "flex items-center gap-1.5"}
+                 [:a {:href href :class "hover:text-base-content hover:underline"} text]
+                 (i/icon :chevron-right {:size :sm})]))
+            items))]))
+
+(defn search-field
+  "A search box with a magnifying glass. `:label` is what a screen reader says (there is no visible label), `:id`,
+  `:placeholder` and `:value`; any other attribute goes to the `<input>`."
+  [{:keys [id label placeholder] :as attributes}]
+  [:label {:class "input w-full"}
+   (i/icon :search {:size :md :class "text-muted"})
+   [:input (-> attributes
+               (attrs/owned :label)
+               (assoc :type "search" :aria-label label :id id :placeholder placeholder)
+               (attrs/with-classes "grow"))]])
+
+(defn user-menu
+  "The menu of the person who is signed in: their avatar and name, and a list of links when it is opened. `:items` is
+  `[{:href :label :icon} ...]`; it opens and closes without a script, with `<details>`. `:name-class` is added to the
+  name, which a screen that shows the person elsewhere hides (`\"lg:hidden\"`)."
+  [{:keys [name items name-class] :as attributes}]
+  [:details (-> attributes
+                (attrs/owned :name :items :name-class)
+                (attrs/with-classes "dropdown dropdown-end"))
+   [:summary {:class "flex cursor-pointer list-none items-center gap-2 rounded-field px-2 py-1.5 hover:bg-base-200"
+              :aria-label (str "Account menu of " name)}
+    (avatar {:name name :size :sm})
+    [:span {:class (attrs/classes "hidden text-sm font-medium sm:inline" name-class)} name]
+    (i/icon :chevron-down {:size :sm})]
+   (into [:ul {:class "menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-overlay"}]
+         (for [{:keys [href icon] text :label} items]
+           [:li [:a {:href href} (when icon (i/icon icon {:size :md})) text]]))])
+
+;; ---------------------------------------------------------------------------
+;; Dialogs and toasts
+
+(defn dialog
+  "A dialog that asks for a decision: `:id` and `:title` (which name it for a screen reader), the children (what it
+  says) and `:actions` (the buttons). `:open?` shows it, over the page."
+  [& args]
+  (let [[{:keys [id title actions open?] :as attributes} children] (attrs/args args)]
+    [:dialog (-> attributes
+                 (attrs/owned :title :actions :open?)
+                 (attrs/with-classes "modal" (when open? "modal-open"))
+                 (assoc :aria-labelledby (str id "-title") :aria-modal "true")
+                 (cond-> open? (assoc :open true)))
+     [:div {:class "modal-box"}
+      [:h2 {:id (str id "-title") :class "text-lg font-semibold"} title]
+      (into [:div {:class "mt-3 text-sm"}] children)
+      ;; one above the other on a phone, with the one that decides first; side by side from a small screen on
+      [:div {:class "modal-action flex-col-reverse sm:flex-row sm:flex-wrap"} actions]]
+     [:div {:class "modal-backdrop"}]]))
+
+;; ---------------------------------------------------------------------------
+;; The mark
+
+(defn logo
+  "The mark and the name of Pulse. `:href` makes it a link; `:name-class` is added to the name, which a narrow
+  sidebar hides (`\"hidden lg:inline\"`)."
+  ([] (logo {}))
+  ([{:keys [href name-class] :as attributes}]
+   [(if href :a :span) (-> attributes
+                           (attrs/owned :name-class)
+                           (attrs/with-classes "inline-flex items-center gap-2"))
+    [:span {:class "grid size-8 shrink-0 place-items-center rounded-field bg-primary text-primary-content"}
+     (i/icon :heart-pulse {:size :md})]
+    [:span {:class (attrs/classes "text-lg font-semibold tracking-tight" name-class)} "Pulse"]]))

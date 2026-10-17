@@ -7,7 +7,7 @@
 (deftest there-are-five-tones-each-with-a-word-an-icon-and-the-classes-of-its-parts
   (is (= #{:normal :elevated :high :critical :info} (set (keys tone/tones))))
   (doseq [[k t] tone/tones]
-    (is (= #{:label :icon :surface :icon-colour :dot} (set (keys t))) (str k))
+    (is (= #{:label :icon :surface :icon-colour :ink :dot} (set (keys t))) (str k))
     (is (not (str/blank? (:label t))) (str k " has a word"))
     (is (i/known? (:icon t)) (str k " has an icon that exists"))))
 
@@ -20,8 +20,9 @@
       (is (str/includes? (:surface t) (str "bg-" token "soft")))
       (is (str/includes? (:surface t) (str "text-" token "ink")))
       (is (= (str "text-" token "edge") (:icon-colour t)))
+      (is (= (str "text-" token "ink") (:ink t)))
       (is (= (str "bg-" token "edge") (:dot t)))
-      (is (not-any? #(str/includes? (str/join " " (vals (select-keys t [:surface :icon-colour :dot]))) %) others)))))
+      (is (not-any? #(str/includes? (str/join " " (vals (select-keys t [:surface :icon-colour :ink :dot]))) %) others)))))
 
 (deftest the-tones-have-icons-of-different-shapes
   (is (= 5 (count (set (map :icon (vals tone/tones)))))

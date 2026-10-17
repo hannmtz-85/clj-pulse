@@ -187,6 +187,55 @@
           (c/skeleton {:class "h-4 w-full"})
           (c/skeleton {:class "h-4 w-5/6"})])])
 
+(defn- figures-and-lists []
+  (list
+   [:div {:class "grid gap-4 sm:grid-cols-2 xl:grid-cols-4"}
+    (c/stat {:label "Patients" :value "4" :icon :users})
+    (c/stat {:label "Active alerts" :value "2" :icon :bell-ring :tone :critical :hint "1 acknowledged today"})
+    (c/stat {:label "To confirm" :value "2" :icon :calendar-clock :hint "requests for a visit"})
+    (c/stat {:label "Readings" :value "18" :icon :activity :hint "in the last 24 hours"})]
+   (c/card {:title "Rows of a list" :subtitle "A date, a clock for what has no day yet, an icon or a person at the start; a chip and buttons at the end" :flush? true}
+           (c/list-group
+            {:aria-label "Examples of rows"}
+            (list
+             (c/list-row {:leading (c/date-block {:month "Oct" :day "14"})
+                          :trailing (list (c/tone-badge {:tone :normal :icon :calendar-check} "Confirmed")
+                                          (c/button {:variant :outline :icon :calendar-x} "Cancel appointment"))}
+                         [:p {:class "font-semibold"} "Hypertension follow-up"]
+                         [:p {:class "text-sm text-muted"} "Wed 14 Oct, 10:00–10:30 · Dr. Elena Rivera"])
+             (c/list-row {:leading (c/date-block {:icon :clock})
+                          :trailing (list (c/tone-badge {:tone :info :icon :clock} "Requested")
+                                          (c/button {:variant :ghost :icon :x} "Cancel request"))}
+                         [:p {:class "font-semibold"} "Medication review"]
+                         [:p {:class "text-sm text-muted"} "Asked for a visit between Oct 20 and Oct 27 · Dr. Elena Rivera"])
+             (c/list-row {:leading (c/icon-disc {:icon :pill}) :trailing (c/badge {:variant :outline} "Since Nov 2025")}
+                         [:p {:class "font-medium"} "Lisinopril"]
+                         [:p {:class "text-sm text-muted"} "10 mg once daily"])
+             (c/list-row {:leading (c/icon-disc {:icon :activity :variant :muted}) :trailing (c/band-badge "very-high")}
+                         [:p {:class "font-medium"} "Blood pressure"]
+                         [:p {:class "text-sm text-muted"} "177/100 mmHg · Today, 10:00"]))))
+   [:div {:class "grid gap-4 md:grid-cols-2"}
+    (demo "A person" (c/person {:name "Dr. Elena Rivera" :detail "Internal medicine" :size :lg}))
+    (demo "Round icons" (row (c/icon-disc {:icon :pill}) (c/icon-disc {:icon :stethoscope :size :lg})
+                             (c/icon-disc {:icon :clock :variant :muted}) (c/icon-disc {:icon :clock :size :lg :variant :muted})))]))
+
+(defn- navigation []
+  (list
+   (demo "Pills that filter a list, for a desk and for a finger (44 px high)"
+         (c/pill-nav {:label "Filter the panel"
+                      :items [{:href "#" :label "All" :count 4 :current? true} {:href "#" :label "With active alerts" :count 2}
+                              {:href "#" :label "Normal" :count 1}]})
+         [:div {:class "mt-4"}
+          (c/pill-nav {:label "Period" :size :lg
+                       :items [{:href "#" :label "7 days"} {:href "#" :label "14 days"} {:href "#" :label "30 days" :current? true}]})])
+   (demo "Breadcrumbs and search"
+         (c/breadcrumbs {:items [{:href "#" :label "Panel"} {:href "#" :label "Patients"} {:label "Ana García"}]})
+         [:div {:class "mt-4 max-w-md"} (c/search-field {:id "demo-search" :name "q" :label "Search patients" :placeholder "Search patients"})])
+   (demo "The menu of the person who is signed in, open"
+         [:div {:class "flex h-40 justify-end"}
+          (c/user-menu {:open true :name "Dr. Elena Rivera"
+                        :items [{:href "#" :label "Profile" :icon :user} {:href "#" :label "Sign out" :icon :log-out}]})])))
+
 (defn components-page [context]
   (frame context "components.html" "Components"
          (tile/intro "Components"
@@ -203,7 +252,13 @@
                        (forms))
          (tile/section "tables" "Tables and tabs" "The clinician's panel. The sparkline takes the tone of the latest reading; a patient with no readings says so."
                        (tables))
-         (tile/section "states" "People and states" nil (people-and-states))))
+         (tile/section "states" "People and states" nil (people-and-states))
+         (tile/section "figures" "Figures, lists and rows"
+                       "The figures of a summary, and the rows that the lists of appointments, medication and readings are made of."
+                       (figures-and-lists))
+         (tile/section "navigation" "Navigation"
+                       "Filters, the path to a page, search and the menu of the person. The dialogs are in the mock-ups: Cancel an appointment and Confirm an appointment."
+                       (navigation))))
 
 ;; ---------------------------------------------------------------------------
 ;; Charts
