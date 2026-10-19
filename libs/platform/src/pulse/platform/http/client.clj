@@ -2,7 +2,10 @@
   "A client of another Pulse service, for a service that is itself a client of the realm (ADR-0021):
   the api as the scheduler calls it, the scheduler as the api will call it. Each request carries
   the caller's own access token, got from its keeper (`pulse.platform.token`); what comes back is
-  data. JVM only.
+  data. The keeper may be a service's, made once, or a person's, as the portal's (ADR-0028): a
+  client is plain data, so the portal puts the keeper of the person's session in it for each call
+  (`(assoc client :token keeper)`). A client with no keeper sends no `Authorization` header, which is
+  what a call to a public endpoint, such as readiness, needs. JVM only.
 
   Three ways to fail, each an `ex-info` with a `:type` and no secret in it:
 
@@ -23,8 +26,8 @@
 
 (defn client
   "A client of the service at `:base-url`, such as \"http://localhost:4000\". Options: `:token`, the
-  keeper of the caller's access token, `:timeout-ms` for a whole request (5000) and
-  `:connect-timeout-ms` for the connection (2000)."
+  keeper of the caller's access token (none: no `Authorization` header is sent), `:timeout-ms` for a
+  whole request (5000) and `:connect-timeout-ms` for the connection (2000)."
   [{:keys [base-url token timeout-ms connect-timeout-ms]
     :or {timeout-ms 5000 connect-timeout-ms 2000}}]
   {:base-url (str/replace (str base-url) #"/+$" "")
@@ -90,28 +93,36 @@
                     (short-text (:detail body)) (assoc :detail (short-text (:detail body))))]
       (when (seq problem) problem))))
 
+(def ^:private own-headers
+  "The headers this client sets itself, in lower case. A caller's request never sets them: a client
+  with no token must not send an `Authorization` that someone else put in a request."
+  #{"authorization" "accept" "content-type"})
+
 (defn request
   "Makes a request and returns `{:status n :body parsed}`, whatever the status: the body is parsed
   JSON with keyword keys, or nil when there is none. `request` is `{:method :get :path \"/api/me\"
   :query {...} :body {...} :headers {...}}`; a body is sent as JSON, and `:headers` are more
   headers to send, such as `X-Request-Id` to carry the id of a request from one service to the
   other. The ones this client sets itself (`Authorization`, `Accept` and `Content-Type`) are not
-  for the caller to change. Throws what is said at the top for a service that cannot be reached or
-  a token that cannot be had."
+  for the caller to change, and are left out of `:headers`. Throws what is said at the top for a
+  service that cannot be reached or a token that cannot be had."
   [{:keys [base-url timeout-ms ^HttpClient http] own-token :token} {:keys [method path query body headers]}]
   (let [query (when (map? query) (query-string query))
         uri (URI/create (str base-url path (when query (str "?" query))))
         publisher (if (some? body)
                     (HttpRequest$BodyPublishers/ofString (json/write-value-as-string body))
                     (HttpRequest$BodyPublishers/noBody))
-        ;; the caller's headers first, so that the three below replace any of the same name
-        ^HttpRequest$Builder builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (name k) (str v)))
+        ^HttpRequest$Builder builder (reduce-kv (fn [^HttpRequest$Builder b k v]
+                                                  (if (own-headers (str/lower-case (name k)))
+                                                    b
+                                                    (.header b (name k) (str v))))
                                                 (-> (HttpRequest/newBuilder uri)
                                                     (.timeout (Duration/ofMillis timeout-ms)))
                                                 (or headers {}))
-        ^HttpRequest$Builder builder (-> builder
-                                         (.setHeader "Accept" "application/json")
-                                         (.setHeader "Authorization" (str "Bearer " (token/access-token own-token))))
+        ^HttpRequest$Builder builder (.setHeader builder "Accept" "application/json")
+        ^HttpRequest$Builder builder (if (some? own-token)
+                                       (.setHeader builder "Authorization" (str "Bearer " (token/access-token own-token)))
+                                       builder)
         request (-> (cond-> builder (some? body) (.setHeader "Content-Type" "application/json"))
                     (.method (str/upper-case (name method)) publisher)
                     (.build))

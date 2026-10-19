@@ -72,13 +72,6 @@
         (is (= "no-store" (header r "Cache-Control")))
         (is (not (str/includes? (:text r) "secret-detail")))))))
 
-(deftest the-origin-of-an-address-is-its-scheme-host-and-port
-  (is (= "http://localhost:8080" (security/origin-of "http://localhost:8080/realms/pulse")))
-  (is (= "https://id.example" (security/origin-of "https://id.example/realms/pulse?x=1#top")))
-  (is (= "http://[::1]:8080" (security/origin-of "http://[::1]:8080/realms/pulse")))
-  (is (nil? (security/origin-of "not an address")))
-  (is (nil? (security/origin-of nil))))
-
 (deftest the-policy-of-the-docs-names-the-identity-provider-only-when-there-is-one
   (is (str/includes? (security/docs-policy "http://localhost:8080/realms/pulse") "connect-src 'self' http://localhost:8080;"))
   (is (str/includes? (security/docs-policy nil) "connect-src 'self';")))

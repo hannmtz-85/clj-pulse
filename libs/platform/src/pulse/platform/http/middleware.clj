@@ -64,12 +64,17 @@
                :data {:status status :detail detail :path (:uri request)}})
     (problem/response status {:detail detail :extra extra :headers headers :request request})))
 
-(defn- unexpected-response [e request]
+(defn- default-unexpected
+  "The answer to a failure nobody expected: a 500 problem with a generic text."
+  [request]
+  (problem/response 500 {:detail "An unexpected error occurred." :request request}))
+
+(defn- unexpected-response [e request render]
   (t/event! :pulse.http/unhandled-exception
             {:level :error
              :error e
              :data {:method (str/upper-case (name (:request-method request))) :path (:uri request)}})
-  (problem/response 500 {:detail "An unexpected error occurred." :request request}))
+  (render request))
 
 (defn wrap-exceptions
   "Turns whatever a handler throws into a problem response, so no request ever ends in a bare
@@ -78,8 +83,11 @@
 
   `:handlers` maps the `:type` in an exception's ex-data to `(fn [exception request])`
   returning a response, for failures that carry their own meaning (a coercion error is a 400,
-  say). Errors the JVM cannot recover from (out of memory) are not caught."
-  [handler {:keys [handlers]}]
+  say). `:unexpected` is `(fn [request])` returning the response for any other failure, which is
+  logged all the same: a service whose answers are pages and not problems, such as the portal's,
+  gives its page for a failure on its side. Errors the JVM cannot recover from (out of memory)
+  are not caught."
+  [handler {:keys [handlers unexpected] :or {unexpected default-unexpected}}]
   (fn [request]
     (try
       (handler request)
@@ -90,4 +98,4 @@
           (cond
             (contains? handlers type) ((get handlers type) e request)
             (= ::problem/problem type) (problem-response e request)
-            :else (unexpected-response e request)))))))
+            :else (unexpected-response e request unexpected)))))))

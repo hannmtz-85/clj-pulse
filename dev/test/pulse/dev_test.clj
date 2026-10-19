@@ -1,6 +1,6 @@
 (ns pulse.dev-test
-  "The api and the scheduler as one system (ADR-0023): the configuration that `bb dev` starts, and the
-  acceptance of Phase 5 as a test. The simulated devices send their readings to the FHIR server, the
+  "The api, the scheduler and the patient portal as one system (ADR-0023): the configuration that `bb dev`
+  starts, and the acceptance of Phase 5 as a test. The simulated devices send their readings to the FHIR server, the
   rules engine reads them through the api and raises an alert, and the practitioner finds it in the
   inbox of the api, all in one JVM and over HTTP between the two."
   (:require [babashka.http-client :as http]
@@ -82,14 +82,16 @@
   "The `.env` of a machine where `bb up` has been run: a secret for each of the two services."
   "SCHEDULER_CLIENT_SECRET=a-secret-from-dotenv\nAPI_CLIENT_SECRET=the-apis-secret-from-dotenv\n")
 
-(deftest the-configuration-has-the-components-of-both-apps
+(deftest the-configuration-has-the-components-of-the-three-apps
   (let [cfg (config :dev both-secrets)]
     (is (every? #(contains? cfg %) [:pulse.api/server :pulse.api/handler :pulse.api/fhir
                                     :pulse.api/token :pulse.api/scheduler
                                     :pulse.scheduler/server :pulse.scheduler/executor :pulse.scheduler/jobs
-                                    :pulse.scheduler/api :pulse.scheduler/token]))
+                                    :pulse.scheduler/api :pulse.scheduler/token
+                                    :pulse.web/server :pulse.web/handler :pulse.web/api :pulse.web/jwks]))
     (is (= 4000 (get-in cfg [:pulse.api/server :port])))
     (is (= 5000 (get-in cfg [:pulse.scheduler/server :port])))
+    (is (= 3300 (get-in cfg [:pulse.web/server :port])))
     (testing "the secrets of the two come from the file, and are secrets"
       (is (= "a-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret]))))
       (is (platform/secret? (get-in cfg [:pulse.scheduler/token :client-secret])))
@@ -97,9 +99,11 @@
       (is (platform/secret? (get-in cfg [:pulse.api/token :client-secret]))))
     (testing "each asks the other where the other is by default: the api's port, and the scheduler's"
       (is (= "http://localhost:4000" (get-in cfg [:pulse.scheduler/api :base-url])))
+      (is (= "http://localhost:4000" (get-in cfg [:pulse.web/api :base-url])) "the portal asks the api too")
       (is (= "http://localhost:5000" (get-in cfg [:pulse.api/scheduler :base-url]))))
-    (testing "the scheduler's client of the api comes after the api's server"
-      (is (= (ig/ref :pulse.api/server) (get-in cfg [:pulse.scheduler/api :after]))))
+    (testing "the clients of the api, the scheduler's and the portal's, come after the api's server"
+      (is (= (ig/ref :pulse.api/server) (get-in cfg [:pulse.scheduler/api :after])))
+      (is (= (ig/ref :pulse.api/server) (get-in cfg [:pulse.web/api :after]))))
     (testing "each reaches HAPI by itself"
       (is (= :http (get-in cfg [:pulse.api/fhir :kind])))
       (is (= :http (get-in cfg [:pulse.scheduler/fhir :kind]))))
@@ -116,9 +120,10 @@
       (is (= (ig/ref :pulse.api/fhir) (:pulse.scheduler/fhir cfg))
           "an alert written to another server in memory would never be seen by the api"))))
 
-(deftest the-scheduler-uses-its-test-profile-with-the-apis
+(deftest the-scheduler-and-the-portal-use-their-test-profiles-with-the-apis
   (let [cfg (config :test "")]
     (is (= 0 (get-in cfg [:pulse.scheduler/server :port])))
+    (is (= 0 (get-in cfg [:pulse.web/server :port])))
     (is (false? (get-in cfg [:pulse.scheduler/jobs :simulate-devices :enabled?])))))
 
 (deftest the-simulator-can-be-switched-off-with-a-variable
@@ -167,16 +172,17 @@
 (defn- json-text [x] (json/write-value-as-string x))
 
 (defn- with-dev
-  "Calls `(f {:system s :api-url url})` with the api and the scheduler started as one system: the test
-  profile, a fake identity provider that gives each of the two the token of its own service account
-  (the scheduler's is for the api, the api's for the scheduler), the api and the scheduler on ports
-  that are known, the jobs switched on (and run by the test, not by a schedule that is quiet), and no
+  "Calls `(f {:system s :api-url url :web-url url})` with the api, the scheduler and the portal started as one
+  system: the test profile, a fake identity provider that gives each of the first two the token of its own service
+  account (the scheduler's is for the api, the api's for the scheduler), and the keys of which the portal asks,
+  the three on ports that are known, the jobs switched on (and run by the test, not by a schedule that is quiet), and no
   readings in the FHIR server but those that the simulator sends."
   [f]
   (let [idp (idp/start! [h/signing-key])
         port (free-port)
         api-url (str "http://127.0.0.1:" port)
         scheduler-port (free-port)
+        web-port (free-port)
         cfg (-> (dev/config {:profile :test :dotenv "there-is-no-such-file.env" :process-env {}})
                 (assoc-in [:pulse.api/jwks :uri] (:uri idp))
                 (assoc-in [:pulse.api/verifier :issuer] h/issuer)
@@ -188,6 +194,9 @@
                 (assoc-in [:pulse.scheduler/server :port] scheduler-port)
                 (assoc-in [:pulse.scheduler/token :token-uri] (:token-uri idp))
                 (assoc-in [:pulse.scheduler/api :base-url] api-url)
+                (assoc-in [:pulse.web/jwks :uri] (:uri idp))
+                (assoc-in [:pulse.web/server :port] web-port)
+                (assoc-in [:pulse.web/api :base-url] api-url)
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :schedule] quiet)
                 (assoc-in [:pulse.scheduler/jobs :simulate-devices :enabled?] true)
@@ -205,7 +214,7 @@
           ;; all of them first: a search is lazy, and deleting changes what the next page holds
           (doseq [o (doall (c/search fhir "Observation" {}))]
             (c/delete! fhir "Observation" (:id o))))
-        (f {:system system :api-url api-url})
+        (f {:system system :api-url api-url :web-url (str "http://127.0.0.1:" web-port)})
         (finally
           (ig/halt! system)
           (idp/stop! idp))))))
@@ -325,3 +334,24 @@
           (is (= 403 (:status (jobs-of :scheduler))))
           (is (= 401 (:status (jobs-of :api-service))) "the token of the api's own service account is for the scheduler")
           (is (= 401 (:status (http/get (str api-url "/api/admin/jobs") {:throw false})))))))))
+
+(deftest the-portal-is-ready-when-the-api-and-the-keys-are-and-serves-its-pages
+  ;; Phase 7, step 3 (ADR-0028): the portal in the same JVM as the real api, asking it over HTTP for its readiness
+  ;; without credentials, and the keys of the identity provider. It has no page of a patient yet: what there is
+  ;; is what any service has, its files, and the page that says that something is not there.
+  (with-dev
+    (fn [{:keys [web-url]}]
+      (let [body (fn [r] (json/read-value (:body r) json/keyword-keys-object-mapper))]
+        (testing "liveness and readiness"
+          (is (= {:status "up"} (body (http/get (str web-url "/healthz") {:throw false}))))
+          (let [r (http/get (str web-url "/readyz") {:throw false})]
+            (is (= 200 (:status r)))
+            (is (= {:status "ready" :checks {:keycloak "up" :api "up"}} (body r)))))
+        (testing "a page that is not there, with the headers of a page of the portal"
+          (let [r (http/get (str web-url "/") {:throw false})]
+            (is (= 404 (:status r)))
+            (is (re-find #"We cannot find that page" (:body r)))
+            (is (re-find #"script-src 'self'" (get-in r [:headers "content-security-policy"])))))
+        (testing "and the files that its pages ask for"
+          (is (= 200 (:status (http/get (str web-url "/assets/pulse.css") {:throw false}))))
+          (is (= 200 (:status (http/get (str web-url "/assets/htmx.min.js") {:throw false})))))))))

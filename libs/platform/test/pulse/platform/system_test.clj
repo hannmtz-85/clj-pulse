@@ -96,6 +96,21 @@
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (str/includes? (ex-message e) "set SOME_VARIABLE"))))))
 
+(deftest a-client-has-a-keeper-of-its-own-token-or-none
+  (let [client {:base-url "http://localhost:4000" :timeout-ms 10000 :connect-timeout-ms 3000}
+        with-keeper (assoc client :token (ig/ref ::token))]
+    (testing "a service that calls another as itself names the keeper of its token"
+      (is (m/validate platform/service-client-schema with-keeper))
+      (is (not (m/validate platform/service-client-schema client)) "and cannot do without it")
+      (is (not (m/validate platform/service-client-schema (assoc with-keeper :timeout 1000))) "a misspelt key"))
+    (testing "the portal's client of the api has none: each call is given the keeper of a person's session"
+      (is (m/validate platform/client-schema client))
+      (is (not (m/validate platform/client-schema with-keeper)) "a keeper here would be a mistake, not a setting")
+      (is (not (m/validate platform/client-schema (dissoc client :base-url))))
+      (is (not (m/validate platform/client-schema (assoc client :base-url "localhost:4000"))))
+      (is (not (m/validate platform/client-schema (assoc client :timeout-ms 5))) "a timeout of 5 ms is not one")
+      (is (not (m/validate platform/client-schema (assoc client :connect-timeout-ms 90000)))))))
+
 (deftest the-schemas-of-the-components-are-closed
   (let [valid? m/validate]
     (is (valid? platform/server-schema {:handler (ig/ref ::handler) :host "127.0.0.1" :port 0}))

@@ -126,6 +126,27 @@
     (is (= 418 (:status response)))
     (is (= "short and stout: /x boom" (:detail (problem-body response))))))
 
+(deftest a-service-can-answer-an-unexpected-failure-in-its-own-way
+  ;; The portal's answers are pages and not problems (ADR-0028): what it gives for a failure of its own is
+  ;; its page, and the failure is logged all the same.
+  (let [seen (atom nil)
+        render (fn [request]
+                 (reset! seen request)
+                 {:status 500 :headers {"Content-Type" "text/html"} :body "<h1>Something went wrong</h1>"})
+        {:keys [response signals]} (handled (ex-info "secret internals" {:k 1}) {:unexpected render})
+        signal (first (filter #(= :pulse.http/unhandled-exception (:id %)) signals))]
+    (is (= {:status 500 :headers {"Content-Type" "text/html"} :body "<h1>Something went wrong</h1>"} response))
+    (is (= "req-7" (:request-id @seen)) "it is given the request, to say its id or to link back to it")
+    (testing "and the cause is logged, as it is for a problem"
+      (is (= :error (:level signal)))
+      (is (= "secret internals" (ex-message (:error signal)))))
+    (testing "failures that carry their own meaning keep it"
+      (let [handlers {::teapot (fn [_ _] {:status 418 :body "short and stout"})}
+            {:keys [response]} (handled (ex-info "boom" {:type ::teapot}) {:handlers handlers :unexpected render})]
+        (is (= 418 (:status response)))))
+    (testing "a problem exception is still a problem"
+      (is (= 404 (:status (:response (handled (problem/ex 404 "No such patient.") {:unexpected render}))))))))
+
 (deftest a-normal-response-passes-through
   (let [handler (mw/wrap-exceptions (fn [_] {:status 201 :body "made"}) {})]
     (is (= {:status 201 :body "made"} (handler (request))))))

@@ -69,3 +69,23 @@ The stylesheet of the interfaces is compiled with Tailwind CSS (https://tailwind
 copyright (c) Tailwind Labs, Inc., and daisyUI (https://daisyui.com), copyright (c) 2020 Pouya
 Saadeghi, both under the MIT license (the text above, with their copyright lines). Their code is
 in the compiled stylesheet, which carries the notice of Tailwind in its first line.
+
+htmx
+htmx (https://htmx.org) is under the Zero-Clause BSD license, which asks nothing of anyone; the text of
+the package is reproduced here all the same. The file apps/web/resources/public/htmx.min.js is the one
+of the npm package htmx.org at the version that design/package.json pins, copied as it is by
+`bb design:web`, and the patient portal serves it from its own server and from no other.
+
+  Zero-Clause BSD
+  =============
+
+  Permission to use, copy, modify, and/or distribute this software for
+  any purpose with or without fee is hereby granted.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+  WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
+  OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE
+  FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY
+  DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+  AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+  OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

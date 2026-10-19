@@ -106,13 +106,20 @@
    [:host [:string {:min 1}]]
    [:port [:int {:min 0 :max 65535}]]])
 
-(def service-client-schema
-  "The schema of a client of another service (see `pulse.platform.http.client`)."
-  [:map {:closed true}
-   [:base-url http-url]
-   [:token ref-schema]
+(def ^:private client-entries
+  [[:base-url http-url]
    [:timeout-ms [:int {:min 100 :max 120000}]]
    [:connect-timeout-ms [:int {:min 100 :max 60000}]]])
+
+(def service-client-schema
+  "The schema of a client of another service that sends the service's own token (see
+  `pulse.platform.http.client`): the address, the timeouts and a reference to the keeper of the token."
+  (into [:map {:closed true} [:token ref-schema]] client-entries))
+
+(def client-schema
+  "The schema of a client that has no token of its own: the portal's client of the api, which is given the
+  keeper of each person's token for each call (ADR-0028), and asks a public endpoint with none."
+  (into [:map {:closed true}] client-entries))
 
 (defn token-source-schema
   "The schema of a token source's configuration (see `pulse.platform.token`). The secret must be a

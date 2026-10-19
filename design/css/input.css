@@ -7,4 +7,5 @@
 /* Tailwind finds the classes by reading these files, and it does not read the ones git ignores, so the
    sources that write classes are listed here. */
 @source "../../libs/ui/src";
+@source "../../apps/web/src";
 @source "../src";

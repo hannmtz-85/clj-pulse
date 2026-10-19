@@ -189,15 +189,17 @@
      (when actions [:div {:class "col-start-2 flex flex-wrap items-center gap-2 sm:col-start-3 sm:row-start-1"} actions])]))
 
 (defn empty-state
-  "What a list shows when it has nothing: an icon, a `:title`, a text for the children and `:actions`."
+  "What a list shows when it has nothing: an icon, a `:title`, a text for the children and `:actions`. The title is a
+  paragraph, unless `:heading` gives it a level (`:h1` for a page that has nothing else to say, such as one that cannot be
+  found), so that the headings of a page stay in order."
   [& args]
-  (let [[{:keys [icon title actions] :or {icon :inbox} :as attributes} children] (attrs/args args)]
+  (let [[{:keys [icon title actions heading] :or {icon :inbox heading :p} :as attributes} children] (attrs/args args)]
     [:div (-> attributes
-              (attrs/owned :icon :title :actions)
+              (attrs/owned :icon :title :actions :heading)
               (attrs/with-classes "flex flex-col items-center gap-3 px-6 py-10 text-center"))
      [:span {:class "grid size-12 place-items-center rounded-full bg-accent text-accent-content"}
       (i/icon icon {:size :lg})]
-     (when title [:p {:class "text-base font-semibold"} title])
+     (when title [heading {:class "text-base font-semibold"} title])
      (when (seq children) (into [:div {:class "max-w-sm text-sm text-muted"}] children))
      (when actions [:div {:class "mt-1 flex items-center gap-2"} actions])]))
 

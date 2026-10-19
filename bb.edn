@@ -1,4 +1,4 @@
-{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "design/src"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "apps/web/src" "design/src"]
  :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])
@@ -56,6 +56,12 @@
                    :requires ([pulse.design.keycloak :as keycloak])
                    :task (do (keycloak/write!)
                              (shell {:dir "design"} "npm" "run" "css:keycloak"))}
+
+  design:web {:doc "Write the static files of the patient portal into apps/web/resources/public (the stylesheet, the font, the icon and htmx) and compile its stylesheet (needs `npm ci` in design/)"
+              :depends [design:theme]
+              :requires ([pulse.design.web :as web])
+              :task (do (web/write!)
+                        (shell {:dir "design"} "npm" "run" "css:web"))}
 
   design:build {:doc "Make the mock-ups in design/dist from the components and the synthetic cohort (then open design/dist/index.html)"
                 :depends [design:css]
@@ -116,10 +122,13 @@
       :task (shell "docker" "compose" "ps")}
 
   ;; --- the apps ------------------------------------------------------------
-  dev {:doc "Run the api and the scheduler in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up). The scheduler simulates devices (SCHEDULER_SIMULATOR=false stops that) and sends the reminders of appointments (SCHEDULER_REMINDERS=false stops that)"
+  dev {:doc "Run the api, the scheduler and the patient portal in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up). The scheduler simulates devices (SCHEDULER_SIMULATOR=false stops that) and sends the reminders of appointments (SCHEDULER_REMINDERS=false stops that)"
        :task (apply shell "clojure" "-M:dev" "-m" "pulse.dev" *command-line-args*)}
 
   scheduler {:doc "Run the scheduler alone on 127.0.0.1:5000: bb scheduler [dev | test]. It gets its client secret from .env (needs `bb up`)"
              :requires ([env])
              :task (apply shell {:extra-env (env/vars ["SCHEDULER_CLIENT_SECRET"])}
-                          "clojure" "-M:dev" "-m" "pulse.scheduler.main" *command-line-args*)}}}
+                          "clojure" "-M:dev" "-m" "pulse.scheduler.main" *command-line-args*)}
+
+  web {:doc "Run the patient portal alone on 127.0.0.1:3300: bb web [dev | test]. It asks Keycloak and the api (bb up; bb dev runs the api)"
+       :task (apply shell "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}}}

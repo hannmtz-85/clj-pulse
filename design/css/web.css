@@ -1,0 +1,23 @@
+/* The stylesheet of the patient portal (ADR-0026, ADR-0028): the same tokens, the same base rules and the same
+   components as every interface. `bb design:web` compiles this into apps/web/resources/public/pulse.css, where the
+   portal serves it from. */
+@import "tailwindcss" source(none);
+@import "./base.css";
+@import "../theme.css";
+
+/* Tailwind finds the classes by reading the sources that write them: the components, and the pages of the portal. */
+@source "../../libs/ui/src";
+@source "../../apps/web/src";
+
+/* What htmx would put in a <style> element of its own to show that a request is under way. A policy that allows no
+   inline style blocks the element, so htmx is told not to write it (`includeIndicatorStyles` is false in the page,
+   ADR-0028) and the rules are here. */
+.htmx-indicator {
+  opacity: 0;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+  transition: opacity 200ms ease-in;
+}

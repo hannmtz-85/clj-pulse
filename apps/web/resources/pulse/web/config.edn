@@ -1,0 +1,44 @@
+;; The patient portal as an Integrant system: one entry per component, and #ig/ref where a component
+;; needs another. Read by pulse.platform.config (Aero) and checked by the schema in pulse.web.config
+;; before anything starts, so a mistake here fails at once and says what is wrong.
+;;
+;; Profile, chosen with WEB_PROFILE (default dev); where a profile is not listed #profile falls back
+;; to :default:
+;;   dev   the real identity provider and the real api, on port 3300
+;;   test  what the tests use
+;;
+;; Nothing here is secret yet. The client secret of the portal arrives with the sign-in (ADR-0028).
+{:pulse.web/logging
+ {:level #profile {:default #keyword #or [#env LOG_LEVEL "info"]
+                   :test :warn}
+  :format #keyword #or [#env LOG_FORMAT "text"]
+  ;; Jetty's own messages are not ours to read at :info
+  :ns-levels {"org.eclipse.jetty.*" :warn}}
+
+ ;; The identity provider's signing keys. Readiness asks whether they can be had: without them nobody
+ ;; can be signed in.
+ :pulse.web/jwks
+ {:uri #or [#env KEYCLOAK_JWKS_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/certs"]}
+
+ ;; The api, where the portal reads what a patient sees, with the token of the person's own session
+ ;; (ADR-0028). The client has no token of its own: each call is given the keeper of the session.
+ :pulse.web/api
+ {:base-url #or [#env API_BASE_URL "http://localhost:4000"]
+  ;; A request that takes longer is abandoned, and so is a connection that takes longer to make
+  :timeout-ms 10000
+  :connect-timeout-ms 3000}
+
+ :pulse.web/handler
+ {:logging #ig/ref :pulse.web/logging ; only to start logging before everything else
+  :jwks #ig/ref :pulse.web/jwks
+  :api #ig/ref :pulse.web/api
+  ;; The identity provider as a browser reaches it. The policy of the pages names its origin as a place
+  ;; a form may send its data (signing out is a form that Keycloak answers), and nothing else.
+  :issuer #or [#env KEYCLOAK_ISSUER "http://localhost:8080/realms/pulse"]
+  :quiet-paths #{"/healthz" "/readyz"}}
+
+ :pulse.web/server
+ {:handler #ig/ref :pulse.web/handler
+  :host #or [#env WEB_HOST "127.0.0.1"]
+  :port #profile {:default #long #or [#env WEB_PORT 3300]
+                  :test 0}}}

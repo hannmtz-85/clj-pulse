@@ -197,6 +197,17 @@
     (is (= 1 (count (hx/by-tag e :svg)))))
   (is (= 1 (count (hx/by-tag (c/empty-state "x") :svg))) "an icon by default"))
 
+(deftest the-title-of-an-empty-state-is-a-paragraph-unless-it-is-given-a-level
+  (let [titles (fn [e] (hx/select e #(hx/has-class? % "font-semibold")))]
+    (is (= [:p] (map hx/tag (titles (c/empty-state {:title "Nothing"})))))
+    (doseq [level [:h1 :h2 :h3]]
+      (let [e (c/empty-state {:title "We cannot find that page" :heading level})]
+        (is (= [level] (map hx/tag (titles e))) (str level))
+        (is (= "We cannot find that page" (hx/words (first (titles e)))))
+        (is (not (contains? (hx/attributes e) :heading)) "the level is not an attribute of the box")))
+    (testing "a page that is nothing but this has the one h1 that the checker wants"
+      (is (empty? (a11y/problems [:main (c/empty-state {:title "T" :heading :h1} "text")]))))))
+
 (deftest a-spinner-is-announced-and-a-skeleton-is-not
   (let [s (c/spinner)]
     (is (= "status" (:role (hx/attributes s))))

@@ -1,0 +1,9 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        ;; Configuration, lifecycle, logging, malli, the router and the server come with the platform
+        ;; library; so does the client of the api (ADR-0028).
+        pulse/platform {:local/root "../../libs/platform"}
+        ;; The components of the interface, which the pages are made of
+        pulse/ui {:local/root "../../libs/ui"}
+        ;; The pages are hiccup, written as HTML by Hiccup 2 (the review of the mock-ups does the same)
+        hiccup/hiccup {:mvn/version "2.0.0"}}}

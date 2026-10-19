@@ -13,6 +13,13 @@
   (let [wanted (str/lower-case name)]
     (some #(when (= wanted (str/lower-case %)) %) (keys headers))))
 
+(defn origin-of
+  "The origin of `url`: its scheme, host and port. `\"http://localhost:8080/realms/pulse\"` is
+  `\"http://localhost:8080\"`. Nil when `url` does not start like an http(s) URL. A policy that names
+  the identity provider (where the page may send a form or call from script) names its origin."
+  [url]
+  (re-find #"^https?://[^/?#\s]+" (str url)))
+
 (defn assoc-missing
   "`response` with each header of `headers`, a map from name to value, that it does not have
   already. A nil value means no header at all."

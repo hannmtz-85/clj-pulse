@@ -12,7 +12,8 @@
             [pulse.fhir.appointment :as appointment]
             [pulse.ui.component :as c]
             [pulse.ui.icon :as i]
-            [pulse.ui.layout :as layout]))
+            [pulse.ui.layout :as layout]
+            [pulse.web.pages :as pages]))
 
 (defn- link [file] (mockup/href file))
 
@@ -376,16 +377,8 @@
            (readings-grid "pt-ana" [:blood-pressure :heart-rate :weight])]]
          [:section {:aria-labelledby "stopped"}
           [:div {:class "mb-3"} (section-heading "stopped" "A whole page")]
-          [:div {:class "grid gap-4 md:grid-cols-2"}
-           (c/card (c/empty-state {:icon :search :title "We cannot find that page"
-                                   :actions (c/button {:size :lg :href (link "portal-home.html")} "Go to the home page")}
-                                  "The address may be old, or mistyped."))
-           (c/card (c/empty-state {:icon :lock :title "You cannot see this"
-                                   :actions (c/button {:variant :outline :size :lg :href (link "portal-home.html")} "Go to the home page")}
-                                  "This page is about someone else. You can only see your own record."))
-           (c/card (c/empty-state {:icon :triangle-alert :title "Something went wrong on our side"
-                                   :actions (c/button {:size :lg :icon :refresh-cw :href "#"} "Try again")}
-                                  "Your information is safe and nothing was lost. If it keeps happening, tell your clinic."))
-           (c/card (c/empty-state {:icon :clock :title "Your session has ended"
-                                   :actions (c/button {:size :lg :icon :log-in :href (link "login.html")} "Sign in again")}
-                                  "For your safety, you are signed out after a while without activity."))]]]))
+          ;; the cards are those of the portal itself: what is reviewed here is what is served (ADR-0028)
+          (let [links {:home-href (link "portal-home.html") :retry-href "#" :sign-in-href (link "login.html")}]
+            [:div {:class "grid gap-4 md:grid-cols-2"}
+             (for [kind (keys pages/error-kinds)]
+               (pages/error-card kind links))])]]))

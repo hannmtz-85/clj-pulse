@@ -1,13 +1,13 @@
 (ns user
   "REPL entry point. Start with `clojure -M:dev -m nrepl.cmdline` or Calva jack-in (alias :dev),
-  then evaluate `(go)`: it starts the api and the scheduler as `bb dev` does (`pulse.dev`), with the
+  then evaluate `(go)`: it starts the api, the scheduler and the portal as `bb dev` does (`pulse.dev`), with the
   profile in API_PROFILE (default dev), and `(reset)` reloads what changed and starts them again. The
   system lives in `integrant.repl.state/system`."
   (:require [clj-reload.core :as reload]
             [integrant.repl :as ig-repl :refer [go halt reset]]))
 
 ;; `reset` reloads changed namespaces with clj-reload: ours only, never the dependencies.
-(reload/init {:dirs ["libs/fhir/src" "libs/platform/src" "apps/api/src" "apps/scheduler/src" "dev/src"]})
+(reload/init {:dirs ["libs/fhir/src" "libs/platform/src" "libs/ui/src" "apps/api/src" "apps/scheduler/src" "apps/web/src" "dev/src"]})
 
 (ig-repl/set-prep!
  (fn []

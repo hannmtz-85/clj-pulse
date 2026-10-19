@@ -109,6 +109,32 @@
           (is (= "application/json" (get-in request [:headers "accept"])))
           (is (= "application/json" (get-in request [:headers "content-type"]))))))))
 
+(deftest a-client-with-no-keeper-sends-no-credentials
+  ;; The portal asks a public endpoint (readiness) with a client of its own that has no token, and a
+  ;; person's endpoints with the same client and the keeper of that person's session (ADR-0028).
+  (let [service (stub/start! (fn [_] {:body (json-text {:status "ready"})}))
+        [own-token _ fetches] (keeper)]
+    (try
+      (let [c (client/client {:base-url (:url service)})]
+        (testing "a call to a public endpoint carries no Authorization header, and still asks for JSON"
+          (is (= {:status "ready"} (client/get-json c "/readyz")))
+          (let [request (first @(:requests service))]
+            (is (not (contains? (:headers request) "authorization")))
+            (is (= "application/json" (get-in request [:headers "accept"])))))
+        (testing "what a caller puts in a request is not credentials either, whatever the case of the name"
+          (client/call c {:method :get :path "/readyz"
+                          :headers {"Authorization" "Bearer somebody-elses" "AUTHORIZATION" "Basic eDp5"}})
+          (is (= 2 (count @(:requests service))))
+          (is (not (contains? (:headers (last @(:requests service))) "authorization"))))
+        (testing "the same client with a keeper put in for one call sends that person's token"
+          (is (= {:status "ready"} (client/get-json (assoc c :token own-token) "/api/me")))
+          (is (= (str "Bearer " the-token "-1") (get-in (last @(:requests service)) [:headers "authorization"]))))
+        (testing "and the client itself has not changed: the next call has none"
+          (client/get-json c "/readyz")
+          (is (not (contains? (:headers (last @(:requests service))) "authorization")))
+          (is (= 1 @fetches) "the keeper was asked for its token once, by the one call that had it")))
+      (finally (stub/stop! service)))))
+
 (deftest a-trailing-slash-in-the-base-url-is-dropped
   (let [service (stub/start! (fn [_] {:body (json-text {})}))
         [own-token _ _] (keeper)]

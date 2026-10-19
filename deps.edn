@@ -9,6 +9,7 @@
                      pulse/platform {:local/root "libs/platform"}
                      pulse/api {:local/root "apps/api"}
                      pulse/scheduler {:local/root "apps/scheduler"}
+                     pulse/web {:local/root "apps/web"}
                      integrant/repl {:mvn/version "0.5.1"}
                      nrepl/nrepl {:mvn/version "1.8.0"}
                      cider/cider-nrepl {:mvn/version "0.63.1"}}}
@@ -16,12 +17,13 @@
   ;; clojure -M:test [kaocha args]    (config: tests.edn)
   ;; `test-support` holds test-only helpers shared by several suites, such as the fake
   ;; identity provider, the api's handler harness and the scheduler's fake time.
-  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support" "apps/scheduler/test-support" "libs/ui/test-support" "dev/src" "tools" "design/src"]
+  :test {:extra-paths ["libs/platform/test-support" "apps/api/test-support" "apps/scheduler/test-support" "apps/web/test-support" "libs/ui/test-support" "dev/src" "tools" "design/src"]
          :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                       pulse/platform {:local/root "libs/platform"}
                       pulse/ui {:local/root "libs/ui"}
                       pulse/api {:local/root "apps/api"}
                       pulse/scheduler {:local/root "apps/scheduler"}
+                      pulse/web {:local/root "apps/web"}
                       hiccup/hiccup {:mvn/version "2.0.0"}
                       ;; the templating engine of Keycloak (26.0.0 ships 2.3.32): the tests of the login theme parse and render it
                       org.freemarker/freemarker {:mvn/version "2.3.32"}

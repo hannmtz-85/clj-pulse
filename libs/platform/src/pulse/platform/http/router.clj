@@ -63,7 +63,7 @@
 ;; ---------------------------------------------------------------------------
 ;; What the router does not know, and what goes wrong inside it
 
-(defn- allow-header
+(defn allow-header
   "The methods a matched route supports, for a 405."
   [request]
   (->> (:result (::r/match request))

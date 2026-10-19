@@ -1,11 +1,11 @@
 (ns pulse.dev
-  "The apps built so far in one JVM, for development: the api and the scheduler as one Integrant system
-  (`bb dev`, and `(go)` in the REPL, ADR-0023).
+  "The apps built so far in one JVM, for development: the api, the scheduler and the patient portal as one
+  Integrant system (`bb dev`, and `(go)` in the REPL, ADR-0023).
 
-  The two configurations are merged, since their keys are namespaced by service. The scheduler's
-  client of the api comes after the api's server, so that it starts after it and stops before it. When
-  the api's FHIR is a server in memory (`lite`), the scheduler's is that one, because an alert that it
-  wrote to another would never be seen by the api.
+  The configurations are merged, since their keys are namespaced by service. The clients of the api, the
+  scheduler's and the portal's, come after the api's server, so that they start after it and stop before
+  it. When the api's FHIR is a server in memory (`lite`), the scheduler's is that one, because an alert
+  that it wrote to another would never be seen by the api.
 
   The variables that the scheduler needs and the process does not have, such as
   SCHEDULER_CLIENT_SECRET, are read from `.env`, as `bb scheduler` does."
@@ -17,6 +17,8 @@
             [pulse.platform.config :as platform-config]
             [pulse.scheduler.config :as scheduler-config]
             [pulse.scheduler.system :as scheduler]
+            [pulse.web.config :as web-config]
+            [pulse.web.system :as web]
             [taoensso.telemere :as t]))
 
 ;; ---------------------------------------------------------------------------
@@ -53,8 +55,8 @@
 ;; The system
 
 (defn config
-  "The configuration of the api and the scheduler as one system. Options: `:profile` of the api
-  (`:dev`, the default, `:lite` or `:test`; the scheduler has `:dev` or `:test`), `:dotenv`, the path
+  "The configuration of the api, the scheduler and the portal as one system. Options: `:profile` of the api
+  (`:dev`, the default, `:lite` or `:test`; the scheduler and the portal have `:dev` or `:test`), `:dotenv`, the path
   of the file that gives the variables the process lacks (`.env`), and `:process-env`, the variables
   the process has (the real ones by default)."
   ([] (config {}))
@@ -62,9 +64,12 @@
    (binding [platform-config/*environment* (merge (if process-env (environment dotenv process-env) (environment dotenv))
                                                   platform-config/*environment*)]
      (let [api (api-config/load-config {:profile profile})
-           scheduler (scheduler-config/load-config {:profile (if (= :test profile) :test :dev)})]
-       (cond-> (-> (merge api scheduler)
-                   (assoc-in [:pulse.scheduler/api :after] (ig/ref :pulse.api/server)))
+           other-profile (if (= :test profile) :test :dev)
+           scheduler (scheduler-config/load-config {:profile other-profile})
+           portal (web-config/load-config {:profile other-profile})]
+       (cond-> (-> (merge api scheduler portal)
+                   (assoc-in [:pulse.scheduler/api :after] (ig/ref :pulse.api/server))
+                   (assoc-in [:pulse.web/api :after] (ig/ref :pulse.api/server)))
          (= :memory (get-in api [:pulse.api/fhir :kind])) (assoc :pulse.scheduler/fhir (ig/ref :pulse.api/fhir)))))))
 
 (defn- load-config-or-exit
@@ -81,7 +86,7 @@
         (throw e)))))
 
 (defn -main
-  "Starts the api and the scheduler: `clojure -M:dev -m pulse.dev [profile]`, or `bb dev [profile]`.
+  "Starts the api, the scheduler and the portal: `clojure -M:dev -m pulse.dev [profile]`, or `bb dev [profile]`.
   The profile is the argument, else the API_PROFILE environment variable, else `dev`."
   [& args]
   (let [profile (keyword (or (first args) (System/getenv "API_PROFILE") "dev"))
@@ -98,5 +103,6 @@
               {:level :info
                :data {:profile profile
                       :api (url :pulse.api/server (api/port system))
-                      :scheduler (url :pulse.scheduler/server (scheduler/port system))}})
+                      :scheduler (url :pulse.scheduler/server (scheduler/port system))
+                      :web (url :pulse.web/server (web/port system))}})
     @(promise)))
