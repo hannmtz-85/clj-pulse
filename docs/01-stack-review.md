@@ -57,7 +57,7 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | clj-time | 0.15.2 | last release 2019 | Remove | `java.time` (+ `tick` 1.0.2 if needed) |
 | clj-http | 3.13.0 | 3.13.1 | Replace | `babashka.http-client` 0.4.25: JDK client with the same API in bb and on the JVM, so `bb seed` and the apps share one FHIR client. Alternative: hato 1.0.0 |
 | buddy-auth / sign / core | 3.0.1 / 3.5.351 / none | 3.0.323 (2022-01) / 3.6.1-359 (2024-07) / 1.12.0-430 (2024-07) | Replace (JWT) | Maintenance mode. JWT/JWKS with Nimbus JOSE+JWT 10.10 (active, 2026-09) behind a thin Clojure facade |
-| ring-oauth2 | 0.3.0 | 0.3.0 (2024-07) | Keep | Supports `:pkce? true`. ⚠ Token refresh is not documented: spike in Phase 7 |
+| ring-oauth2 | 0.3.0 | 0.3.0 (2024-07) | Dropped (spike, 2026-10-19) | Supports `:pkce? true` and keeps the refresh and id tokens, but it has no refresh, does not renew the session id, accepts a callback with no `state`, has no timeouts and brings clj-http and 16 more jars. The portal has a sign-in flow of its own ([ADR-0028](adr/0028-the-patient-portal-a-server-side-client-of-the-api-with-its-own-sign-in-and-a-token-keeper-for-each-session.md)) |
 | ring-cors | 0.1.13 | last release 2019 | Replace | Minimal, tested in-house middleware: an allow-list of exact origins, with the security headers beside it ([ADR-0018](adr/0018-cors-and-security-headers.md)) |
 | hiccup | 2.0.0-RC3 | 2.0.0 (2025-06) | Upgrade | |
 | chime | 0.3.3 | 0.3.3 (2021-06) | Replace | In-house scheduler: pure `next-run` function + `ScheduledExecutorService` |

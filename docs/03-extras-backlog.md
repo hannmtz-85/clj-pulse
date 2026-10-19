@@ -17,6 +17,7 @@
 | X-07 | Keycloak patch bump | 26.0.0 → 26.0.8 inside the same line, for security patches | The owner pinned 26.0.0 | Phase 2 | S |
 | X-08 | Stricter access-token checks | Token introspection (RFC 7662) or a revocation list so a revoked session stops working before the token expires; an allow-list of `azp` clients; `jti` replay checks; sender-constrained tokens (DPoP, RFC 9449) | Access tokens live 5 minutes and stateless validation is enough for the demo (ADR-0009) | Phase 4 | M |
 | X-09 | JWKS observability and refresh-ahead | Nimbus event listeners feeding the structured logs (fetch, rate limited, outage served from cache), and optionally refresh-ahead caching so that no request ever waits for a key fetch | A lazy cache costs one short fetch per TTL and has no thread to manage (ADR-0009) | Phase 4 | S |
+| X-91 | Back-channel logout for the portal | Keycloak tells the portal, with a signed logout token (OpenID Connect Back-Channel Logout), when a person signs out somewhere else or an administrator ends their session, and the portal drops that session at once instead of at the next renewal (up to 5 minutes later). Needs a `backchannel.logout.url` on `pulse-web` in the realm (`bb reset`) and an endpoint that verifies the logout token with the JWKS and finds the sessions by the `sid` claim (ADR-0028) | The portal learns of the end of a session at its next renewal, and the api stops accepting the token within 5 minutes | Phase 7 | M |
 
 ## B. FHIR and clinical features
 
@@ -106,6 +107,7 @@
 | X-50 | Production hardening profile | HTTPS through Caddy or Traefik, Keycloak production mode (`start --optimized`), Docker secrets, backups, restart policies | Explicitly out of scope (local demo) | Phase 9 | L |
 | X-51 | Kubernetes manifests or a Helm chart | Cluster deployment | Out of scope | X-50 | L |
 | X-75 | Apply a change of the realm without losing data | A task that imports what `tools/realm.clj` has and Keycloak lacks (clients, roles, service accounts) through the admin API (a partial import that skips what exists), so that a new client does not need `bb reset`, which also loses the HAPI data and the sessions (ADR-0025) | `bb reset` takes two minutes and seeds the cohort again, and the realm changes a few times | Phase 5 | M |
+| X-92 | A session store shared by several portals | `pulse.web.session` is Ring's `SessionStore` over memory, so a restart ends every session and there can be only one process. A store in Redis or in PostgreSQL would keep them, and the keeper of each session (an object holding a lock) would be rebuilt from the tokens it stores, with the single flight of the renewal taken by a lock in the store (ADR-0028) | One process and a restart that asks the person to sign in again are enough for a demo | Phase 7 | M |
 
 ## G. This Windows machine
 
@@ -131,6 +133,7 @@
 | chime | Rejected | Replaced by a pure `next-run` function over `ScheduledExecutorService` |
 | ring-cors | Rejected | Last release 2019; in-house middleware instead |
 | clj-http | Rejected | `babashka.http-client` shares one API between bb and the JVM |
+| ring-oauth2 | Rejected (2026-10-19) | The spike of Phase 7 found no refresh, no new session id at the sign-in, a `state` check that passes when the state is missing, no timeouts, the provider's errors lost, and clj-http with 16 more jars; the portal's own flow is small and sits on the platform's pieces (ADR-0028) |
 | Custom password-hash provider | Rejected | Keycloak's default hashing is enough for a portfolio |
 | Upgrading Keycloak beyond 26.0.x | Rejected | Owner decision: the focus is Clojure, not Keycloak |
 | FHIR R5 as the primary version | Rejected (2026-10-13) | US Core 9.0.0 and the IPS are R4; Epic and Oracle Health do not support R5; R6 started normative ballot in January 2026, so the likely path is R4 → R6. Kept as extra X-18 |
