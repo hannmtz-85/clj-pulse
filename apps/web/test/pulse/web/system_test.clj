@@ -8,6 +8,7 @@
             [pulse.platform.test.idp :as idp]
             [pulse.platform.test.stub :as stub]
             [pulse.web.config :as config]
+            [pulse.web.session :as session]
             [pulse.web.system :as system]))
 
 (def ^:private k1 (idp/signing-key "k1"))
@@ -89,3 +90,54 @@
           (is (= {:status "unready" :checks {:keycloak "down" :api "down"}}
                  (json/read-value (:body r) json/keyword-keys-object-mapper)))))
       (finally (system/stop running)))))
+
+;; ---------------------------------------------------------------------------
+;; What the configuration says reaches the running portal (ADR-0028)
+
+(def ^:private no-redirects
+  "A client that does not follow a redirect: the sign-in sends the browser to the identity provider."
+  (delay (http/client {:follow-redirects :never})))
+
+(defn- sign-in-request [base-url]
+  (http/get (str base-url "/sign-in") {:throw false :client @no-redirects}))
+
+(defn- query-of [address]
+  (into {} (for [pair (str/split (second (str/split address #"\?" 2)) #"&")
+                 :let [[k v] (str/split pair #"=" 2)]]
+             [(java.net.URLDecoder/decode ^String k "UTF-8") (java.net.URLDecoder/decode ^String v "UTF-8")])))
+
+(deftest the-addresses-of-the-configuration-are-the-ones-the-sign-in-sends-the-browser-to
+  (with-system
+    (fn [cfg] (-> cfg
+                  (assoc-in [:pulse.web/oidc :base-url] "http://localhost:3399")
+                  (assoc-in [:pulse.web/oidc :authorization-uri] "http://localhost:9/realms/x/auth")))
+    (fn [base-url _ _ _ _]
+      (let [r (sign-in-request base-url)
+            location (get-in r [:headers "location"])]
+        (is (= 303 (:status r)))
+        (is (str/starts-with? location "http://localhost:9/realms/x/auth?"))
+        (is (= "http://localhost:3399/oauth2/callback" (get (query-of location) "redirect_uri"))
+            "made from the base address of the configuration, and not from where the request came to")
+        (is (= "pulse-web" (get (query-of location) "client_id")))))))
+
+(deftest the-limits-of-the-configuration-are-the-limits-of-the-store
+  (with-system
+    (fn [cfg] (assoc-in cfg [:pulse.web/sessions :max-pending] 2))
+    (fn [base-url running _ _ _]
+      (dotimes [_ 5] (sign-in-request base-url))
+      (is (= {:sessions 0 :pending 2} (session/counts (:pulse.web/sessions running)))
+          "five visitors asked to sign in, and the store holds two pending sign-ins"))))
+
+(deftest a-portal-whose-address-is-https-has-a-secure-cookie-and-hsts
+  (with-system
+    (fn [cfg] (assoc-in cfg [:pulse.web/oidc :base-url] "https://portal.example"))
+    (fn [base-url _ _ _ _]
+      (let [r (sign-in-request base-url)]
+        (is (= "max-age=63072000; includeSubDomains" (get-in r [:headers "strict-transport-security"])))
+        (is (re-find #"(?i);\s*secure" (str (get-in r [:headers "set-cookie"]))))))))
+
+(deftest the-secret-of-the-client-is-not-printed-with-the-system
+  (with-system
+    (fn [_ running _ _ _]
+      (is (not (str/includes? (pr-str running) "test-secret")))
+      (is (not (str/includes? (pr-str (:pulse.web/oidc running)) "test-secret"))))))

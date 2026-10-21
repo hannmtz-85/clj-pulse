@@ -130,5 +130,7 @@
              :task (apply shell {:extra-env (env/vars ["SCHEDULER_CLIENT_SECRET"])}
                           "clojure" "-M:dev" "-m" "pulse.scheduler.main" *command-line-args*)}
 
-  web {:doc "Run the patient portal alone on 127.0.0.1:3300: bb web [dev | test]. It asks Keycloak and the api (bb up; bb dev runs the api)"
-       :task (apply shell "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}}}
+  web {:doc "Run the patient portal alone on 127.0.0.1:3300: bb web [dev | test]. It gets its client secret from .env and asks Keycloak and the api (bb up; bb dev runs the api)"
+       :requires ([env])
+       :task (apply shell {:extra-env (env/vars ["WEB_CLIENT_SECRET"])}
+                    "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}}}

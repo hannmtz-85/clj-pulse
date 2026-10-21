@@ -1,10 +1,12 @@
 (ns pulse.platform.token
-  "A service's own access token, got with the OAuth client-credentials grant, kept and renewed
-  before it expires (ADR-0021). JVM only.
+  "An access token, got from the token endpoint of the identity provider, kept and renewed before it
+  expires (ADR-0021). JVM only.
 
-  `source` makes the keeper of one client's token; `access-token` gives the token to put in an
-  `Authorization: Bearer` header. There is no thread: a token is asked for when a call finds there is
-  none or that it is near its end, and not before.
+  `endpoint` is the POST to the token endpoint that every grant shares: the client-credentials grant
+  of a service (`http-fetch`), and the authorization-code and refresh grants of the portal, which
+  keeps a person's tokens (ADR-0028). `source` makes the keeper of one token; `access-token` gives
+  the token to put in an `Authorization: Bearer` header. There is no thread: a token is asked for
+  when a call finds there is none or that it is near its end, and not before.
 
     fresh        more than the margin left: returned as it is, with no I/O
     near its end the margin has begun: the first caller asks for a new token and the others go on
@@ -50,19 +52,29 @@
 
 (def ^:private oauth-error-code #"[A-Za-z_]{1,64}")
 
+(defn- valid-grant? [{:keys [access-token expires-in]}]
+  (and (string? access-token)
+       (not (str/blank? access-token))
+       (number? expires-in)
+       (pos? expires-in)))
+
 (defn- read-answer
-  "The grant in an answer of the token endpoint, as `{:access-token :expires-in}` (the checking of
-  its values is for the keeper), or an `::unavailable` for any other answer."
+  "The grant in an answer of the token endpoint, as `{:access-token :expires-in}` and, when the endpoint gave
+  them, the `:refresh-token` and the `:id-token` as `Secret`s, or an `::unavailable` for any other answer,
+  among them a success that is not a bearer token with a lifetime."
   [^HttpResponse response]
   (let [status (.statusCode response)
         body (try (json/read-value ^String (.body response) json/keyword-keys-object-mapper)
                   (catch Exception _ nil))]
     (cond
       (= 200 status)
-      (let [{:keys [access_token expires_in token_type]} (when (map? body) body)]
-        (if (or (nil? token_type) (and (string? token_type) (.equalsIgnoreCase "Bearer" ^String token_type)))
-          {:access-token access_token :expires-in expires_in}
-          (throw (unavailable :bad-response "The token endpoint did not give a bearer token" {:status status}))))
+      (let [{:keys [access_token expires_in token_type refresh_token id_token]} (when (map? body) body)]
+        (if (and (or (nil? token_type) (and (string? token_type) (.equalsIgnoreCase "Bearer" ^String token_type)))
+                 (valid-grant? {:access-token access_token :expires-in expires_in}))
+          (cond-> {:access-token access_token :expires-in expires_in}
+            (string? refresh_token) (assoc :refresh-token (config/secret refresh_token))
+            (string? id_token) (assoc :id-token (config/secret id_token)))
+          (throw (unavailable :bad-response "The token endpoint did not give a bearer token with a lifetime" {:status status}))))
 
       (<= 400 status 499)
       (throw (unavailable :rejected "The token endpoint refused the client"
@@ -74,30 +86,41 @@
       :else
       (throw (unavailable :server "The token endpoint failed" {:status status})))))
 
-(defn http-fetch
-  "A function of no arguments that asks the token endpoint for a token with the client-credentials
-  grant and returns `{:access-token s :expires-in seconds}`, or throws an `::unavailable`. Options:
+(defn- form-body
+  "The body of a form: `form` is a map, or a sequence of `[name value]` pairs when the order matters, and
+  every name and value is form-encoded."
+  [form]
+  (str/join "&" (for [[k v] form]
+                  (str (form-encode k) "=" (form-encode v)))))
+
+(defn endpoint
+  "The token endpoint of one client, as a function of a form: `(post {\"grant_type\" \"refresh_token\"
+  \"refresh_token\" \"...\"})` POSTs the form with the client's HTTP Basic authentication and returns the
+  grant the endpoint gave, `{:access-token s :expires-in seconds}` and the `:refresh-token` and `:id-token`
+  (as `Secret`s) when there are any, or throws an `::unavailable` with a `:reason`: `:rejected` for a 4xx
+  (with the `:status` and the OAuth `:error` code, such as `invalid_grant`), `:server` for any other
+  failure of the endpoint, `:bad-response` for an answer that is not a bearer grant, `:timeout` and
+  `:connect`. Neither the secret, the form nor the body of an answer is ever in one. The HTTP client is made
+  once, here, and shared by every call of the function. Options:
 
     `:token-uri`           the URL of the token endpoint
     `:client-id`           the client's id
     `:client-secret`       its secret, a `pulse.platform.config/Secret` or a string
-    `:scope`               optional
     `:timeout-ms`          for the whole request (5000)
     `:connect-timeout-ms`  for the connection (2000)"
-  [{:keys [token-uri client-id client-secret scope timeout-ms connect-timeout-ms]
+  [{:keys [token-uri client-id client-secret timeout-ms connect-timeout-ms]
     :or {timeout-ms 5000 connect-timeout-ms 2000}}]
   (let [client (-> (HttpClient/newBuilder)
                    (.connectTimeout (Duration/ofMillis connect-timeout-ms))
                    (.build))
-        body (str "grant_type=client_credentials" (when scope (str "&scope=" (form-encode scope))))
         authorization (str "Basic " (basic-credentials client-id (config/reveal client-secret)))]
-    (fn []
+    (fn post [form]
       (let [request (-> (HttpRequest/newBuilder (URI/create token-uri))
                         (.timeout (Duration/ofMillis timeout-ms))
                         (.header "Content-Type" "application/x-www-form-urlencoded")
                         (.header "Accept" "application/json")
                         (.header "Authorization" authorization)
-                        (.POST (HttpRequest$BodyPublishers/ofString body))
+                        (.POST (HttpRequest$BodyPublishers/ofString (form-body form)))
                         (.build))
             response (try
                        (.send client request (HttpResponse$BodyHandlers/ofString))
@@ -107,28 +130,68 @@
                          (throw (unavailable :connect "The token endpoint could not be reached" {} e))))]
         (read-answer response)))))
 
+(defn http-fetch
+  "A function of no arguments that asks the token endpoint for a token with the client-credentials
+  grant and returns `{:access-token s :expires-in seconds}`, or throws an `::unavailable`. Options are
+  those of `endpoint` and
+
+    `:scope`               optional"
+  [{:keys [scope] :as options}]
+  (let [post (endpoint options)
+        form (cond-> [["grant_type" "client_credentials"]]
+               scope (conj ["scope" scope]))]
+    (fn [] (post form))))
+
 ;; ---------------------------------------------------------------------------
 ;; Keeping the token
 
-(defn source
-  "The keeper of one client's token. Options: those of `http-fetch`, or `:fetch`, a function of
-  no arguments that returns `{:access-token :expires-in}` instead (for tests), and
+(defn- granted
+  "The state of a keeper that was given `grant` by a request sent at `asked-at`: the token, when it expires and when
+  it is to be renewed, which is `renew-before-ms` before, or at half of its life if that is sooner."
+  [grant ^Instant asked-at renew-before-ms]
+  (let [lifetime-ms (long (* 1000 (:expires-in grant)))
+        margin-ms (min renew-before-ms (quot lifetime-ms 2))
+        expires-at (.plusMillis asked-at lifetime-ms)]
+    {:token (:access-token grant)
+     :expires-at expires-at
+     :renew-at (.minusMillis expires-at margin-ms)}))
 
+;; The keeper of a token, which holds the token itself in its state. It is a record so that it can say, when it is printed, whose
+;; it is and not what it holds: a keeper in the data of an exception or of a log event would otherwise print a bearer token.
+(defrecord Source [fetch clock renew-before-ms retry-delay-ms client-id lock state])
+
+(defmethod print-method Source [^Source source ^java.io.Writer w]
+  (.write w (str "#token-source[" (:client-id source) "]")))
+
+(defn source
+  "The keeper of one token (a `Source`, which prints as `#token-source[client-id]`). Options: those of `http-fetch`, or `:fetch`, a function of no arguments that
+  returns `{:access-token :expires-in}` instead (for tests, and for a person's tokens, which are renewed with
+  the refresh grant, ADR-0028), and
+
+    `:initial`          a grant already in hand, `{:access-token :expires-in}`, such as the one the
+                        authorization-code exchange gave: the keeper starts with it, so its first call asks
+                        for nothing. Its life is counted from `:asked-at` in the same map (an `Instant`: when
+                        the request that got it was sent), or from now
     `:clock`            a `java.time.Clock` (the system clock, UTC)
     `:renew-before-ms`  how long before it expires a token is renewed (60000), at most half of its
                         lifetime
     `:retry-delay-ms`   how long after a failure nobody asks again (5000)"
-  [{:keys [fetch clock renew-before-ms retry-delay-ms client-id]
+  [{:keys [fetch clock renew-before-ms retry-delay-ms client-id initial]
     :or {renew-before-ms 60000 retry-delay-ms 5000}
     :as options}]
-  {:fetch (or fetch (http-fetch options))
-   :clock (or clock (Clock/systemUTC))
-   :renew-before-ms renew-before-ms
-   :retry-delay-ms retry-delay-ms
-   :client-id client-id
-   :lock (ReentrantLock.)
-   ;; nil, then {:token :expires-at :renew-at :retry-at :last-reason}
-   :state (atom nil)})
+  (when (and initial (not (valid-grant? initial)))
+    (throw (ex-info "The initial grant is not an access token with a lifetime" {:type ::invalid-initial-grant})))
+  (let [clock (or clock (Clock/systemUTC))]
+    (map->Source
+     {:fetch (or fetch (http-fetch options))
+      :clock clock
+      :renew-before-ms renew-before-ms
+      :retry-delay-ms retry-delay-ms
+      :client-id client-id
+      :lock (ReentrantLock.)
+      ;; nil, then {:token :expires-at :renew-at :retry-at :last-reason}
+      :state (atom (when initial
+                     (granted initial (or (:asked-at initial) (.instant ^Clock clock)) renew-before-ms)))})))
 
 (defn- standing
   "How the token in `state` stands at `now`: `:fresh`, `:near-its-end` or `:none` (there is none,
@@ -145,12 +208,6 @@
   [{:keys [retry-at]} ^Instant now]
   (or (nil? retry-at) (not (.isBefore now ^Instant retry-at))))
 
-(defn- valid-grant? [{:keys [access-token expires-in]}]
-  (and (string? access-token)
-       (not (str/blank? access-token))
-       (number? expires-in)
-       (pos? expires-in)))
-
 (defn- renew!
   "Asks for a new token and keeps it. The caller holds the lock. Returns the new state, or records
   when to ask again and throws an `::unavailable`. An interruption is not a failure of the endpoint."
@@ -160,18 +217,13 @@
       (let [grant (fetch)]
         (when-not (valid-grant? grant)
           (throw (unavailable :bad-response "The token endpoint did not give an access token" {})))
-        (let [lifetime-ms (long (* 1000 (:expires-in grant)))
-              margin-ms (min renew-before-ms (quot lifetime-ms 2))
-              expires-at (.plusMillis asked-at lifetime-ms)
-              renewed {:token (:access-token grant)
-                       :expires-at expires-at
-                       :renew-at (.minusMillis expires-at margin-ms)}]
+        (let [renewed (granted grant asked-at renew-before-ms)]
           (reset! state renewed)
           (t/event! :pulse.token/renewed
                     {:level :info
                      :data {:client client-id
                             :expires-in-s (:expires-in grant)
-                            :renew-in-s (quot (- lifetime-ms margin-ms) 1000)}})
+                            :renew-in-s (quot (.toMillis (Duration/between asked-at ^Instant (:renew-at renewed))) 1000)}})
           renewed))
       (catch InterruptedException e
         (throw e))

@@ -107,14 +107,16 @@
   (with-web {:routes routes}
     (fn [web]
       (doseq [[method uri] [[:get "/readings"] [:post "/readings"] [:get "/fragments/latest"]]
-              :let [r (call web method uri :session {:person {:name "Ana García"}})]]
+              :let [r (call web method uri :session {:person {:name "Ana García"} :csrf "token-1"}
+                            :headers {"x-csrf-token" "token-1"})]]
         (is (= 200 (:status r)) (str method " " uri))
         (is (= "the page" (:text r)))))))
 
 (deftest a-session-without-a-person-is-nobody
+  ;; a pending sign-in is a session, and its owner is nobody yet
   (with-web {:routes routes}
     (fn [web]
-      (doseq [session [{} {:csrf "x"} {:person nil} {:pending {:state "s"}}]]
+      (doseq [session [{:csrf "x"} {:person nil} {:sign-in {:state "s" :verifier "v" :nonce "n" :return-to "/"}}]]
         (is (= 303 (:status (call web :get "/readings" :session session))) (pr-str session))))))
 
 (deftest the-person-is-whoever-the-session-says

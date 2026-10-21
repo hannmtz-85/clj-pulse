@@ -16,10 +16,11 @@
 
 (defn document
   "A whole HTML document: `:title`, `:lang` (\"en\"), `:theme` (the name of a daisyUI theme; the page follows the
-  browser's preference when it has none), `:stylesheets` (hrefs), `:description`, `:body-class` and `:head`
+  browser's preference when it has none), `:stylesheets` (hrefs), `:description`, `:body-class`, `:body-attrs`
+  (more attributes for the body, such as the `hx-headers` that give htmx the CSRF token of the page) and `:head`
   (more elements for the head). The children are the body. It is hiccup, to be rendered after
   `<!DOCTYPE html>`; it has no inline script or style, so a strict Content-Security-Policy accepts it."
-  [{:keys [title lang theme stylesheets description body-class head] :or {lang "en"}} & body]
+  [{:keys [title lang theme stylesheets description body-class body-attrs head] :or {lang "en"}} & body]
   [:html (cond-> {:lang lang} theme (assoc :data-theme theme))
    (into [:head
           [:meta {:charset "utf-8"}]
@@ -29,7 +30,7 @@
           [:title title]]
          (concat (for [href stylesheets] [:link {:rel "stylesheet" :href href}])
                  head))
-   (into [:body {:class (attrs/classes "min-h-screen bg-base-200 text-base-content antialiased" body-class)}]
+   (into [:body (assoc body-attrs :class (attrs/classes "min-h-screen bg-base-200 text-base-content antialiased" body-class))]
          body)])
 
 ;; ---------------------------------------------------------------------------

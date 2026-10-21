@@ -4,14 +4,27 @@
   client of the api closes, and the key cache and the logging go last."
   (:require [integrant.core :as ig]
             [pulse.platform.system :as platform]
-            [pulse.web.handler :as handler]))
+            [pulse.web.handler :as handler]
+            [pulse.web.oidc :as oidc]
+            [pulse.web.session :as session]))
 
-;; Logging, the key cache, the server and the client of the api start and stop as in every Pulse service: the methods
-;; are in pulse.platform.system, and these keys are those components.
+;; Logging, the key cache, the verifiers of the two tokens of a sign-in, the server and the client of the api start and stop
+;; as in every Pulse service: the methods are in pulse.platform.system, and these keys are those components.
 (derive :pulse.web/logging :pulse.platform/logging)
 (derive :pulse.web/jwks :pulse.platform/jwks)
+(derive :pulse.web/access-verifier :pulse.platform/verifier)
+(derive :pulse.web/id-verifier :pulse.platform/verifier)
 (derive :pulse.web/api :pulse.platform/service-client)
 (derive :pulse.web/server :pulse.platform/server)
+
+;; The portal as a client of the identity provider. Nothing is asked of it by starting, so a portal can start before Keycloak
+;; does, and there is nothing to stop.
+(defmethod ig/init-key :pulse.web/oidc [_ options]
+  (oidc/client options))
+
+;; The sessions are in memory: no thread, and nothing to stop. A restart ends them all.
+(defmethod ig/init-key :pulse.web/sessions [_ options]
+  (session/memory-store options))
 
 (defmethod ig/init-key :pulse.web/handler [_ options]
   (handler/create options))

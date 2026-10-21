@@ -305,13 +305,21 @@
       (is (= ["Your appointments could not be loaded"] (map hx/words (hx/by-tag alert :p))))
       (is (str/includes? (hx/words alert) "The rest of the page is up to date. The problem is on our side, not yours."))
       (is (= "Try again" (hx/words (first (buttons alert))))))
+    ;; the four of the mock-up the owner approved, and then the five that the sign-in added (ADR-0028, step 4 of Phase 7)
     (is (= [["We cannot find that page" "Go to the home page"]
             ["You cannot see this" "Go to the home page"]
             ["Something went wrong on our side" "Try again"]
-            ["Your session has ended" "Sign in again"]]
+            ["Your session has ended" "Sign in again"]
+            ["That sign-in has expired" "Start again"]
+            ["We could not sign you in" "Try again"]
+            ["Sign-in is not available right now" "Try again"]
+            ["This portal is for patients" "Sign out"]
+            ["We could not do that" "Go to the home page"]]
            (for [card (hx/select main #(and (= :section (hx/tag %)) (hx/has-class? % "shadow-card")))]
              [(hx/words (first (hx/by-tag card :p))) (hx/words (first (buttons card)))])))
     (is (= "../login.html" (href (button-named doc "Sign in again"))))
+    (is (= "../login.html" (href (button-named doc "Start again"))) "starting again is signing in")
+    (is (= "../login.html" (href (button-named doc "Sign out"))) "in the review, the way out of the portal is the login page")
     (testing "none of them blames the patient"
       (is (not (re-find #"(?i)your fault|you did|you must have|you made" (hx/words main)))))))
 

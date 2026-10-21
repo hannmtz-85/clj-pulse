@@ -69,7 +69,12 @@
   (is (= {:not-found "Page not found · Pulse"
           :forbidden "Not allowed · Pulse"
           :server-error "Something went wrong · Pulse"
-          :session-ended "Your session has ended · Pulse"}
+          :session-ended "Your session has ended · Pulse"
+          :sign-in-expired "Sign-in expired · Pulse"
+          :sign-in-failed "Sign-in failed · Pulse"
+          :sign-in-unavailable "Sign-in is not available · Pulse"
+          :not-for-patients "For patients only · Pulse"
+          :request-refused "Request refused · Pulse"}
          (into {} (for [kind (keys pages/error-kinds)]
                     [kind (hx/words (first (hx/by-tag (pages/error-page kind) :title)))])))))
 
@@ -85,9 +90,27 @@
                   "Your information is safe and nothing was lost. If it keeps happening, tell your clinic." "Try again"]
    :session-ended ["Your session has ended" "For your safety, you are signed out after a while without activity." "Sign in again"]})
 
-(deftest the-failures-are-those-of-the-approved-mock-up-in-its-words
-  (is (= (keys approved) (keys pages/error-kinds)) "four, in the order of the mock-up")
-  (doseq [[kind [title text action]] approved
+(def ^:private added
+  "The words of the failures that the sign-in added (step 4 of Phase 7). No mock-up had them: they are the portal's own, in the
+  order of the cards, and the review page of the errors shows them for the owner to say whether they are right. Two of them,
+  \"This portal is for patients\" and \"Sign-in is not available right now\", have the words the owner accepted when the step
+  was planned."
+  {:sign-in-expired ["That sign-in has expired" "A sign-in has to be finished within a few minutes. Start again to sign in." "Start again"]
+   :sign-in-failed ["We could not sign you in"
+                    "The sign-in was cancelled or was not accepted. You can try again. If it keeps happening, tell your clinic." "Try again"]
+   :sign-in-unavailable ["Sign-in is not available right now"
+                         "We could not reach the service that checks who you are. Nothing was lost. Try again in a moment." "Try again"]
+   :not-for-patients ["This portal is for patients"
+                      "You are signed in as someone from the clinic. The portal is for patients: sign out and use the workspace instead." "Sign out"]
+   :request-refused ["We could not do that"
+                     "The page may be out of date, or the request did not come from this site. Go to the home page and try again."
+                     "Go to the home page"]})
+
+(def ^:private all-words (merge approved added))
+
+(deftest the-failures-are-those-of-the-approved-mock-up-in-its-words-and-then-those-the-sign-in-added
+  (is (= (concat (keys approved) (keys added)) (keys pages/error-kinds)) "the four of the mock-up first, in its order")
+  (doseq [[kind [title text action]] all-words
           :let [card (pages/error-card kind)
                 words (hx/words card)]]
     (testing kind
@@ -97,12 +120,13 @@
       (is (= (str title text action) words) "the title, the text and the button, and nothing more"))))
 
 (deftest each-failure-has-the-status-that-says-what-happened
-  (is (= {:not-found 404 :forbidden 403 :server-error 500 :session-ended 401}
+  (is (= {:not-found 404 :forbidden 403 :server-error 500 :session-ended 401
+          :sign-in-expired 400 :sign-in-failed 400 :sign-in-unavailable 503 :not-for-patients 403 :request-refused 403}
          (into {} (for [kind (keys pages/error-kinds)] [kind (pages/status-of kind)])))))
 
 (deftest a-page-for-a-failure-is-a-page-a-person-can-use
   (doseq [kind (keys pages/error-kinds)
-          :let [[title _ action] (approved kind)
+          :let [[title _ action] (all-words kind)
                 text (page-html kind)
                 page (tree text)]]
     (testing kind
@@ -114,18 +138,29 @@
 
 (deftest the-way-out-leads-where-it-is-told-to
   (let [hrefs (fn [kind options] (set (map (comp :href hx/attributes) (hx/by-tag (pages/error-card kind options) :a))))]
-    (testing "by default, home, the same page again and the sign-in"
+    (testing "by default, home, the same page again, the sign-in and the page that says that the person signed out"
       (is (= #{"/"} (hrefs :not-found nil)))
       (is (= #{"/"} (hrefs :forbidden nil)))
       (is (= #{"/"} (hrefs :server-error nil)))
-      (is (= #{"/sign-in"} (hrefs :session-ended nil))))
+      (is (= #{"/sign-in"} (hrefs :session-ended nil)))
+      (is (= #{"/sign-in"} (hrefs :sign-in-expired nil)))
+      (is (= #{"/sign-in"} (hrefs :sign-in-failed nil)))
+      (is (= #{"/"} (hrefs :sign-in-unavailable nil)))
+      (is (= #{"/signed-out"} (hrefs :not-for-patients nil)))
+      (is (= #{"/"} (hrefs :request-refused nil))))
     (testing "and where the page says"
       (is (= #{"/readings?period=30"} (hrefs :server-error {:retry-href "/readings?period=30"})))
+      (is (= #{"/readings?period=30"} (hrefs :sign-in-unavailable {:retry-href "/readings?period=30"})))
       (is (= #{"/home"} (hrefs :not-found {:home-href "/home"})))
       (is (= #{"/home"} (hrefs :forbidden {:home-href "/home"})))
-      (is (= #{"/sign-in?return-to=%2Freadings"} (hrefs :session-ended {:sign-in-href "/sign-in?return-to=%2Freadings"}))))
+      (is (= #{"/home"} (hrefs :request-refused {:home-href "/home"})))
+      (is (= #{"/sign-in?return-to=%2Freadings"} (hrefs :session-ended {:sign-in-href "/sign-in?return-to=%2Freadings"})))
+      (is (= #{"/sign-in?return-to=%2Freadings"} (hrefs :sign-in-expired {:sign-in-href "/sign-in?return-to=%2Freadings"})))
+      (is (= #{"/sign-in?return-to=%2Freadings"} (hrefs :sign-in-failed {:sign-in-href "/sign-in?return-to=%2Freadings"})))
+      (is (= #{"http://localhost:8080/logout"} (hrefs :not-for-patients {:sign-out-href "http://localhost:8080/logout"}))))
     (testing "an option of another failure is none of this one's"
-      (is (= #{"/"} (hrefs :not-found {:retry-href "/x" :sign-in-href "/y"}))))))
+      (is (= #{"/"} (hrefs :not-found {:retry-href "/x" :sign-in-href "/y" :sign-out-href "/z"})))
+      (is (= #{"/sign-in"} (hrefs :sign-in-failed {:retry-href "/x" :home-href "/y" :sign-out-href "/z"}))))))
 
 (deftest the-title-of-a-card-is-a-heading-only-when-it-is-told-to-be
   (is (= [:p] (map hx/tag (hx/select (pages/error-card :not-found) #(hx/has-class? % "font-semibold"))))
@@ -142,20 +177,88 @@
   (is (thrown? clojure.lang.ExceptionInfo (pages/status-of :teapot))))
 
 ;; ---------------------------------------------------------------------------
+;; The CSRF token in a page
+
+(deftest a-page-for-a-person-gives-htmx-the-csrf-token-of-their-session
+  (let [page (tree (html/render (pages/document {:title "Home" :csrf-token "tok-en_1"} [:main {:id "main"} [:h1 "Hi"]])))
+        body (first (hx/by-tag page :body))]
+    (is (= {:X-CSRF-Token "tok-en_1"}
+           (json/read-value (:hx-headers (hx/attributes body)) json/keyword-keys-object-mapper))
+        "htmx sends it as a header with every request it makes, so no fragment has to carry it")
+    (is (hx/has-class? body "bg-base-200") "and the body is the body of every page"))
+  (testing "a page that is for nobody in particular carries none"
+    (let [body (first (hx/by-tag (tree (html/render (pages/document {:title "x"} [:main]))) :body))]
+      (is (not (contains? (hx/attributes body) :hx-headers)))))
+  (testing "a token that would break the attribute is escaped, and cannot add one"
+    (let [text (html/render (pages/document {:title "x" :csrf-token "\" onmouseover=\"alert(1)"} [:main]))
+          body (first (hx/by-tag (tree text) :body))]
+      (is (= #{:class :hx-headers} (set (keys (hx/attributes body)))) "the page read back has no attribute that the token added")
+      (is (= {:X-CSRF-Token "\" onmouseover=\"alert(1)"}
+             (json/read-value (:hx-headers (hx/attributes body)) json/keyword-keys-object-mapper))
+          "and the token is what it was"))))
+
+(deftest a-form-carries-the-token-in-the-field-the-check-reads
+  (let [field (pages/csrf-field "tok-en_1")]
+    (is (= :input (hx/tag field)))
+    (is (= {:type "hidden" :name "__anti-forgery-token" :value "tok-en_1"} (hx/attributes field))))
+  (testing "written as HTML, the value is an attribute whatever it holds"
+    (is (str/includes? (html/render [:form (pages/csrf-field "a\"b<c")]) "value=\"a&quot;b&lt;c\""))))
+
+;; ---------------------------------------------------------------------------
+;; Around signing in and out
+
+(deftest the-page-after-signing-out-says-so-and-offers-to-sign-in
+  (let [text (html/render (pages/signed-out-page))
+        page (tree text)]
+    (is (= [] (a11y/problems page {:page? true})))
+    (is (= ["You have signed out"] (map hx/words (hx/by-tag page :h1))))
+    (is (str/includes? (hx/words page) "To see your record again, sign in."))
+    (is (= [["Sign in" "/sign-in"]] (for [a (hx/by-tag page :a) :when (= "Sign in" (hx/words a))] [(hx/words a) (:href (hx/attributes a))])))
+    (is (= "Signed out · Pulse" (hx/words (first (hx/by-tag page :title)))))
+    (is (empty? (hx/by-tag page :form)) "nothing to post: there is no session to end")))
+
+(deftest the-sign-out-form-is-a-post-with-the-token
+  (let [form (pages/sign-out-form "tok-en_1")]
+    (is (= :form (hx/tag form)))
+    (is (= {:method "post" :action "/sign-out"} (hx/attributes form)) "a POST, since a link would let any page sign a person out")
+    (is (= [{:type "hidden" :name "__anti-forgery-token" :value "tok-en_1"}]
+           (map hx/attributes (hx/by-tag form :input))))
+    (let [[button :as buttons] (hx/by-tag form :button)]
+      (is (= 1 (count buttons)))
+      (is (= "submit" (:type (hx/attributes button))))
+      (is (= "Sign out" (hx/words button))))))
+
+(deftest the-page-of-a-person-who-is-in-greets-them-and-has-the-way-out
+  (let [text (html/render (pages/home-page {:name "Ana García" :csrf-token "tok-en_1"}))
+        page (tree text)]
+    (is (= [] (a11y/problems page {:page? true})))
+    (is (= ["Welcome, Ana García"] (map hx/words (hx/by-tag page :h1))))
+    (is (= "Home · Pulse" (hx/words (first (hx/by-tag page :title)))))
+    (testing "the way out is the form, and htmx has the token too"
+      (is (= 1 (count (hx/by-tag page :form))))
+      (is (= "/sign-out" (:action (hx/attributes (first (hx/by-tag page :form))))))
+      (is (= "tok-en_1" (:value (hx/attributes (first (hx/by-tag page :input))))))
+      (is (str/includes? text "X-CSRF-Token")))
+    (testing "a name is text, whatever it holds"
+      (let [hostile (html/render (pages/home-page {:name "<script>alert(1)</script>" :csrf-token "t"}))]
+        (is (not (str/includes? hostile "<script>alert")))
+        (is (str/includes? hostile "&lt;script&gt;alert(1)&lt;/script&gt;"))))))
+
+;; ---------------------------------------------------------------------------
 ;; The same cards in the review
 
 (deftest the-mock-up-of-the-review-shows-the-cards-of-the-portal
   (let [mock-up (portal/errors {})
         words (hx/words mock-up)]
-    (doseq [[kind [title text action]] approved]
+    (doseq [[kind [title text action]] all-words]
       (testing kind
         (is (str/includes? words title))
         (is (str/includes? words text))
         (is (str/includes? words action))))
     (testing "each card of the portal is in the page, as it is served but for where its buttons lead"
       (let [cards (hx/select mock-up #(and (= :section (hx/tag %)) (hx/has-class? % "rounded-box")
-                                           (some (fn [kind] (str/includes? (hx/words %) (first (approved kind)))) (keys approved))))]
-        (is (= (count approved) (count cards)))
+                                           (some (fn [kind] (str/includes? (hx/words %) (first (all-words kind)))) (keys all-words))))]
+        (is (= (count all-words) (count cards)))
         (is (= (map #(hx/words (pages/error-card %)) (keys pages/error-kinds))
                (map hx/words cards)))))))
 
@@ -164,7 +267,9 @@
 
 (deftest every-class-the-pages-use-has-a-rule-in-the-stylesheet
   (let [css (slurp stylesheet :encoding "UTF-8")
-        markup (apply str (for [kind (keys pages/error-kinds)] (page-html kind)))]
+        markup (apply str (concat (for [kind (keys pages/error-kinds)] (page-html kind))
+                                  [(html/render (pages/signed-out-page))
+                                   (html/render (pages/home-page {:name "Ana García" :csrf-token "token-1"}))]))]
     (is (> (count (build/class-tokens markup)) 30) "the check has classes to check")
     (is (empty? (build/unknown-classes markup css))
         "run `bb design:web` when a page uses a class that the stylesheet was compiled without")

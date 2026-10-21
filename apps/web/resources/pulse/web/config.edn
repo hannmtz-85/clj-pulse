@@ -7,7 +7,9 @@
 ;;   dev   the real identity provider and the real api, on port 3300
 ;;   test  what the tests use
 ;;
-;; Nothing here is secret yet. The client secret of the portal arrives with the sign-in (ADR-0028).
+;; The one secret is the portal's client secret at the identity provider (WEB_CLIENT_SECRET in .env, which is
+;; git-ignored; `bb env:init` adds it to an .env that lacks it). It is read as a #secret, which prints as
+;; #secret[REDACTED] wherever it ends up (ADR-0028).
 {:pulse.web/logging
  {:level #profile {:default #keyword #or [#env LOG_LEVEL "info"]
                    :test :warn}
@@ -20,6 +22,25 @@
  :pulse.web/jwks
  {:uri #or [#env KEYCLOAK_JWKS_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/certs"]}
 
+ ;; The two tokens a sign-in brings are verified when it is made, each as what it is: the access token is for
+ ;; the api, and an id token is for the portal (its client). Keycloak reports its issuer from its configured
+ ;; hostname, whatever address it is reached at, so this and the keys address above are separate settings.
+ :pulse.web/access-verifier
+ {:jwks #ig/ref :pulse.web/jwks
+  :issuer #or [#env KEYCLOAK_ISSUER "http://localhost:8080/realms/pulse"]
+  :audience "pulse-api"
+  :algorithms ["RS256"]
+  :leeway-s 30
+  :token-type "Bearer"}
+
+ :pulse.web/id-verifier
+ {:jwks #ig/ref :pulse.web/jwks
+  :issuer #ref [:pulse.web/access-verifier :issuer]
+  :audience "pulse-web"
+  :algorithms ["RS256"]
+  :leeway-s 30
+  :token-type "ID"}
+
  ;; The api, where the portal reads what a patient sees, with the token of the person's own session
  ;; (ADR-0028). The client has no token of its own: each call is given the keeper of the session.
  :pulse.web/api
@@ -28,13 +49,45 @@
   :timeout-ms 10000
   :connect-timeout-ms 3000}
 
+ ;; The portal as a client of the identity provider (ADR-0028): the client `pulse-web` of the realm, which is
+ ;; confidential, with PKCE. The realm registers http://localhost:3300/oauth2/callback as its redirect address
+ ;; and http://localhost:3300/* for after signing out, so the base address is that of the portal (the redirect
+ ;; addresses are made from it and never from the Host header of a request). The browser is sent to the
+ ;; authorization and end-session addresses as it reaches them; the portal asks the token address itself, which
+ ;; in a container is another host (KEYCLOAK_TOKEN_URI).
+ :pulse.web/oidc
+ {:client-id "pulse-web"
+  :client-secret #profile {:default #secret #env WEB_CLIENT_SECRET
+                           :test #secret "test-secret"}
+  :base-url #or [#env WEB_BASE_URL "http://localhost:3300"]
+  :authorization-uri #or [#env KEYCLOAK_AUTHORIZATION_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/auth"]
+  :end-session-uri #or [#env KEYCLOAK_END_SESSION_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/logout"]
+  :token-uri #or [#env KEYCLOAK_TOKEN_URI "http://localhost:8080/realms/pulse/protocol/openid-connect/token"]
+  :timeout-ms 5000
+  :connect-timeout-ms 2000}
+
+ ;; The sessions, in memory. A signed-in session ends after 30 minutes without a request and 10 hours after
+ ;; the sign-in (the two numbers of the realm's SSO session); a sign-in that was begun and not finished, after 10
+ ;; minutes. There are at most 1 000 of those and 10 000 sessions, so a visitor that only asks to sign in cannot
+ ;; fill the store or push a person out.
+ :pulse.web/sessions
+ {:idle-ms 1800000
+  :absolute-ms 36000000
+  :pending-ms 600000
+  :max-sessions 10000
+  :max-pending 1000}
+
  :pulse.web/handler
  {:logging #ig/ref :pulse.web/logging ; only to start logging before everything else
   :jwks #ig/ref :pulse.web/jwks
   :api #ig/ref :pulse.web/api
+  :oidc #ig/ref :pulse.web/oidc
+  :sessions #ig/ref :pulse.web/sessions
+  :access-verifier #ig/ref :pulse.web/access-verifier
+  :id-verifier #ig/ref :pulse.web/id-verifier
   ;; The identity provider as a browser reaches it. The policy of the pages names its origin as a place
   ;; a form may send its data (signing out is a form that Keycloak answers), and nothing else.
-  :issuer #or [#env KEYCLOAK_ISSUER "http://localhost:8080/realms/pulse"]
+  :issuer #ref [:pulse.web/access-verifier :issuer]
   :quiet-paths #{"/healthz" "/readyz"}}
 
  :pulse.web/server

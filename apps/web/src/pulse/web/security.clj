@@ -4,8 +4,7 @@
   this server serves, and no script or style of their own, so a policy that forbids all inline code can be strict;
   and the one place a form may send its data to besides this server is the identity provider, whose answer to signing
   out is a redirect (Chrome applies `form-action` to the redirect that follows a form, and blocks it otherwise).
-  HSTS, and the `Secure` flag of the cookie, come with the sign-in, since they depend on the address the portal is
-  served at."
+  HSTS, like the `Secure` flag of the cookie, depends on the address the portal is served at: it is sent when that is https."
   (:require [clojure.string :as str]
             [pulse.platform.http.headers :as headers]))
 
@@ -42,7 +41,15 @@
    "Cross-Origin-Resource-Policy" "same-origin"
    "Cache-Control" "no-store"})
 
+(def hsts
+  "What the browser is told to remember about a portal that is served over https: only https, for two years, for the
+  subdomains too."
+  "max-age=63072000; includeSubDomains")
+
 (defn header-options
-  "The options of `pulse.platform.http.headers/wrap-security-headers`: the `defaults` and the policy for `issuer`."
-  [issuer]
-  {:headers (assoc defaults "Content-Security-Policy" (policy issuer))})
+  "The options of `pulse.platform.http.headers/wrap-security-headers`: the `defaults` and the policy for `issuer`, and, when
+  the portal is served over https (`:secure?`), HSTS."
+  ([issuer] (header-options issuer nil))
+  ([issuer {:keys [secure?]}]
+   {:headers (cond-> (assoc defaults "Content-Security-Policy" (policy issuer))
+               secure? (assoc "Strict-Transport-Security" hsts))}))

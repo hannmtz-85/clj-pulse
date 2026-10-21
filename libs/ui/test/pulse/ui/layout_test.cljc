@@ -1,6 +1,6 @@
 (ns pulse.ui.layout-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [pulse.ui.layout :as layout]
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]))
@@ -40,6 +40,17 @@
   (let [body (first (hx/by-tag page :body))]
     (is (every? (hx/classes body) ["bg-base-200" "text-base-content" "min-h-screen"]))
     (is (hx/has-class? (first (hx/by-tag (layout/document {:title "T" :body-class "grid"}) :body)) "grid"))))
+
+(deftest the-body-has-the-attributes-the-page-gives-it-and-its-class-all-the-same
+  (let [body (first (hx/by-tag (layout/document {:title "T" :body-class "grid" :body-attrs {:hx-headers "{\"X-CSRF-Token\":\"abc\"}" :class "ignored"}}
+                                                [:main [:h1 "T"]])
+                               :body))]
+    (is (= "{\"X-CSRF-Token\":\"abc\"}" (:hx-headers (hx/attributes body))))
+    (is (hx/has-class? body "grid"))
+    (is (hx/has-class? body "bg-base-200") "the colours of the theme stay, whatever attributes come with it"))
+  (testing "no attributes, no change"
+    (is (= (hx/attributes (first (hx/by-tag (layout/document {:title "T"}) :body)))
+           (hx/attributes (first (hx/by-tag (layout/document {:title "T" :body-attrs nil}) :body)))))))
 
 (deftest the-skip-link-comes-first-and-points-at-the-main-content
   (let [link (first (hx/by-tag page :a))]

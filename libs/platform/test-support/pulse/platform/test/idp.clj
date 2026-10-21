@@ -61,18 +61,39 @@
   [keys]
   (.toString (JWKSet. ^List (mapv #(.toPublicJWK ^JWK %) keys))))
 
-(defn client-id-of
-  "The client a token request authenticated as, from its HTTP Basic header: the id and the secret are
-  form-encoded and joined with a colon, as RFC 6749 section 2.3.1 has it. Nil for a request that
-  does not carry one. `request` is as `token-requests` has it, with the header names in lower case."
+(defn- url-decode ^String [^String s]
+  (URLDecoder/decode s "UTF-8"))
+
+(defn credentials-of
+  "The id and the secret a token request authenticated with, `[id secret]`, from its HTTP Basic header: both are
+  form-encoded and joined with a colon, as RFC 6749 section 2.3.1 has it. Nil for a request that does not
+  carry one. `request` is as `token-requests` has it, with the header names in lower case."
   [request]
   (when-let [[_ credentials] (re-matches #"Basic (.+)" (str (get-in request [:headers "authorization"])))]
-    (let [decoded (String. (.decode (Base64/getDecoder) ^String credentials) StandardCharsets/UTF_8)]
-      (URLDecoder/decode ^String (first (str/split decoded #":" 2)) "UTF-8"))))
+    (let [decoded (String. (.decode (Base64/getDecoder) ^String credentials) StandardCharsets/UTF_8)
+          [id secret] (str/split decoded #":" 2)]
+      [(url-decode id) (url-decode (or secret ""))])))
+
+(defn client-id-of
+  "The client a token request authenticated as, from its HTTP Basic header (see `credentials-of`), or nil."
+  [request]
+  (first (credentials-of request)))
+
+(defn form-of
+  "The parameters of a query string or of a form, as a map of name to value, decoded."
+  [^String text]
+  (into {}
+        (keep (fn [part]
+                (when-not (str/blank? part)
+                  (let [[k v] (str/split part #"=" 2)]
+                    [(url-decode k) (url-decode (or v ""))]))))
+        (str/split (or text "") #"&")))
 
 (defn- token-handler
   "The handler of /token: it records the request, waits if it was told to, and answers what it was
-  told to, which is by default a new access token for each request."
+  told to, which is by default a new access token for each request. A grant that a provider registered
+  (`add-grant!`) is answered by it, unless the test told the endpoint what to say (`serve-token!` with a
+  status that is not 200, a `:body`, or an `:answer` that gives a text), which wins."
   [state]
   (reify HttpHandler
     (handle [_ ex]
@@ -80,10 +101,17 @@
             request {:method (.getRequestMethod ex)
                      :headers (into {} (map (fn [[k v]] [(str/lower-case k) (first v)])) (.getRequestHeaders ex))
                      :body (slurp (.getRequestBody ex))}
-            {:keys [token-requests token]} (swap! state update :token-requests conj request)
+            {:keys [token-requests token grants]} (swap! state update :token-requests conj request)
             {:keys [status delay-ms answer body]} token
+            ;; an :answer that gives nothing leaves the request to what the endpoint does otherwise
+            answered (when answer (answer request))
+            told? (or answered body (not= 200 status))
+            grant (when-not told? (get grants (get (form-of (:body request)) "grant_type")))
+            granted (when grant (grant request))
+            status (or (:status granted) status)
             ^String body (cond
-                           answer (answer request)
+                           granted (:body granted)
+                           answered answered
                            body body
                            :else (format "{\"access_token\":\"fake-token-%d\",\"expires_in\":300,\"token_type\":\"Bearer\"}"
                                          (count token-requests)))
@@ -101,7 +129,8 @@
   [keys]
   (let [state (atom {:body (jwks-json keys) :status 200 :hits 0
                      :token {:status 200 :delay-ms 0 :body nil}
-                     :token-requests []})
+                     :token-requests []
+                     :grants {}})
         server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
     (.createContext server "/jwks"
                     (reify HttpHandler
@@ -120,8 +149,16 @@
     (let [base (str "http://127.0.0.1:" (.getPort (.getAddress server)))]
       {:server server
        :state state
+       :base-url base
        :uri (str base "/jwks")
        :token-uri (str base "/token")})))
+
+(defn add-grant!
+  "Makes /token answer the grant `grant-type` (such as \"authorization_code\") with `f`, a function of the request
+  (see `token-requests`) that returns `{:status n :body json-text}`. For a provider that is more than a key set
+  and a token: see `pulse.platform.test.oidc`."
+  [idp grant-type f]
+  (swap! (:state idp) assoc-in [:grants grant-type] f))
 
 (defn stop! [idp]
   (.stop ^HttpServer (:server idp) 0))
@@ -145,7 +182,9 @@
   "From now on, answer token requests with `:status` (200), the JSON text `:body` (by default a new
   access token each time) and after `:delay-ms` (0). Instead of a `:body`, an `:answer` is a function
   of the request (see `token-requests`) that gives the JSON text, for an identity provider that is
-  asked by more than one client and answers each its own (see `client-id-of`)."
+  asked by more than one client and answers each its own (see `client-id-of`); when it gives nil, the
+  request is answered as if there were no `:answer`, which is how a test lets a provider that signs people
+  in (see `pulse.platform.test.oidc`) answer their grants and hands the service accounts' to the function."
   [idp {:keys [status body delay-ms answer] :or {status 200 delay-ms 0}}]
   (swap! (:state idp) assoc :token {:status status :body body :delay-ms delay-ms :answer answer}))
 

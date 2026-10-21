@@ -4,6 +4,7 @@
   rules engine reads them through the api and raises an alert, and the practitioner finds it in the
   inbox of the api, all in one JVM and over HTTP between the two."
   (:require [babashka.http-client :as http]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [integrant.core :as ig]
             [jsonista.core :as json]
@@ -12,7 +13,11 @@
             [pulse.fhir.client :as c]
             [pulse.platform.config :as platform]
             [pulse.platform.test.idp :as idp]
-            [pulse.scheduler.executor :as executor])
+            [pulse.platform.test.oidc :as oidc-fake]
+            [pulse.platform.token :as token]
+            [pulse.scheduler.executor :as executor]
+            [pulse.web.session :as session]
+            [ring.middleware.session.store :as store])
   (:import (java.io File)))
 
 ;; ---------------------------------------------------------------------------
@@ -79,8 +84,9 @@
     (fn [path] (dev/config {:profile profile :dotenv path :process-env {}}))))
 
 (def ^:private both-secrets
-  "The `.env` of a machine where `bb up` has been run: a secret for each of the two services."
-  "SCHEDULER_CLIENT_SECRET=a-secret-from-dotenv\nAPI_CLIENT_SECRET=the-apis-secret-from-dotenv\n")
+  "The `.env` of a machine where `bb up` has been run: a secret for each of the three apps."
+  (str "SCHEDULER_CLIENT_SECRET=a-secret-from-dotenv\nAPI_CLIENT_SECRET=the-apis-secret-from-dotenv\n"
+       "WEB_CLIENT_SECRET=the-portals-secret-from-dotenv\n"))
 
 (deftest the-configuration-has-the-components-of-the-three-apps
   (let [cfg (config :dev both-secrets)]
@@ -88,15 +94,18 @@
                                     :pulse.api/token :pulse.api/scheduler
                                     :pulse.scheduler/server :pulse.scheduler/executor :pulse.scheduler/jobs
                                     :pulse.scheduler/api :pulse.scheduler/token
-                                    :pulse.web/server :pulse.web/handler :pulse.web/api :pulse.web/jwks]))
+                                    :pulse.web/server :pulse.web/handler :pulse.web/api :pulse.web/jwks
+                                    :pulse.web/oidc :pulse.web/sessions :pulse.web/access-verifier :pulse.web/id-verifier]))
     (is (= 4000 (get-in cfg [:pulse.api/server :port])))
     (is (= 5000 (get-in cfg [:pulse.scheduler/server :port])))
     (is (= 3300 (get-in cfg [:pulse.web/server :port])))
-    (testing "the secrets of the two come from the file, and are secrets"
+    (testing "the secrets of the three come from the file, and are secrets"
       (is (= "a-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret]))))
       (is (platform/secret? (get-in cfg [:pulse.scheduler/token :client-secret])))
       (is (= "the-apis-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.api/token :client-secret]))))
-      (is (platform/secret? (get-in cfg [:pulse.api/token :client-secret]))))
+      (is (platform/secret? (get-in cfg [:pulse.api/token :client-secret])))
+      (is (= "the-portals-secret-from-dotenv" (platform/reveal (get-in cfg [:pulse.web/oidc :client-secret]))))
+      (is (platform/secret? (get-in cfg [:pulse.web/oidc :client-secret]))))
     (testing "each asks the other where the other is by default: the api's port, and the scheduler's"
       (is (= "http://localhost:4000" (get-in cfg [:pulse.scheduler/api :base-url])))
       (is (= "http://localhost:4000" (get-in cfg [:pulse.web/api :base-url])) "the portal asks the api too")
@@ -138,10 +147,12 @@
     (is (true? (get-in cfg [:pulse.scheduler/jobs :evaluate-rules :enabled?])) "and so do the rules")))
 
 (deftest what-a-test-says-is-read-before-dotenv
-  (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" "from-the-test" "API_CLIENT_SECRET" "api-from-the-test"}]
-    (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=from-dotenv\nAPI_CLIENT_SECRET=api-from-dotenv\n")]
+  (binding [platform/*environment* {"SCHEDULER_CLIENT_SECRET" "from-the-test" "API_CLIENT_SECRET" "api-from-the-test"
+                                    "WEB_CLIENT_SECRET" "web-from-the-test"}]
+    (let [cfg (config :dev "SCHEDULER_CLIENT_SECRET=from-dotenv\nAPI_CLIENT_SECRET=api-from-dotenv\nWEB_CLIENT_SECRET=web-from-dotenv\n")]
       (is (= "from-the-test" (platform/reveal (get-in cfg [:pulse.scheduler/token :client-secret]))))
-      (is (= "api-from-the-test" (platform/reveal (get-in cfg [:pulse.api/token :client-secret])))))))
+      (is (= "api-from-the-test" (platform/reveal (get-in cfg [:pulse.api/token :client-secret]))))
+      (is (= "web-from-the-test" (platform/reveal (get-in cfg [:pulse.web/oidc :client-secret])))))))
 
 (deftest without-the-secrets-the-apps-say-which-variable-to-set
   (testing "with neither, the api, which is read first, says its own"
@@ -156,6 +167,11 @@
     (let [e (try (config :dev "SCHEDULER_CLIENT_SECRET=x\n") (catch clojure.lang.ExceptionInfo e e))]
       (is (platform/invalid-config? e))
       (is (re-find #"API_CLIENT_SECRET" (ex-message e)))
+      (is (re-find #"bb env:init" (ex-message e)))))
+  (testing "with those two and not the portal's, the portal's, and how to get it"
+    (let [e (try (config :dev "SCHEDULER_CLIENT_SECRET=x\nAPI_CLIENT_SECRET=y\n") (catch clojure.lang.ExceptionInfo e e))]
+      (is (platform/invalid-config? e))
+      (is (re-find #"WEB_CLIENT_SECRET" (ex-message e)))
       (is (re-find #"bb env:init" (ex-message e))))))
 
 ;; ---------------------------------------------------------------------------
@@ -171,8 +187,12 @@
 
 (defn- json-text [x] (json/write-value-as-string x))
 
+(def ^:private no-redirects
+  "A client that does not follow a redirect: a browser's every step is a request of the test."
+  (delay (http/client {:follow-redirects :never})))
+
 (defn- with-dev
-  "Calls `(f {:system s :api-url url :web-url url})` with the api, the scheduler and the portal started as one
+  "Calls `(f {:system s :api-url url :web-url url :idp idp})` with the api, the scheduler and the portal started as one
   system: the test profile, a fake identity provider that gives each of the first two the token of its own service
   account (the scheduler's is for the api, the api's for the scheduler), and the keys of which the portal asks,
   the three on ports that are known, the jobs switched on (and run by the test, not by a schedule that is quiet), and no
@@ -183,6 +203,7 @@
         api-url (str "http://127.0.0.1:" port)
         scheduler-port (free-port)
         web-port (free-port)
+        web-url (str "http://127.0.0.1:" web-port)
         cfg (-> (dev/config {:profile :test :dotenv "there-is-no-such-file.env" :process-env {}})
                 (assoc-in [:pulse.api/jwks :uri] (:uri idp))
                 (assoc-in [:pulse.api/verifier :issuer] h/issuer)
@@ -195,26 +216,41 @@
                 (assoc-in [:pulse.scheduler/token :token-uri] (:token-uri idp))
                 (assoc-in [:pulse.scheduler/api :base-url] api-url)
                 (assoc-in [:pulse.web/jwks :uri] (:uri idp))
+                (assoc-in [:pulse.web/access-verifier :issuer] h/issuer)
+                (assoc-in [:pulse.web/id-verifier :issuer] h/issuer)
                 (assoc-in [:pulse.web/server :port] web-port)
                 (assoc-in [:pulse.web/api :base-url] api-url)
+                (update :pulse.web/oidc assoc
+                        :base-url web-url
+                        :authorization-uri (oidc-fake/authorization-uri idp)
+                        :end-session-uri (oidc-fake/end-session-uri idp)
+                        :token-uri (:token-uri idp))
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :evaluate-rules :schedule] quiet)
                 (assoc-in [:pulse.scheduler/jobs :simulate-devices :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :simulate-devices :schedule] quiet)
                 (assoc-in [:pulse.scheduler/jobs :send-reminders :enabled?] true)
                 (assoc-in [:pulse.scheduler/jobs :send-reminders :schedule] quiet))]
+    ;; the one provider gives the two service accounts their tokens, and signs the portal's people in
+    (oidc-fake/enable! idp {:key h/signing-key
+                            :issuer h/issuer
+                            :clients {"pulse-web" {:secret "test-secret"
+                                                   :redirect-uris #{(str web-url "/oauth2/callback")}
+                                                   :post-logout-redirect-uris [(str web-url "/*")]}}})
     (idp/serve-token! idp {:answer (fn [request]
-                                     (json-text {:access_token (h/token-for (case (idp/client-id-of request)
-                                                                              "pulse-scheduler" :scheduler
-                                                                              "pulse-api" :api-service))
-                                                 :expires_in 300 :token_type "Bearer"}))})
+                                     (when-let [service (case (idp/client-id-of request)
+                                                          "pulse-scheduler" :scheduler
+                                                          "pulse-api" :api-service
+                                                          nil)]
+                                       (json-text {:access_token (h/token-for service)
+                                                   :expires_in 300 :token_type "Bearer"})))})
     (let [system (ig/init cfg)]
       (try
         (let [fhir (:pulse.api/fhir system)]
           ;; all of them first: a search is lazy, and deleting changes what the next page holds
           (doseq [o (doall (c/search fhir "Observation" {}))]
             (c/delete! fhir "Observation" (:id o))))
-        (f {:system system :api-url api-url :web-url (str "http://127.0.0.1:" web-port)})
+        (f {:system system :api-url api-url :web-url web-url :idp idp})
         (finally
           (ig/halt! system)
           (idp/stop! idp))))))
@@ -348,10 +384,91 @@
             (is (= 200 (:status r)))
             (is (= {:status "ready" :checks {:keycloak "up" :api "up"}} (body r)))))
         (testing "a page that is not there, with the headers of a page of the portal"
-          (let [r (http/get (str web-url "/") {:throw false})]
+          (let [r (http/get (str web-url "/nothing") {:throw false})]
             (is (= 404 (:status r)))
             (is (re-find #"We cannot find that page" (:body r)))
             (is (re-find #"script-src 'self'" (get-in r [:headers "content-security-policy"])))))
+        (testing "the page of a person, for somebody who is not signed in, is the sign-in"
+          (let [r (http/get (str web-url "/") {:throw false :client @no-redirects})]
+            (is (= 303 (:status r)))
+            (is (= "/sign-in" (get-in r [:headers "location"])))))
         (testing "and the files that its pages ask for"
           (is (= 200 (:status (http/get (str web-url "/assets/pulse.css") {:throw false}))))
           (is (= 200 (:status (http/get (str web-url "/assets/htmx.min.js") {:throw false})))))))))
+
+;; ---------------------------------------------------------------------------
+;; The acceptance of step 4 of Phase 7: a patient signs in at the portal, and the token it keeps is good at the api
+
+(defn- cookie-jar
+  "A browser's cookies, by hand: `(remember! jar response)` keeps the cookies a response sets, and drops those it expires;
+  `(cookie-header jar)` is what the browser sends back."
+  []
+  (atom {}))
+
+(defn- remember! [jar response]
+  (let [set-cookie (get-in response [:headers "set-cookie"])]
+    (doseq [cookie (cond (nil? set-cookie) [] (string? set-cookie) [set-cookie] :else set-cookie)
+            :let [[pair & attributes] (str/split cookie #";\s*")
+                  [k v] (str/split pair #"=" 2)]]
+      (if (some #(re-matches #"(?i)max-age=0+" %) attributes)
+        (swap! jar dissoc k)
+        (swap! jar assoc k v))))
+  response)
+
+(defn- cookie-header [jar]
+  (str/join "; " (map (fn [[k v]] (str k "=" v)) @jar)))
+
+(defn- browse
+  "A request of a browser with the cookies of `jar`, redirects not followed."
+  [jar method url & {:keys [headers form-params]}]
+  (remember! jar (http/request (cond-> {:method method :uri url :throw false :client @no-redirects
+                                        :headers (cond-> (merge {"Accept" "text/html"} headers)
+                                                   (seq @jar) (assoc "Cookie" (cookie-header jar)))}
+                                 form-params (assoc :form-params form-params)))))
+
+(deftest a-patient-signs-in-at-the-portal-and-the-token-it-keeps-is-good-at-the-api
+  ;; the portal, the real api and the real scheduler in one JVM; the provider is the fake one, which signs Ana in. The portal
+  ;; holds her tokens on the server, and the one it would send to the api is accepted by the api, which knows her by it
+  (with-dev
+    (fn [{:keys [system web-url api-url]}]
+      (let [jar (cookie-jar)
+            begin (browse jar :get (str web-url "/sign-in"))
+            at-the-provider (oidc-fake/visit (get-in begin [:headers "location"]))
+            callback (browse jar :get (:location at-the-provider))
+            home (browse jar :get (str web-url "/"))
+            sessions (:pulse.web/sessions system)
+            session (store/read-session sessions (get @jar "pulse-session"))]
+        (testing "the browser is sent to the provider, comes back with a code, and is let in"
+          (is (= 303 (:status begin)))
+          (is (= 302 (:status at-the-provider)))
+          (is (= 303 (:status callback)))
+          (is (= "/" (get-in callback [:headers "location"])))
+          (is (= 200 (:status home)))
+          (is (re-find #"Welcome, Ana García" (:body home))))
+        (testing "the session is on the server, with her tokens, and the browser has a cookie and nothing else"
+          (is (= #{"pulse-session"} (set (keys @jar))))
+          (is (= "Ana García" (get-in session [:person :name])))
+          (is (= {:sessions 1 :pending 0} (select-keys (session/counts sessions) [:sessions :pending]))))
+        (testing "the token the portal would send is accepted by the api, which knows her by it"
+          (let [r (http/get (str api-url "/api/me") {:throw false
+                                                     :headers {"Authorization" (str "Bearer " (token/access-token (:tokens session)))
+                                                               "Accept" "application/json"}})
+                me (json/read-value (:body r) json/keyword-keys-object-mapper)]
+            (is (= 200 (:status r)))
+            (is (= "Patient/pt-ana" (:fhirUser me)))
+            (is (= ["patient"] (:roles me)))
+            (is (= "pulse-web" (:client me)) "the token was issued to the portal")
+            (is (= "Dr. Elena Rivera" (get-in me [:generalPractitioner :name])))))
+        (testing "signing out ends the session first, and the provider sends the browser back to the portal"
+          (let [out (browse jar :post (str web-url "/sign-out")
+                            :headers {"Origin" web-url}
+                            :form-params {"__anti-forgery-token" (:csrf session)})
+                back (oidc-fake/visit (get-in out [:headers "location"]))
+                signed-out (browse jar :get (:location back))]
+            (is (= 303 (:status out)))
+            (is (= 302 (:status back)))
+            (is (= 200 (:status signed-out)))
+            (is (re-find #"You have signed out" (:body signed-out)))
+            (is (empty? @jar) "the cookie is gone")
+            (is (= {:sessions 0 :pending 0} (select-keys (session/counts sessions) [:sessions :pending])))
+            (is (= 303 (:status (browse jar :get (str web-url "/")))) "and the page of a patient is not hers")))))))

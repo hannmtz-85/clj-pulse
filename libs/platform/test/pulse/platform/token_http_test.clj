@@ -100,6 +100,92 @@
         (is (= (str "Basic " (last secret-forms)) (get-in (first (idp/token-requests server)) [:headers "authorization"])))))))
 
 ;; ---------------------------------------------------------------------------
+;; The endpoint, for any grant (ADR-0028)
+
+(defn- post-for [server & {:as options}]
+  (token/endpoint (merge {:token-uri (:token-uri server)
+                          :client-id "pulse-web"
+                          :client-secret (config/secret secret)}
+                         options)))
+
+(defn- refusal [f]
+  (try (f)
+       (is false "nothing was thrown")
+       (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest the-endpoint-posts-the-form-it-is-given-as-the-client
+  (with-idp
+    (fn [server]
+      (let [post (post-for server)
+            basic (str "Basic " (.encodeToString (Base64/getEncoder)
+                                                 (.getBytes "pulse-web:p%40ss%3Aw%2Brd%25" StandardCharsets/UTF_8)))]
+        (post [["grant_type" "refresh_token"] ["refresh_token" "r/1+2=="]])
+        (post {"grant_type" "authorization_code" "code" "c o" "redirect_uri" "http://localhost:3300/oauth2/callback"})
+        (let [[first-request second-request :as requests] (idp/token-requests server)]
+          (is (= 2 (count requests)))
+          (testing "form-encoded, and in the order given when it is a sequence of pairs"
+            (is (= "grant_type=refresh_token&refresh_token=r%2F1%2B2%3D%3D" (:body first-request)))
+            (is (= "grant_type=authorization_code&code=c+o&redirect_uri=http%3A%2F%2Flocalhost%3A3300%2Foauth2%2Fcallback"
+                   (:body second-request))))
+          (testing "as a form, to the endpoint, with the client's credentials, every time"
+            (doseq [request requests]
+              (is (= "POST" (:method request)))
+              (is (= "application/x-www-form-urlencoded" (get-in request [:headers "content-type"])))
+              (is (= "application/json" (get-in request [:headers "accept"])))
+              (is (= basic (get-in request [:headers "authorization"]))))))))))
+
+(deftest the-endpoint-gives-the-whole-grant-and-keeps-the-tokens-secret
+  (with-idp
+    (fn [server]
+      (idp/serve-token! server {:body (str "{\"access_token\":\"access-value\",\"expires_in\":300,\"refresh_expires_in\":1800,"
+                                           "\"refresh_token\":\"refresh-value\",\"id_token\":\"id-value\",\"token_type\":\"Bearer\"}")})
+      (let [grant ((post-for server) {"grant_type" "authorization_code"})]
+        (is (= "access-value" (:access-token grant)))
+        (is (= 300 (:expires-in grant)))
+        (testing "the refresh token and the id token are secrets, wherever the grant ends up"
+          (is (config/secret? (:refresh-token grant)))
+          (is (config/secret? (:id-token grant)))
+          (is (= "refresh-value" (config/reveal (:refresh-token grant))))
+          (is (= "id-value" (config/reveal (:id-token grant))))
+          (is (not (str/includes? (pr-str grant) "refresh-value")))
+          (is (not (str/includes? (pr-str grant) "id-value")))
+          (is (not (str/includes? (str grant) "id-value"))))))))
+
+(deftest a-grant-has-only-what-the-endpoint-gave
+  (with-idp
+    (fn [server]
+      (is (= #{:access-token :expires-in} (set (keys ((post-for server) {"grant_type" "client_credentials"}))))
+          "the default answer of the fake: a token and its life")
+      (idp/serve-token! server {:body "{\"access_token\":\"a\",\"expires_in\":300,\"refresh_token\":42,\"id_token\":null}"})
+      (is (= #{:access-token :expires-in} (set (keys ((post-for server) {"grant_type" "refresh_token"}))))
+          "a refresh token or an id token that is not a string is not one"))))
+
+(deftest the-endpoint-says-why-a-grant-was-refused
+  (with-idp
+    (fn [server]
+      (idp/serve-token! server {:status 400 :body "{\"error\":\"invalid_grant\",\"error_description\":\"Session not active\"}"})
+      (let [e (refusal #((post-for server) {"grant_type" "refresh_token" "refresh_token" "refresh-value"}))]
+        (is (= {:type ::token/unavailable :reason :rejected :status 400 :error "invalid_grant"} (ex-data e)))
+        (testing "and nothing of the form, the secret or the answer is in what it says"
+          (let [text (all-text-of e)]
+            (is (not (str/includes? text "refresh-value")))
+            (is (not (str/includes? text "Session not active")))
+            (doseq [form secret-forms]
+              (is (not (str/includes? text form)) form))))))))
+
+(deftest the-endpoint-is-given-up-on-when-it-is-slow-and-reported-when-it-is-not-there
+  (with-idp
+    (fn [server]
+      (idp/serve-token! server {:delay-ms 1500})
+      (is (= :timeout (:reason (ex-data (refusal #((post-for server :timeout-ms 200) {"grant_type" "refresh_token"}))))))))
+  (let [server (idp/start! [])
+        uri (:token-uri server)]
+    (idp/stop! server)
+    (let [e (refusal #((token/endpoint {:token-uri uri :client-id "pulse-web" :client-secret secret}) {"grant_type" "refresh_token"}))]
+      (is (= :connect (:reason (ex-data e))))
+      (is (some? (ex-cause e))))))
+
+;; ---------------------------------------------------------------------------
 ;; Keeping it
 
 (deftest over-the-wire-a-token-is-kept-and-then-renewed-early

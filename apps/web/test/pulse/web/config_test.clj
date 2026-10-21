@@ -6,14 +6,19 @@
             [clojure.walk :as walk]
             [integrant.core :as ig]
             [pulse.platform.config :as platform]
-            [pulse.web.config :as config]))
+            [pulse.web.config :as config]
+            [pulse.web.session :as session]))
 
 (def ^:private components
-  #{:pulse.web/logging :pulse.web/jwks :pulse.web/api :pulse.web/handler :pulse.web/server})
+  #{:pulse.web/logging :pulse.web/jwks :pulse.web/access-verifier :pulse.web/id-verifier :pulse.web/api
+    :pulse.web/oidc :pulse.web/sessions :pulse.web/handler :pulse.web/server})
 
 (defn- load-config
+  "The configuration of `profile`, with the secret of the client set, as a machine that runs the tests may not have it."
   ([] (load-config :dev))
-  ([profile] (config/load-config {:profile profile})))
+  ([profile]
+   (binding [platform/*environment* (merge {"WEB_CLIENT_SECRET" "a-secret"} platform/*environment*)]
+     (config/load-config {:profile profile}))))
 
 (defn- refs [cfg]
   (let [found (atom [])]
@@ -23,6 +28,9 @@
 (defn- realm []
   (with-open [rdr (io/reader (io/file "infra/keycloak/realm/pulse-realm.json"))]
     (json/read rdr :key-fn keyword)))
+
+(defn- web-client []
+  (first (filter #(= "pulse-web" (:clientId %)) (:clients (realm)))))
 
 (deftest every-profile-loads-and-is-valid
   (doseq [profile [:dev :test]]
@@ -54,7 +62,7 @@
 (deftest the-portal-redirect-address-and-port-are-those-of-the-realm
   ;; The realm registers http://localhost:3300/oauth2/callback for the client pulse-web (tools/realm.clj): the portal
   ;; must listen where Keycloak sends the person back to.
-  (let [client (first (filter #(= "pulse-web" (:clientId %)) (:clients (realm))))
+  (let [client (web-client)
         port (get-in (load-config) [:pulse.web/server :port])]
     (is (some? client))
     (is (= [(str "http://localhost:" port "/oauth2/callback")] (:redirectUris client)))
@@ -70,14 +78,16 @@
 (deftest health-probes-are-quiet
   (is (= #{"/healthz" "/readyz"} (get-in (load-config) [:pulse.web/handler :quiet-paths]))))
 
-(deftest the-handler-gets-what-readiness-asks-about
+(deftest the-handler-gets-what-it-is-made-of
   (let [cfg (load-config)]
-    (is (= (ig/ref :pulse.web/jwks) (get-in cfg [:pulse.web/handler :jwks])))
-    (is (= (ig/ref :pulse.web/api) (get-in cfg [:pulse.web/handler :api])))
+    (doseq [[k component] {:jwks :pulse.web/jwks :api :pulse.web/api :oidc :pulse.web/oidc :sessions :pulse.web/sessions
+                           :access-verifier :pulse.web/access-verifier :id-verifier :pulse.web/id-verifier}]
+      (is (= (ig/ref component) (get-in cfg [:pulse.web/handler k])) k))
     (is (= (ig/ref :pulse.web/handler) (get-in cfg [:pulse.web/server :handler])))))
 
 (deftest variables-change-where-the-portal-listens-and-whom-it-asks
   (binding [platform/*environment* {"WEB_PORT" "3301" "WEB_HOST" "0.0.0.0" "API_BASE_URL" "http://api.test:4000"
+                                    "WEB_CLIENT_SECRET" "s"
                                     "KEYCLOAK_ISSUER" "https://id.example/realms/pulse"
                                     "KEYCLOAK_JWKS_URI" "http://keycloak:8080/realms/pulse/protocol/openid-connect/certs"}]
     (let [cfg (config/load-config {:profile :dev})]
@@ -86,13 +96,85 @@
       (is (= "http://api.test:4000" (get-in cfg [:pulse.web/api :base-url])))
       (is (= "https://id.example/realms/pulse" (get-in cfg [:pulse.web/handler :issuer]))
           "as a browser reaches it")
+      (is (= "https://id.example/realms/pulse" (get-in cfg [:pulse.web/access-verifier :issuer]))
+          "and it is the issuer that the tokens are verified against")
       (is (= "http://keycloak:8080/realms/pulse/protocol/openid-connect/certs" (get-in cfg [:pulse.web/jwks :uri]))
           "and as the portal does, inside a container"))))
 
 (deftest the-port-from-the-environment-is-a-number-or-the-start-up-stops
   (doseq [bad ["often" "-1" "70000"]]
-    (binding [platform/*environment* {"WEB_PORT" bad}]
+    (binding [platform/*environment* {"WEB_PORT" bad "WEB_CLIENT_SECRET" "s"}]
       (is (thrown? Exception (config/load-config {:profile :dev})) bad))))
+
+;; ---------------------------------------------------------------------------
+;; The sign-in (ADR-0028)
+
+(deftest the-two-tokens-of-a-sign-in-are-each-verified-as-what-they-are
+  (let [cfg (load-config)
+        access (:pulse.web/access-verifier cfg)
+        id (:pulse.web/id-verifier cfg)]
+    (is (= "pulse-api" (:audience access)) "the access token is for the api")
+    (is (= "Bearer" (:token-type access)))
+    (is (= "pulse-web" (:audience id)) "and an id token is for the client, the portal")
+    (is (= "ID" (:token-type id)))
+    (is (= (:issuer access) (:issuer id)) "both are the identity provider's")
+    (is (= ["RS256"] (:algorithms access) (:algorithms id)))
+    (is (= (ig/ref :pulse.web/jwks) (:jwks access) (:jwks id)))))
+
+(deftest the-portal-is-the-client-pulse-web-of-the-realm
+  (let [oidc (:pulse.web/oidc (load-config))
+        client (web-client)]
+    (is (= (:clientId client) (:client-id oidc)))
+    (is (= "http://localhost:3300" (:base-url oidc)) "where the realm sends the browser back to, and the base of the redirect addresses")
+    (testing "the addresses of Keycloak, as the realm has them"
+      (let [prefix (str "http://localhost:8080/realms/" (:realm (realm)) "/protocol/openid-connect/")]
+        (is (= (str prefix "auth") (:authorization-uri oidc)))
+        (is (= (str prefix "logout") (:end-session-uri oidc)))
+        (is (= (str prefix "token") (:token-uri oidc)))))
+    (testing "the redirect and the post-logout addresses are inside what the realm registered"
+      (is (= [(str (:base-url oidc) "/oauth2/callback")] (:redirectUris client)))
+      (is (= (str (:base-url oidc) "/*") (get-in client [:attributes :post.logout.redirect.uris]))))
+    (is (< (:connect-timeout-ms oidc) (:timeout-ms oidc)))))
+
+(deftest the-secret-of-the-client-is-a-secret-that-the-dev-profile-needs
+  (testing "read from the variable, and it prints as nothing"
+    (let [secret (get-in (load-config :dev) [:pulse.web/oidc :client-secret])]
+      (is (platform/secret? secret))
+      (is (= "a-secret" (platform/reveal secret)))
+      (is (= "#secret[REDACTED]" (pr-str secret)))))
+  (testing "without it the portal does not start, and the message says where it comes from and not what it holds"
+    (binding [platform/*environment* {"WEB_CLIENT_SECRET" nil}]
+      (let [e (try (config/load-config {:profile :dev}) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (platform/invalid-config? e))
+        (is (some #(and (str/includes? % ":pulse.web/oidc :client-secret") (str/includes? % "WEB_CLIENT_SECRET")) (:problems (ex-data e)))))))
+  (testing "a secret that is only white space is none"
+    (binding [platform/*environment* {"WEB_CLIENT_SECRET" "   "}]
+      (is (thrown? Exception (config/load-config {:profile :dev})))))
+  (testing "the tests have one of their own"
+    (binding [platform/*environment* {"WEB_CLIENT_SECRET" nil}]
+      (is (platform/secret? (get-in (config/load-config {:profile :test}) [:pulse.web/oidc :client-secret]))))))
+
+(deftest variables-change-the-addresses-of-the-sign-in
+  (binding [platform/*environment* {"WEB_CLIENT_SECRET" "s"
+                                    "WEB_BASE_URL" "https://portal.example"
+                                    "KEYCLOAK_AUTHORIZATION_URI" "https://id.example/realms/pulse/protocol/openid-connect/auth"
+                                    "KEYCLOAK_END_SESSION_URI" "https://id.example/realms/pulse/protocol/openid-connect/logout"
+                                    "KEYCLOAK_TOKEN_URI" "http://keycloak:8080/realms/pulse/protocol/openid-connect/token"}]
+    (let [oidc (:pulse.web/oidc (config/load-config {:profile :dev}))]
+      (is (= "https://portal.example" (:base-url oidc)))
+      (is (= "https://id.example/realms/pulse/protocol/openid-connect/auth" (:authorization-uri oidc)) "as the browser reaches it")
+      (is (= "https://id.example/realms/pulse/protocol/openid-connect/logout" (:end-session-uri oidc)))
+      (is (= "http://keycloak:8080/realms/pulse/protocol/openid-connect/token" (:token-uri oidc)) "and as the portal does, inside a container"))))
+
+(deftest the-sessions-have-the-limits-of-the-design
+  (let [sessions (:pulse.web/sessions (load-config))]
+    (is (= (* 30 60 1000) (:idle-ms sessions)) "the idle limit of the realm's SSO session")
+    (is (= (* 10 60 60 1000) (:absolute-ms sessions)) "and its maximum")
+    (is (= (* 10 60 1000) (:pending-ms sessions)))
+    (is (= 1000 (:max-pending sessions)))
+    (is (= 10000 (:max-sessions sessions)))
+    (testing "which are the defaults of the store, so that a store made with nothing is the same"
+      (is (= sessions session/defaults)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mistakes
@@ -121,10 +203,36 @@
     (is (mentions? (problems-with #(assoc-in % [:pulse.web/api :base-url] "localhost:4000")) ":pulse.web/api :base-url" "URL"))
     (is (mentions? (problems-with #(assoc-in % [:pulse.web/api :token] (ig/ref :pulse.web/logging))) ":pulse.web/api :token" "disallowed")))
   (testing "a timeout that is absurd"
-    (is (mentions? (problems-with #(assoc-in % [:pulse.web/api :timeout-ms] 5)) ":pulse.web/api :timeout-ms")))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/api :timeout-ms] 5)) ":pulse.web/api :timeout-ms"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :timeout-ms] 5)) ":pulse.web/oidc :timeout-ms")))
   (testing "an unknown log level"
     (is (mentions? (problems-with #(assoc-in % [:pulse.web/logging :level] :loud)) ":pulse.web/logging :level")))
   (testing "a component that does not exist"
     (is (mentions? (problems-with #(assoc % :pulse.web/extra {})) ":pulse.web/extra" "disallowed")))
   (testing "a keys address that is not a URL"
     (is (mentions? (problems-with #(assoc-in % [:pulse.web/jwks :uri] "keycloak/certs")) ":pulse.web/jwks :uri" "URL"))))
+
+(deftest mistakes-in-the-sign-in-are-reported-with-their-place
+  (testing "a base address that is more than an origin: the redirect addresses and the check of the origin are made from it"
+    (doseq [bad ["http://localhost:3300/portal" "http://localhost:3300/" "localhost:3300" "http://localhost:3300?x=1"]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :base-url] bad)) ":pulse.web/oidc :base-url" "origin") bad)))
+  (testing "addresses of the identity provider that are not URLs"
+    (doseq [k [:authorization-uri :end-session-uri :token-uri]]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc k] "keycloak/x")) (str ":pulse.web/oidc " k) "URL") k)))
+  (testing "a secret that is a plain string: it would be printed"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :client-secret] "plain")) ":pulse.web/oidc :client-secret" "secret")))
+  (testing "a misspelt key of the client"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :client-secrt] "x")) ":pulse.web/oidc :client-secrt" "disallowed")))
+  (testing "a clock that is not one"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :clock] "now")) ":pulse.web/oidc :clock" "Clock"))
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/sessions :clock] 5)) ":pulse.web/sessions :clock" "Clock")))
+  (testing "limits of the sessions that make no sense"
+    (doseq [[k bad] {:idle-ms 5 :absolute-ms 0 :pending-ms -1 :max-sessions 0 :max-pending 0}]
+      (is (mentions? (problems-with #(assoc-in % [:pulse.web/sessions k] bad)) (str ":pulse.web/sessions " k)) k)))
+  (testing "a verifier that checks for no token type or algorithm"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/id-verifier :algorithms] [])) ":pulse.web/id-verifier :algorithms")))
+  (testing "a client with no name"
+    (is (mentions? (problems-with #(assoc-in % [:pulse.web/oidc :client-id] "")) ":pulse.web/oidc :client-id")))
+  (testing "a handler that is not given everything the sign-in is made of"
+    (doseq [k [:oidc :sessions :access-verifier :id-verifier]]
+      (is (mentions? (problems-with #(update % :pulse.web/handler dissoc k)) ":pulse.web/handler" (name k) "missing") k))))

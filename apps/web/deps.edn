@@ -6,4 +6,6 @@
         ;; The components of the interface, which the pages are made of
         pulse/ui {:local/root "../../libs/ui"}
         ;; The pages are hiccup, written as HTML by Hiccup 2 (the review of the mock-ups does the same)
-        hiccup/hiccup {:mvn/version "2.0.0"}}}
+        hiccup/hiccup {:mvn/version "2.0.0"}
+        ;; The check of the CSRF token of a request that changes something (ADR-0028, point 6)
+        ring/ring-anti-forgery {:mvn/version "1.4.0"}}}

@@ -11,12 +11,20 @@
   for: a 303 to `/sign-in` for a page, and for a request that htmx made, a 401 with an `HX-Redirect` header, so that htmx
   leaves the page and never puts a sign-in into a fragment of it.
 
-  Who is signed in is the `:person` in the session of the request. The session itself, the sign-in and the cookie are the
-  next step; until then nobody is."
+  Who is signed in is the `:person` in the session of the request (`pulse.web.session`, made by the sign-in,
+  `pulse.web.signin`). A browser that comes with the cookie of a session that is not there any more (it ended, or the portal was
+  restarted) is told so, in a page, and one that comes with none is sent to sign in without more.
+
+  A patient's route is also where the person's token is needed: the handler asks the api with the keeper of the session, and
+  when the keeper cannot give a token the request ends here, in a page. If the identity provider refused to renew it, the
+  session is over and the person is told so; if it could not be reached, the person is told that signing in is not available
+  and the session stays, since the next try may work (ADR-0028)."
   (:require [pulse.platform.http.client :as http]
             [pulse.platform.http.router :as router]
             [pulse.web.errors :as errors]
+            [pulse.web.oidc :as oidc]
             [pulse.web.return-to :as return-to]
+            [pulse.web.session :as session]
             [taoensso.telemere :as t]))
 
 (def specs
@@ -39,7 +47,7 @@
       router)))
 
 (defn person
-  "The person who is signed in, as the session of `request` has them, or nil."
+  "The person who is signed in, as the session of `request` has them (`{:id :name :username :roles}`), or nil."
   [request]
   (get-in request [:session :person]))
 
@@ -56,19 +64,42 @@
     (str "/sign-in" (when query (str "?" query)))))
 
 (defn- unauthenticated
-  "The answer to a request for a page of a patient from somebody who is not signed in."
+  "The answer to a request for a page of a patient from somebody who is not signed in: to the sign-in, or, for a browser that
+  came with the cookie of a session that has ended, the page that says so (and the cookie is dropped)."
   [request]
-  (let [address (sign-in-address request)]
-    (if (htmx? request)
-      {:status 401 :headers {"HX-Redirect" address} :body ""}
-      {:status 303 :headers {"Location" address} :body ""})))
+  (let [address (sign-in-address request)
+        stale? (session/stale-cookie? request)
+        response (cond
+                   (htmx? request) {:status 401 :headers {"HX-Redirect" address} :body ""}
+                   stale? (errors/failure :session-ended request :sign-in-href address)
+                   :else {:status 303 :headers {"Location" address} :body ""})]
+    (cond-> response
+      stale? session/forget-cookie)))
+
+(defn- token-unavailable
+  "The answer to a request of a signed-in person whose token could not be had: `e` is the `::token/unavailable` of their
+  keeper. If the identity provider refused to renew it, the session is over (and ended here); if it could not be asked, the
+  person is told so and keeps the session."
+  [request e]
+  (if (oidc/rejected? e)
+    (let [address (sign-in-address request)]
+      (t/event! :pulse.web/session-ended {:level :info :data {:reason :refresh-rejected}})
+      (session/end (if (htmx? request)
+                     {:status 401 :headers {"HX-Redirect" address} :body ""}
+                     (errors/failure :session-ended request :sign-in-href address))))
+    (errors/failure :sign-in-unavailable request)))
 
 (defn- protect
   "Middleware for a route that needs a patient who is signed in."
   [handler]
   (fn [request]
     (if (person request)
-      (handler request)
+      (try
+        (handler request)
+        (catch clojure.lang.ExceptionInfo e
+          (if (oidc/unavailable? e)
+            (token-unavailable request e)
+            (throw e))))
       (unauthenticated request))))
 
 (defn- deny-all

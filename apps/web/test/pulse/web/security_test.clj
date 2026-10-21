@@ -62,6 +62,16 @@
       (doseq [feature ["camera" "microphone" "geolocation" "payment" "usb"]]
         (is (str/includes? (get headers "Permissions-Policy") (str feature "=()")) feature)))))
 
+(deftest a-portal-served-over-https-tells-the-browser-to-keep-to-it
+  (let [{:keys [headers]} (security/header-options issuer {:secure? true})]
+    (is (= "max-age=63072000; includeSubDomains" (get headers "Strict-Transport-Security")))
+    (is (= security/hsts (get headers "Strict-Transport-Security")))
+    (is (= (:headers (security/header-options issuer)) (dissoc headers "Strict-Transport-Security"))
+        "and nothing else is different"))
+  (testing "one served over http says nothing of the kind: the browser would remember a rule the portal cannot keep"
+    (doseq [options [nil {} {:secure? false} {:secure? nil}]]
+      (is (not (contains? (:headers (security/header-options issuer options)) "Strict-Transport-Security")) (pr-str options)))))
+
 (deftest the-referrer-policy-keeps-the-origin-of-a-form-that-goes-home
   ;; With `no-referrer` a browser sends `Origin: null` with a form it posts to its own server, and the check of the origin
   ;; of a request that changes something (ADR-0028) could not tell it from a page that a stranger made in a sandbox.

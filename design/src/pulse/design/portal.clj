@@ -378,7 +378,8 @@
          [:section {:aria-labelledby "stopped"}
           [:div {:class "mb-3"} (section-heading "stopped" "A whole page")]
           ;; the cards are those of the portal itself: what is reviewed here is what is served (ADR-0028)
-          (let [links {:home-href (link "portal-home.html") :retry-href "#" :sign-in-href (link "login.html")}]
+          (let [links {:home-href (link "portal-home.html") :retry-href "#" :sign-in-href (link "login.html")
+                       :sign-out-href (link "login.html")}]
             [:div {:class "grid gap-4 md:grid-cols-2"}
              (for [kind (keys pages/error-kinds)]
                (pages/error-card kind links))])]]))

@@ -80,7 +80,7 @@
 (deftest a-path-that-is-nothing-is-a-page-that-says-so
   (with-web {}
     (fn [web]
-      (doseq [path ["/" "/nothing" "/api/me" "/readings/../x" "/healthz/extra"]]
+      (doseq [path ["/nothing" "/api/me" "/readings/../x" "/healthz/extra" "/oauth2" "/sign-in/x"]]
         (let [r (call web :get path)]
           (is (= 404 (:status r)) path)
           (is (= "text/html" (h/content-type r)))

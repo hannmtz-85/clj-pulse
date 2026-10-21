@@ -119,6 +119,16 @@
     (token/access-token s)
     (is (= 2 @calls) "240 s after it")))
 
+(deftest a-keeper-prints-whose-it-is-and-not-what-it-holds
+  ;; a keeper in the data of an exception or of a log event must not print a bearer token
+  (let [calls (atom 0)
+        [s _] (keeper (counting calls))]
+    (is (= "token-1" (token/access-token s)))
+    (is (= "#token-source[pulse-test]" (pr-str s)))
+    (is (nil? (re-find #"token-1" (pr-str {:session {:tokens s}}))) "wherever it is")
+    (is (nil? (re-find #"token-1" (pr-str (ex-info "x" {:keeper s})))))
+    (is (= "token-1" (:token @(:state s))) "it is still a map to the code that knows it")))
+
 (deftest a-renewal-is-logged-without-the-token
   (let [calls (atom 0)
         [s _] (keeper (counting calls))
@@ -127,6 +137,82 @@
     (is (= :info (:level renewed)))
     (is (= {:client "pulse-test" :expires-in-s 300 :renew-in-s 240} (:data renewed)))
     (is (not (re-find #"token-1" (pr-str signals))))))
+
+;; ---------------------------------------------------------------------------
+;; A grant in hand: the first token of a person, from the exchange of a code (ADR-0028)
+
+(defn- starting-with
+  "A keeper that begins with `initial` on a clock of its own: `[source clock calls]`."
+  [initial & {:as options}]
+  (let [calls (atom 0)
+        c (clock/clock start)]
+    [(token/source (merge {:fetch (counting calls) :clock (:clock c) :client-id "pulse-test" :initial initial} options))
+     c
+     calls]))
+
+(deftest a-keeper-that-starts-with-a-grant-asks-for-nothing-until-it-is-near-its-end
+  (let [[s c calls] (starting-with {:access-token "first" :expires-in 300})]
+    (is (= "first" (token/access-token s)))
+    (is (zero? @calls) "the first token is the one in hand")
+    (clock/advance! c 239999)
+    (is (= "first" (token/access-token s)))
+    (is (zero? @calls) "a millisecond before the margin of 60 s begins")
+    (clock/advance! c 1)
+    (is (= "token-1" (token/access-token s)) "and then it is renewed by the fetch, as any token is")
+    (is (= 1 @calls))
+    (is (= "token-1" (token/access-token s)))
+    (is (= 1 @calls))))
+
+(deftest the-life-of-the-grant-is-counted-from-when-it-was-asked-for
+  (testing "by default, from the moment the keeper is made"
+    (let [calls (atom 0)
+          c (clock/clock start)]
+      (clock/advance! c 1000000)
+      (let [s (token/source {:fetch (counting calls) :clock (:clock c) :initial {:access-token "first" :expires-in 300}})]
+        (clock/advance! c 239999)
+        (is (= "first" (token/access-token s)))
+        (is (zero? @calls))
+        (clock/advance! c 1)
+        (is (= "token-1" (token/access-token s))))))
+  (testing "or from the moment the request was sent, which is earlier than the moment the keeper was made"
+    (let [asked-at (.minusSeconds (java.time.Instant/parse start) 100)
+          [s c calls] (starting-with {:access-token "first" :expires-in 300 :asked-at asked-at})]
+      (is (= "first" (token/access-token s)))
+      (is (zero? @calls) "it has 200 s left, and its margin begins in 140")
+      (clock/advance! c 139999)
+      (is (= "first" (token/access-token s)))
+      (is (zero? @calls))
+      (clock/advance! c 1)
+      (is (= "token-1" (token/access-token s)))
+      (is (= 1 @calls)))))
+
+(deftest a-grant-that-has-expired-already-is-not-used
+  (let [asked-at (.minusSeconds (java.time.Instant/parse start) 300)
+        [s _ calls] (starting-with {:access-token "stale" :expires-in 300 :asked-at asked-at})]
+    (is (= "token-1" (token/access-token s)) "300 s after it was asked for, with a life of 300 s: it has expired")
+    (is (= 1 @calls))))
+
+(deftest what-else-the-grant-carries-is-not-the-keepers-business
+  ;; the refresh token and the id token of a person are held by whoever renews with them
+  (let [[s _ calls] (starting-with {:access-token "first" :expires-in 300 :refresh-token "r" :id-token "i"})]
+    (is (= "first" (token/access-token s)))
+    (is (zero? @calls))
+    (is (= #{:token :expires-at :renew-at} (set (keys @(:state s)))) "the keeper keeps the token and its times, and nothing else")))
+
+(deftest a-grant-that-is-not-one-cannot-start-a-keeper
+  (doseq [bad [{} {:access-token "" :expires-in 300} {:access-token "  " :expires-in 300} {:access-token nil :expires-in 300}
+               {:access-token "t"} {:access-token "t" :expires-in 0} {:access-token "t" :expires-in -5}
+               {:access-token "t" :expires-in "300"} {:access-token 42 :expires-in 300}]]
+    (let [e (try (starting-with bad) nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) (pr-str bad))
+      (is (= {:type ::token/invalid-initial-grant} (ex-data e)) "and the grant, which may be a token, is not in it"))))
+
+(deftest a-renewal-that-fails-leaves-a-caller-the-token-in-hand-while-it-is-valid
+  (let [calls (atom 0)
+        [s c] (starting-with {:access-token "first" :expires-in 300} :fetch (counting calls :fails #{1}))]
+    (clock/advance! c 250000)
+    (is (= "first" (token/access-token s)))
+    (is (= 1 @calls))))
 
 ;; ---------------------------------------------------------------------------
 ;; When Keycloak cannot be asked
@@ -316,6 +402,27 @@
     (deliver gate :go)
     (is (= "token-1" (deref renewer 5000 nil)))
     (is (= "token-1" (token/access-token s)) "and nothing was recorded against the endpoint")))
+
+(deftest callers-that-find-a-token-in-hand-near-its-end-share-one-renewal
+  ;; the keeper of a person's session: twenty requests of the same person meet a token that is near its end
+  (let [calls (atom 0)
+        gate (promise)
+        inside (promise)
+        c (clock/clock start)
+        fetch (fn []
+                (let [n (swap! calls inc)]
+                  (deliver inside true)
+                  @gate
+                  (grant n 300)))
+        s (token/source {:fetch fetch :clock (:clock c) :initial {:access-token "first" :expires-in 300}})]
+    (clock/advance! c 250000)
+    (let [renewer (future (token/access-token s))]
+      (is (deref inside 5000 nil) "one of them is renewing")
+      (is (= ["first"] (distinct (results (in-threads 19 #(token/access-token s)))))
+          "and the others go on with the token they have, which is still good")
+      (deliver gate :go)
+      (is (= "token-1" (deref renewer 5000 nil)))
+      (is (= 1 @calls)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Properties
