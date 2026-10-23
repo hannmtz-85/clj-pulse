@@ -226,8 +226,8 @@
       (is (= ["appt-ana-0" "appt-ana-1" "appt-ana-2"] (map :id (:appointments ana))) "soonest first")
       (is (= ["flag-pt-ana-R1"] (map :id (:alerts ana))))
       (is (empty? (:alerts (data/summary "pt-liam"))) "the alert of Liam was acknowledged, and is not active")))
-  (testing "a vital sign the patient has no reading of is null, and the summary has no temperature"
-    (is (= #{:blood-pressure :heart-rate :glucose :spo2 :weight} (set (keys (:vitals (data/summary "pt-ana"))))))
+  (testing "a vital sign the patient has no reading of is null, and the summary has a place for every measurement"
+    (is (= #{:blood-pressure :heart-rate :glucose :spo2 :weight :temperature} (set (keys (:vitals (data/summary "pt-ana"))))))
     (is (= [:blood-pressure :heart-rate :weight] (sort-by {:blood-pressure 0 :heart-rate 1 :weight 2} (keep (fn [[k v]] (when v k)) (:vitals (data/summary "pt-ana"))))))
     (is (every? nil? (vals (:vitals (data/summary "pt-noah")))))))
 

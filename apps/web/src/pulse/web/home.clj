@@ -9,8 +9,7 @@
   not be reached for the summary, or was too slow, or failed on its own side, and the page is the home with a message where
   the readings and the appointments should be, and a button to try again. A failure of another kind (the api refusing the
   portal's token, say) is a failure of the whole page. A part that is lost is in the log."
-  (:require [pulse.fhir.reference :as ref]
-            [pulse.platform.fanout :as fanout]
+  (:require [pulse.platform.fanout :as fanout]
             [pulse.platform.http.client :as http]
             [pulse.web.api :as api]
             [pulse.web.authz :as authz]
@@ -19,37 +18,17 @@
             [pulse.web.pages.home :as home]
             [pulse.web.return-to :as return-to]
             [pulse.web.session :as session]
-            [pulse.web.views :as views]
-            [taoensso.telemere :as t])
+            [pulse.web.views :as views])
   (:import (java.time Clock Instant)))
 
 (def default-series-timeout-ms
   "How long the series of the recent readings, all at once, have between them, unless a test says otherwise."
   5000)
 
-(defn- patient-id
-  "The id of the patient's own record, from what `/api/me` answered, or a failure on our side: a patient with no record to show
-  is an account the clinic has not finished setting up."
-  [me]
-  (let [{:keys [type id]} (some-> (:fhirUser me) ref/parse)]
-    (if (= "Patient" type)
-      id
-      (throw (ex-info "The api knows no record of this patient" {:type ::no-patient-record})))))
-
-(defn- lost!
-  "Records that the part of the page called `part` could not be had: `why` is `{:status :reason}` of what happened to it."
-  [part why]
-  (t/event! :pulse.web/part-lost {:level :warn :data (assoc why :part part)}))
-
 (defn- summary-of
   "The summary of the patient, or nil when the api could not give it and a page can go on without."
   [api request id]
-  (try
-    (api/get-json api request (http/path "api" "patients" id "summary"))
-    (catch clojure.lang.ExceptionInfo e
-      (if (api/degradable? e)
-        (do (lost! "summary" (select-keys (ex-data e) [:status :reason])) nil)
-        (throw e)))))
+  (api/degrading "summary" #(api/get-json api request (http/path "api" "patients" id "summary"))))
 
 (defn- lost-reason
   "Why the outcome of a task of a fan-out is a part that is lost, as `{:status :reason}` for the log: a failure of the api that a
@@ -75,7 +54,7 @@
                              {:timeout-ms timeout-ms})
         lost (into {} (keep (fn [[kind outcome]] (when-let [why (lost-reason outcome)] [kind why]))) outcomes)]
     (if (seq lost)
-      (do (doseq [[kind why] lost] (lost! (str "series " (name kind)) why))
+      (do (doseq [[kind why] lost] (api/lost! (str "series " (name kind)) why))
           nil)
       (into [] (mapcat #(:items (:ok %))) (vals outcomes)))))
 
@@ -87,7 +66,7 @@
   (let [^Clock clock (or clock (Clock/systemUTC))]
     (fn [request]
       (let [me (api/get-json api request "/api/me")
-            id (patient-id me)
+            id (api/patient-id me)
             summary (summary-of api request id)
             recent (recent-of api request id summary series-timeout-ms)
             now (str (Instant/now clock))]
@@ -97,4 +76,6 @@
                       :person (authz/person request)
                       :csrf-token (session/csrf-token-of request)}
                      (home/content {:now now :me me :summary summary :recent recent}
-                                   {:retry (return-to/of-request request)})))))))
+                                   {:retry (return-to/of-request request)
+                                    :readings pages/readings-path
+                                    :new-reading pages/new-reading-path})))))))

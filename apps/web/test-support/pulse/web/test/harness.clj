@@ -162,11 +162,22 @@
   [{:keys [sessions]} data]
   (str session/cookie-name "=" (store/write-session sessions nil data)))
 
+(defn- encoded [x]
+  (java.net.URLEncoder/encode (str x) "UTF-8"))
+
+(defn form-body
+  "The text of a form posted by a browser: the parameters of `form`, a map, each encoded. A value that is a sequence is a parameter
+  that comes more than once, as `a=1&a=2`."
+  [form]
+  (str/join "&" (for [[k v] form
+                      v (if (sequential? v) v [v])]
+                  (str (encoded (name k)) "=" (encoded v)))))
+
 (defn call
   "The response to a request, with `:bytes`, `:text` (the body as UTF-8), `:json` (the body as JSON, if it is) and
   `:signals` (what was logged, trapped so nothing is printed) added. Options: `:headers`, `:query` (a query string),
   `:session` (the data of a session, which is made in the store, and its cookie sent) and `:form` (a map, sent as the
-  parameters of a form)."
+  parameters of a form, encoded; a value that is a sequence comes more than once)."
   [{:keys [handler] :as web} method uri & {:keys [headers query session form]}]
   (let [headers (cond-> (or headers {})
                   session (assoc "cookie" (session-cookie web session))
@@ -175,7 +186,7 @@
                          :uri uri
                          :headers headers}
                   query (assoc :query-string query)
-                  form (assoc :body (io/input-stream (.getBytes ^String (str/join "&" (map (fn [[k v]] (str (name k) "=" v)) form)) "UTF-8"))))
+                  form (assoc :body (io/input-stream (.getBytes ^String (form-body form) "UTF-8"))))
         {:keys [value signals]} (t/with-signals true (handler request))
         data (bytes-of (:body value))
         text (String. data "UTF-8")]

@@ -9,7 +9,8 @@
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]
             [pulse.web.pages.home :as home]
-            [pulse.web.pages.parts :as parts]))
+            [pulse.web.pages.parts :as parts]
+            [pulse.web.views :as views]))
 
 (def ^:private now data/now-text)
 
@@ -238,7 +239,7 @@
   (testing "who has readings"
     (is (false? (home/new-patient? (:summary ana)))))
   (testing "whose readings could not be loaded, all or some of them"
-    (is (false? (home/new-patient? (:summary (lost noah :vitals [:blood-pressure :heart-rate :glucose :spo2 :weight])))))
+    (is (false? (home/new-patient? (:summary (lost noah :vitals views/kinds)))))
     (is (false? (home/new-patient? (:summary (lost noah :vitals [:glucose]))))))
   (testing "whose appointments could not be loaded, which says nothing of readings"
     (is (true? (home/new-patient? (:summary (lost noah :appointments true))))))
@@ -286,8 +287,7 @@
       (is (not (contains? (set (section-ids tree)) "first"))))))
 
 (deftest every-latest-reading-that-could-not-be-loaded-is-a-message-and-no-list-of-recent-ones
-  (let [all-kinds [:blood-pressure :heart-rate :glucose :spo2 :weight]
-        tree (home/content (-> (lost ana :vitals all-kinds) (assoc :recent nil)) all-links)]
+  (let [tree (home/content (-> (lost ana :vitals views/kinds) (assoc :recent nil)) all-links)]
     (is (= ["next" "latest"] (section-ids tree)))
     (is (str/includes? (hx/words (section tree "latest")) "Your latest readings could not be loaded"))
     (is (empty? (hx/select tree #(hx/has-class? % "text-4xl"))))
@@ -319,7 +319,7 @@
                               ["no summary" (assoc ana :summary nil :recent nil) all-links]
                               ["no appointments" (lost ana :appointments true) all-links]
                               ["some readings lost" (lost ana :vitals [:heart-rate]) all-links]
-                              ["all readings lost" (lost ana :vitals [:blood-pressure :heart-rate :glucose :spo2 :weight]) all-links]
+                              ["all readings lost" (lost ana :vitals views/kinds) all-links]
                               ["no recent readings" (assoc ana :recent nil) all-links]
                               ["nothing coming up" (assoc-in ana [:summary :appointments] []) all-links]]]
     (testing what

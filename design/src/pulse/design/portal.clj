@@ -6,15 +6,19 @@
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
             [pulse.design.mockup :as mockup]
-            [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
+            [pulse.fhir.measurement :as measurement]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
             [pulse.web.format :as fmt]
             [pulse.web.pages :as pages]
             [pulse.web.pages.home :as home-page]
             [pulse.web.pages.parts :as parts]
-            [pulse.web.views :as web-views]))
+            [pulse.web.pages.reading-form :as reading-form]
+            [pulse.web.pages.readings :as readings-page]
+            [pulse.web.recording :as recording]
+            [pulse.web.views :as web-views])
+  (:import (java.time Duration)))
 
 (defn- link [file] (mockup/href file))
 
@@ -37,10 +41,6 @@
   (mockup/frame-document
    {:title title}
    (apply layout/portal-shell {:current current :nav nav :user (menu-of (or patient (data/patient "pt-ana")))} content)))
-
-(defn- phone-only [content] [:div {:class "md:hidden"} content])
-
-(defn- from-tablet [content] [:div {:class "hidden md:block"} content])
 
 (def links
   "Where the buttons of the pages lead, for the pages of the portal that have them (see `pulse.web.pages.parts`): the mock-ups
@@ -77,78 +77,41 @@
 ;; ---------------------------------------------------------------------------
 ;; Readings
 
-(defn- stats-row [patient-id kind days]
-  (let [readings (specimen/within (data/readings patient-id kind) days)
-        key-of #(or (:systolic %) (:value %))
-        latest (last readings)
-        highest (apply max-key key-of readings)
-        lowest (apply min-key key-of readings)
-        text (fn [reading] (str (web-views/reading-text kind reading) " " (fmt/unit (:unit reading))))]
-    [:div {:class "grid gap-4 sm:grid-cols-3"}
-     (c/stat {:label "Latest" :value (text latest) :hint (fmt/when-text (:at latest) data/now-text)})
-     (c/stat {:label (str "Highest, " days " days") :value (text highest) :hint (fmt/when-text (:at highest) data/now-text)})
-     (c/stat {:label (str "Lowest, " days " days") :value (text lowest) :hint (fmt/when-text (:at lowest) data/now-text)})]))
-
-(defn- readings-table [patient-id kind n]
-  (let [label (get-in web-views/kind-info [kind :label])]
-    (c/data-table
-     {:caption (str label ", the last " n " readings")
-      :dense? true
-      :columns [{:key :at :label "When" :header? true :class "whitespace-nowrap"}
-                {:key :value :label "Reading" :align :end :class "whitespace-nowrap"}
-                {:key :band :label (list [:span {:class "hidden sm:inline"} "Compared with the range"] [:span {:class "sm:hidden"} "Range"])}]
-      :rows (for [reading (reverse (take-last n (data/readings patient-id kind)))]
-              {:at (fmt/when-text (:at reading) data/now-text)
-               :value (str (web-views/reading-text kind reading) " " (fmt/unit (:unit reading)))
-               :band (or (c/band-badge (:band reading) {:size :sm}) "–")})})))
+(defn readings-model
+  "What the page of the readings is a function of for `patient-id`, the measurement `kind` and a period of `days`: what the api answers,
+  from the cohort, at the moment of the mock-ups."
+  [patient-id kind days]
+  {:now data/now-text
+   :kind kind
+   :days days
+   :summary (data/summary patient-id)
+   :series (data/series patient-id kind {:from (str (.minus data/now (Duration/ofDays days))) :limit readings-page/series-limit})})
 
 (defn readings
-  "The trend of one measurement of a patient: the chart, drawn for the width of the screen, the figures and the table."
+  "The trend of one measurement of a patient: the chart, drawn for the width of the screen, the figures and the table. The page is
+  the one the portal serves (`pulse.web.pages.readings`), made from the cohort."
   [_context]
   (page {:title "Readings" :current :readings}
-        [:div {:class "space-y-6"}
-         (c/page-header {:title "My readings"
-                         :description "What you and your devices have recorded."
-                         :actions (c/button {:size :lg :icon :plus :href (link "portal-new-reading.html")} "Record a reading")})
-         [:div {:class "flex flex-wrap items-center justify-between gap-x-6 gap-y-3"}
-          (c/pill-nav {:label "Measurement" :size :lg
-                       :items [{:href "#" :label "Blood pressure" :current? true}
-                               {:href "#" :label "Heart rate"}
-                               {:href "#" :label "Weight"}]})
-          (c/pill-nav {:label "Period" :size :lg
-                       :items [{:href "#" :label "7 days"} {:href "#" :label "14 days"} {:href "#" :label "30 days" :current? true}]})]
-         (c/card {:title "Blood pressure" :subtitle "Last 30 days"}
-                 (from-tablet (specimen/line-chart "pt-ana" :blood-pressure {:days 30 :width 950 :height 320 :ticks-every 5 :id "bp-wide"}))
-                 (phone-only (specimen/line-chart "pt-ana" :blood-pressure {:days 30 :width 318 :height 260 :ticks-every 10 :id "bp-narrow"
-                                                                            :thresholds? false :bands? false})))
-         (stats-row "pt-ana" :blood-pressure 30)
-         [:section {:aria-labelledby "last"}
-          [:div {:class "mb-3"} (parts/section-heading "last" "The last readings")]
-          (readings-table "pt-ana" :blood-pressure 8)]]))
+        (readings-page/content (readings-model "pt-ana" :blood-pressure 30) links)))
+
+(defn new-reading-model
+  "What the form to record a reading is a function of when the api has refused one: a diastolic that cannot be a pressure, with the
+  words the portal writes beside the field for what the api says of it."
+  []
+  (let [refused (:errors (measurement/normalize {:measurement :blood-pressure :systolic 132 :diastolic 310}))]
+    {:kind :blood-pressure
+     :values {:systolic "132" :diastolic "310" :taken (fmt/local-input data/now-text)}
+     :errors (recording/refusal :blood-pressure refused)
+     :failure :refused
+     :now data/now-text
+     :csrf-token "the-token-of-the-session"}))
 
 (defn new-reading
-  "The form to record a reading, as it looks when the api has refused one: a diastolic that cannot be a pressure."
+  "The form to record a reading, as it looks when the api has refused one. The page is the one the portal serves
+  (`pulse.web.pages.reading-form`)."
   [_context]
   (page {:title "Record a reading" :current :readings}
-        [:div {:class "space-y-6"}
-         (c/page-header {:title "Record a reading" :description "Your care team can see it as soon as you save it."})
-         (c/card
-          [:form {:class "flex max-w-xl flex-col gap-5" :action "#" :method "post"}
-           (c/alert {:tone :high :title "The reading was not saved" :role "alert"}
-                    "Check the diastolic pressure and save it again.")
-           (c/select-field {:id "measurement" :name "measurement" :label "What did you measure?" :value "blood-pressure"
-                            :options [["blood-pressure" "Blood pressure"] ["heart-rate" "Heart rate"] ["spo2" "Oxygen saturation"]
-                                      ["glucose" "Glucose"] ["weight" "Weight"] ["temperature" "Temperature"]]})
-           [:div {:class "grid gap-4 sm:grid-cols-2"}
-            (c/text-field {:id "systolic" :name "systolic" :label "Systolic (mmHg)" :type "number" :inputmode "numeric" :value "132"
-                           :hint "The higher number."})
-            (c/text-field {:id "diastolic" :name "diastolic" :label "Diastolic (mmHg)" :type "number" :inputmode "numeric" :value "310"
-                           :hint "The lower number." :error "Enter a number between 20 and 200 mmHg."})]
-           (c/text-field {:id "taken" :name "taken" :label "Taken at" :type "datetime-local" :value "2026-10-13T14:00"
-                          :hint "Now, or up to 30 days ago."})
-           [:div {:class "flex flex-wrap gap-3"}
-            (c/button {:type "submit" :size :lg :icon :send} "Save the reading")
-            (c/button {:variant :ghost :size :lg :href (link "portal-readings.html")} "Cancel")]])]))
+        (reading-form/content (new-reading-model) links)))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments

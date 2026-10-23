@@ -289,8 +289,8 @@
      :generalPractitioner (when gp {:reference gp-reference :name (:name gp) :specialty (:specialty gp)})}))
 
 (def ^:private summary-vitals
-  "The vital signs of the summary of the api, which has no temperature."
-  [:blood-pressure :heart-rate :glucose :spo2 :weight])
+  "The vital signs of the summary of the api: every measurement that can be recorded."
+  [:blood-pressure :heart-rate :glucose :spo2 :weight :temperature])
 
 (defn- appointments-in-summary [patient-id]
   (->> (concat (appointments-of patient-id)
@@ -321,11 +321,20 @@
 
 (defn series
   "What `GET /api/patients/{id}/observations` answers for the measurement `kind` of `patient-id`: the newest `limit` readings
-  first, each with the name of the measurement and who took it, and whether there were more."
-  [patient-id kind limit]
-  (let [concept (get-in measurement/measurements [kind :concept])
+  first, each with the name of the measurement and who took it, and whether there were more. `limit-or-period` is the limit, or a
+  map of it and of the period, `from` (inclusive) and `to` (exclusive), instants as text:
+  `(series id kind {:from \"2026-09-13T12:00:00Z\" :limit 500})`."
+  [patient-id kind limit-or-period]
+  (let [{:keys [from to limit]} (if (map? limit-or-period) limit-or-period {:limit limit-or-period})
+        concept (get-in measurement/measurements [kind :concept])
+        from (some-> from Instant/parse)
+        to (some-> to Instant/parse)
+        within? (fn [observation]
+                  (let [at (Instant/parse (:effectiveDateTime observation))]
+                    (and (or (nil? from) (not (.isBefore at from)))
+                         (or (nil? to) (.isBefore at to)))))
         found (->> (of-type "Observation")
-                   (filter #(and (= patient-id (obs/patient-id %)) (obs/concept? % concept)))
+                   (filter #(and (= patient-id (obs/patient-id %)) (obs/concept? % concept) (within? %)))
                    (sort-by :effectiveDateTime)
                    reverse
                    (take (inc limit)))]

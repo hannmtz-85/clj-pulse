@@ -470,6 +470,37 @@
               (is (re-find #"Your last blood pressure reading is very high" (:body again)))
               (is (re-find #"Recent readings" (:body again)))
               (is (not (re-find #"No readings yet" (:body again)))))))
+        (testing "she records a reading through the form of the portal: the real api refuses what cannot be one, and says so beside the field"
+          (let [post! (fn [fields]
+                        (browse jar :post (str web-url "/readings/new") :headers {"Origin" web-url}
+                                :form-params (merge {"__anti-forgery-token" (:csrf session)} fields)))
+                form (browse jar :get (str web-url "/readings/new?measurement=weight"))
+                refused (post! {"measurement" "weight" "value" "700"})
+                saved (post! {"measurement" "weight" "value" "82.35" "taken" ""})
+                readings (browse jar :get (str web-url (get-in saved [:headers "location"])))]
+            (is (= 200 (:status form)))
+            (is (re-find #"What did you measure" (:body form)))
+            (is (= 422 (:status refused)))
+            (is (re-find #"Must be between 1 and 500 kg[.]" (:body refused)) "the words of the api, beside the field")
+            (is (re-find #"value=\"700\"" (:body refused)) "and what she typed is still there")
+            (testing "and keeps what can, rounded as the api keeps it, and her readings say so, once"
+              (is (= 303 (:status saved)))
+              (is (= "/readings?measurement=weight" (get-in saved [:headers "location"])))
+              (is (= 200 (:status readings)))
+              (is (re-find #"Reading saved" (:body readings)))
+              (is (re-find #"Weight, 82[.]4 kg" (:body readings)))
+              (is (not (re-find #"Reading saved" (:body (browse jar :get (str web-url "/readings?measurement=weight")))))))
+            (testing "the api has it, as hers"
+              (let [r (http/get (str api-url "/api/patients/pt-ana/observations?measurement=weight")
+                                {:throw false
+                                 :headers {"Authorization" (str "Bearer " (token/access-token (:tokens session))) "Accept" "application/json"}})
+                    items (:items (json/read-value (:body r) json/keyword-keys-object-mapper))]
+                (is (= [82.4] (map :value items)))
+                (is (= ["Patient/pt-ana"] (distinct (map :by items))) "taken by her, as the api knows her by her token")))
+            (testing "a temperature, the sixth measurement, is found among her measurements and on her home"
+              (is (= 303 (:status (post! {"measurement" "temperature" "value" "36.6"}))))
+              (is (re-find #"Temperature" (:body (browse jar :get (str web-url "/readings")))))
+              (is (re-find #"36[.]6" (:body (browse jar :get (str web-url "/"))))))))
         (testing "the session is on the server, with her tokens, and the browser has a cookie and nothing else"
           (is (= #{"pulse-session"} (set (keys @jar))))
           (is (= "Ana García" (get-in session [:person :name])))

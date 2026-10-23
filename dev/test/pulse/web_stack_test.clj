@@ -252,6 +252,49 @@
               (is (= 200 (:status login-page)))
               (is (some? action)))))))))
 
+(deftest ^:integration a-patient-sees-their-readings-and-records-one-through-the-form
+  ;; what the fake provider cannot show: that the roles and the audience of the realm let a patient's token record a reading at the real
+  ;; api, as the portal sends it, and read their own series
+  (with-portal
+    (fn [{:keys [system password]}]
+      (let [browser (new-browser)
+            post! (fn [fields]
+                    (request! (:portal browser) :post (str portal-url "/readings/new")
+                              :headers {"Origin" origin}
+                              :form (merge {"__anti-forgery-token" (:csrf (session-of system browser))} fields)))]
+        (sign-in! browser password "ana.garcia@pulse.test")
+        (testing "her readings are made of what the real api says of her: the blood pressure of the last 30 days among her measurements"
+          (let [page (request! (:portal browser) :get (str portal-url "/readings"))
+                body (:body page)]
+            (is (= 200 (:status page)))
+            (is (str/includes? body "My readings"))
+            (is (str/includes? body "Last 30 days"))
+            (is (re-find #"Blood pressure, the last \d+ readings?" body))
+            (is (str/includes? body "Heart rate"))
+            (is (not (re-find #"Sofía|Liam|Maya|Omar|Noah" body)) "and nobody else")))
+        (testing "the form is made with no help from the api"
+          (let [page (request! (:portal browser) :get (str portal-url "/readings/new?measurement=heart-rate"))]
+            (is (= 200 (:status page)))
+            (is (str/includes? (:body page) "What did you measure?"))
+            (is (re-find #"name=\"value\"" (:body page)))))
+        (testing "a heart rate that cannot be one is refused by the real api, in its words, and what she typed is kept"
+          (let [r (post! {"measurement" "heart-rate" "value" "400"})]
+            (is (= 422 (:status r)))
+            (is (re-find #"Must be between 20 and 300 " (:body r)))
+            (is (re-find #"value=\"400\"" (:body r)))))
+        (testing "one that can is saved with her token, and her readings of it say so"
+          (let [saved (post! {"measurement" "heart-rate" "value" "72"})
+                page (request! (:portal browser) :get (str portal-url (location saved)))]
+            (is (= 303 (:status saved)))
+            (is (= "/readings?measurement=heart-rate" (location saved)))
+            (is (= 200 (:status page)))
+            (is (re-find #"Reading saved" (:body page)))
+            (is (re-find #"Heart rate, 72 bpm, today, \d\d:\d\d" (:body page)))
+            (is (not (re-find #"Reading saved" (:body (request! (:portal browser) :get (str portal-url (location saved)))))) "once")))
+        (testing "and a temperature, the sixth measurement, can be found again among her measurements"
+          (is (= 303 (:status (post! {"measurement" "temperature" "value" "36.6"}))))
+          (is (str/includes? (:body (request! (:portal browser) :get (str portal-url "/readings"))) "Temperature")))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Somebody from the clinic
 

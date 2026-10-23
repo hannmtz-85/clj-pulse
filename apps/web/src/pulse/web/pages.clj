@@ -74,10 +74,19 @@
 ;; ---------------------------------------------------------------------------
 ;; The frame of a page of a patient
 
+(def readings-path
+  "Where the readings of a patient are: the trend of a measurement."
+  "/readings")
+
+(def new-reading-path
+  "Where a patient records a reading."
+  "/readings/new")
+
 (def nav
   "The pages of the portal, in the order of the bar and the dock: `:id`, `:href`, `:label` and `:icon`. A page is here when it
   exists, so that nothing in the navigation leads nowhere: each step of Phase 7 adds its own."
-  [{:id :home :href "/" :label "Home" :icon :house}])
+  [{:id :home :href "/" :label "Home" :icon :house}
+   {:id :readings :href readings-path :label "Readings" :icon :activity}])
 
 (defn page
   "A page of a patient who is signed in: the document, with the CSRF token of their session for htmx, and in it the bar, the

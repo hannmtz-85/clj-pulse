@@ -201,11 +201,13 @@
 ;; The links
 
 (defn- link-target
-  "The file a link of a document leads to, or nil for a link to the same page or inside it."
+  "The file a link of a document leads to, or nil for a link to the same page or inside it. A query string is not part of the file's
+  name: a page of the portal is asked for a measurement and a period, and the mock-up is one file whatever it is asked."
   [file href]
-  (cond (str/starts-with? href "#") nil
-        (str/starts-with? file "frames/") (str/replace href #"^\.\./" "")
-        :else href))
+  (let [href (first (str/split href #"[?]" 2))]
+    (cond (str/starts-with? href "#") nil
+          (str/starts-with? file "frames/") (str/replace href #"^\.\./" "")
+          :else href)))
 
 (deftest the-links-of-a-document-go-somewhere
   (let [files (set (map :file pages/pages))]

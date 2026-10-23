@@ -51,7 +51,7 @@
             [event] (filter #(= :pulse.http/unhandled-exception (:id %)) (:signals response))]
         (is (= 500 (:status response)))
         (is (= "The api knows no record of this patient" (ex-message (:error event))))
-        (is (= :pulse.web.home/no-patient-record (:type (ex-data (:error event)))))))))
+        (is (= :pulse.web.api/no-patient-record (:type (ex-data (:error event)))))))))
 
 (deftest a-moment-that-is-not-a-whole-second-is-no-matter
   ;; the clock of a real portal says nanoseconds, and the page and the lifecycle read them all the same

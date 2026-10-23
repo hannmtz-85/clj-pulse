@@ -248,17 +248,20 @@
     (is (= ["Hello"] (map hx/words (hx/by-tag (first (hx/by-tag page :main)) :h1))) "what the page says is in main")))
 
 (deftest the-navigation-is-the-pages-that-exist
-  (is (= [{:id :home :href "/" :label "Home" :icon :house}] pages/nav)
+  (is (= [{:id :home :href "/" :label "Home" :icon :house}
+          {:id :readings :href "/readings" :label "Readings" :icon :activity}]
+         pages/nav)
       "each step of Phase 7 adds its own: nothing leads to a page that is not there")
   (let [page (frame-page)
         bar (nav-named page "Main")
         dock (nav-named page "Main, on a phone")]
-    (is (= [["Home" "/"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
+    (is (= [["Home" "/"] ["Readings" "/readings"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
     (is (= (map (comp :href hx/attributes) (hx/by-tag bar :a)) (map (comp :href hx/attributes) (hx/by-tag dock :a)))
         "the dock is the same navigation")
     (testing "the page it is on is marked, for a screen reader too"
-      (is (= ["page"] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
-      (is (= ["page"] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a)))))
+      (is (= ["page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
+      (is (= ["page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a))))
+      (is (= [nil "page"] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :readings}) "Main") :a)))))
     (testing "and one that is not in it marks none"
       (is (empty? (filter (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :elsewhere}) "Main") :a)))))
     (is (= "/" (:href (hx/attributes (first (hx/by-tag (first (hx/by-tag page :header)) :a))))) "the mark leads home")))

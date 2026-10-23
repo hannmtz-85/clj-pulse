@@ -29,6 +29,18 @@
   [request]
   (failure :server-error request))
 
+(defn log-api-failure!
+  "Records `e`, a failure of a call to the api (`pulse.web.api/failure?`): how it failed, where, and what the api said of it, which
+  is for the log and never for a page. A failure that a page can go on after is a warning, and one it cannot an error."
+  [e]
+  (let [{:keys [type status reason path problem]} (ex-data e)]
+    (t/event! :pulse.web/api-failed
+              {:level (if (api/degradable? e) :warn :error)
+               :data (cond-> {:failure (name type) :path path}
+                       status (assoc :status status)
+                       reason (assoc :reason reason)
+                       problem (assoc :problem problem))})))
+
 (defn api-failure
   "The page for `e`, a failure of a call to the api (`pulse.web.api/failure?`), or nil when it is not one. The api said that the
   person may not see it (403): `forbidden`. Any other failure is on our side, whoever's it is, and says so, with the status
@@ -36,16 +48,10 @@
   502 otherwise. What it said is in the log, never in the page."
   [request e]
   (when (api/failure? e)
-    (let [{:keys [type status reason path problem]} (ex-data e)]
-      (t/event! :pulse.web/api-failed
-                {:level (if (api/degradable? e) :warn :error)
-                 :data (cond-> {:failure (name type) :path path}
-                         status (assoc :status status)
-                         reason (assoc :reason reason)
-                         problem (assoc :problem problem))})
-      (if (= 403 status)
-        (failure :forbidden request)
-        (failure :server-error request :status (if (api/timeout? e) 504 502))))))
+    (log-api-failure! e)
+    (if (= 403 (:status (ex-data e)))
+      (failure :forbidden request)
+      (failure :server-error request :status (if (api/timeout? e) 504 502)))))
 
 (def default-handler
   "What answers a path that matches no route (404) and a method the route does not have (405, with `Allow`): the page that

@@ -14,8 +14,8 @@
 
 (def ^:private routes
   [["/public" {:get {:authz :public :handler ok}}]
-   ["/readings" {:get {:authz :patient :handler ok}
-                 :post {:authz :patient :handler ok}}]
+   ["/records" {:get {:authz :patient :handler ok}
+                :post {:authz :patient :handler ok}}]
    ["/fragments/latest" {:get {:authz :patient :handler ok}}]])
 
 ;; ---------------------------------------------------------------------------
@@ -70,28 +70,28 @@
   (with-web {:routes routes}
     (fn [web]
       (testing "a page"
-        (let [r (call web :get "/readings")]
+        (let [r (call web :get "/records")]
           (is (= 303 (:status r)))
-          (is (= "/sign-in?return-to=%2Freadings" (header r "Location")))
+          (is (= "/sign-in?return-to=%2Frecords" (header r "Location")))
           (is (= "" (:text r)) "nothing of the page is given")))
       (testing "with its query, which comes back encoded"
-        (let [r (call web :get "/readings" :query "period=30&measurement=heart-rate")]
-          (is (= "/sign-in?return-to=%2Freadings%3Fperiod%3D30%26measurement%3Dheart-rate" (header r "Location")))))
+        (let [r (call web :get "/records" :query "period=30&measurement=heart-rate")]
+          (is (= "/sign-in?return-to=%2Frecords%3Fperiod%3D30%26measurement%3Dheart-rate" (header r "Location")))))
       (testing "a request that changes something has no page to come back to: they land at the home page"
-        (let [r (call web :post "/readings")]
+        (let [r (call web :post "/records")]
           (is (= 303 (:status r)))
           (is (= "/sign-in" (header r "Location")))))
       (testing "an empty query is no query"
-        (let [r (call web :get "/readings" :query "")]
-          (is (= "/sign-in?return-to=%2Freadings" (header r "Location"))))))))
+        (let [r (call web :get "/records" :query "")]
+          (is (= "/sign-in?return-to=%2Frecords" (header r "Location"))))))))
 
 (deftest htmx-is-sent-away-from-the-page-and-not-given-a-sign-in-in-a-fragment
   (with-web {:routes routes}
     (fn [web]
       (let [r (call web :get "/fragments/latest"
-                    :headers {"hx-request" "true" "hx-current-url" "http://localhost:3300/readings?period=30"})]
+                    :headers {"hx-request" "true" "hx-current-url" "http://localhost:3300/records?period=30"})]
         (is (= 401 (:status r)))
-        (is (= "/sign-in?return-to=%2Freadings%3Fperiod%3D30" (header r "HX-Redirect"))
+        (is (= "/sign-in?return-to=%2Frecords%3Fperiod%3D30" (header r "HX-Redirect"))
             "the page the person was on, which htmx goes to as a whole page")
         (is (nil? (header r "Location")) "a redirect that htmx would follow inside the fragment")
         (is (= "" (:text r))))
@@ -106,7 +106,7 @@
 (deftest a-person-who-is-signed-in-gets-the-page
   (with-web {:routes routes}
     (fn [web]
-      (doseq [[method uri] [[:get "/readings"] [:post "/readings"] [:get "/fragments/latest"]]
+      (doseq [[method uri] [[:get "/records"] [:post "/records"] [:get "/fragments/latest"]]
               :let [r (call web method uri :session {:person {:name "Ana García"} :csrf "token-1"}
                             :headers {"x-csrf-token" "token-1"})]]
         (is (= 200 (:status r)) (str method " " uri))
@@ -117,7 +117,7 @@
   (with-web {:routes routes}
     (fn [web]
       (doseq [session [{:csrf "x"} {:person nil} {:sign-in {:state "s" :verifier "v" :nonce "n" :return-to "/"}}]]
-        (is (= 303 (:status (call web :get "/readings" :session session))) (pr-str session))))))
+        (is (= 303 (:status (call web :get "/records" :session session))) (pr-str session))))))
 
 (deftest the-person-is-whoever-the-session-says
   (is (nil? (authz/person {})))

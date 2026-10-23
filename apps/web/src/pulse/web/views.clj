@@ -43,6 +43,16 @@
     (str (fmt/number (:systolic reading)) "/" (fmt/number (:diastolic reading)))
     (fmt/number (:value reading))))
 
+(defn usable-series
+  "The readings among `items` of the measurement `kind` that say something, oldest first: each has a time that can be read and its
+  number or numbers. Other systems write to the same FHIR server, so a page that draws or counts a series leaves out what it
+  cannot say. Readings of one moment go by their ids, since a server does not order them, and the same readings are always in the
+  same order, whichever order they came in."
+  [kind items]
+  (->> items
+       (filter #(and (fmt/instant? (:at %)) (usable? kind %)))
+       (sort-by (juxt (comp fmt/millis :at) #(str (:id %))))))
+
 (defn when-of
   "When a reading was taken, as `Today, 10:00`, or nil when it has no time that can be read."
   [reading now]

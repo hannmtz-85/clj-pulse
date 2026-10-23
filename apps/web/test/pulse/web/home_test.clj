@@ -170,10 +170,14 @@
 
 (def ^:private not-yet
   "The words of the buttons and links of the home that lead to pages the portal does not have yet: the mock-up has them."
-  ["Record a reading" "See my readings" "See all" "Cancel appointment" "Cancel request" "Ask for a visit"])
+  ["Cancel appointment" "Cancel request" "Ask for a visit"])
+
+(def ^:private steps-not-yet
+  "The first steps of a new patient that lead to pages the portal does not have yet, as their words read in the section."
+  ["Look at your recordYour doctor sees what you see there."])
 
 (defn- without-buttons [text]
-  (reduce #(str/replace %1 %2 "") text not-yet))
+  (reduce #(str/replace %1 %2 "") text (concat not-yet steps-not-yet)))
 
 (deftest the-home-that-is-served-is-the-home-of-the-mock-up-but-for-the-pages-that-do-not-exist-yet
   (let [mock (read-back (portal/home context))
@@ -200,10 +204,12 @@
           (is (= ["Welcome, Noah"] (map hx/words (hx/by-tag page :h1))))
           (is (= (map hx/words (hx/by-tag mock :h1)) (map hx/words (hx/by-tag page :h1))))
           (testing "the sections that the portal can have, as they were reviewed"
-            (is (= #{"first"} (set/difference (set (keys (sections mock))) (set (keys served))))
-                "the first steps lead to pages the portal does not have yet, so there are none")
+            (is (= #{} (set/difference (set (keys (sections mock))) (set (keys served)))))
             (doseq [[id words] served]
               (is (= (without-buttons (get (sections mock) id)) words) id)))
+          (testing "the first steps are the ones whose pages there are: to record a reading, and not yet to look at the record"
+            (is (= "Your first stepsRecord your first readingBlood pressure, heart rate, oxygen, glucose, weight or temperature."
+                   (get served "first"))))
           (is (str/includes? (hx/words (main-of page)) "No readings yet"))
           (is (empty? (hx/select page #(hx/has-class? % "text-4xl"))) "no tile of a reading")
           (testing "the request that waits, with the doctor's name the api gave"
@@ -218,7 +224,8 @@
       (let [{:keys [page]} (home web)
             links (disj (set (map (comp :href hx/attributes) (hx/by-tag page :a))) "#main")
             forms (map (comp (juxt :method :action) hx/attributes) (hx/by-tag page :form))]
-        (is (= #{"/"} links) "the mark and the only page there is (and the skip link, which goes to the page itself)")
+        (is (= #{"/" "/readings" "/readings/new"} links)
+            "the home, the readings and the form to record one, which are the pages there are (and the skip link, which goes to the page itself)")
         (is (= [["post" "/sign-out"]] forms))))))
 
 (deftest what-a-patient-may-cancel-is-not-offered-while-there-is-nowhere-to-do-it
@@ -226,7 +233,7 @@
     (fn [web]
       (let [{:keys [page]} (home web)]
         (is (not (str/includes? (hx/words page) "Cancel")) "the lifecycle allows it, and the page for it does not exist yet")
-        (is (not (str/includes? (hx/words page) "Record a reading")))))))
+        (is (not (str/includes? (hx/words page) "Ask for a visit")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A part that is lost

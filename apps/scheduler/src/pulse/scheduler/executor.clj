@@ -246,8 +246,11 @@
   (when (compare-and-set! stopped? false true)
     (t/event! :pulse.scheduler/stopping {:level :info :data {:running (running-ids @state)}})
     (.shutdownNow scheduler)
-    (.shutdown workers)
     (try
+      ;; a tick that was running when the scheduler was told to stop is interrupted, and is over in a moment: when this returns, no
+      ;; tick is running or will, and none can hand a job to the workers once they are shut down
+      (.awaitTermination scheduler 2000 TimeUnit/MILLISECONDS)
+      (.shutdown workers)
       (when-not (.awaitTermination workers grace-ms TimeUnit/MILLISECONDS)
         (t/event! :pulse.scheduler/interrupting {:level :warn :data {:jobs (running-ids @state)}})
         (.shutdownNow workers)

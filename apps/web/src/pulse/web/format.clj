@@ -105,11 +105,24 @@
   "Ticks every `every` hours of the clinic's clock between two moments in epoch milliseconds, labelled `08:00`."
   [from-millis to-millis every]
   (let [label (formatter "HH:mm")
-        first-hour (.truncatedTo (.atZone (Instant/ofEpochMilli (long from-millis)) zone) java.time.temporal.ChronoUnit/HOURS)]
-    (for [h (range 0 (inc (long (/ (- to-millis from-millis) 3600000))) 1)
+        first-hour (.truncatedTo (.atZone (Instant/ofEpochMilli (long from-millis)) zone) java.time.temporal.ChronoUnit/HOURS)
+        first-millis (.toEpochMilli (.toInstant first-hour))]
+    (for [h (range 0 (inc (long (/ (- to-millis first-millis) 3600000))) 1)
           :let [t (.plusHours first-hour (long h))
                 at (.toEpochMilli (.toInstant t))]
           :when (and (<= from-millis at) (zero? (mod (.getHour t) every)))]
+      {:at at :label (.format t label)})))
+
+(defn minute-ticks
+  "Ticks every `every` minutes of the clinic's clock between two moments in epoch milliseconds, labelled `08:15`."
+  [from-millis to-millis every]
+  (let [label (formatter "HH:mm")
+        first-minute (.truncatedTo (.atZone (Instant/ofEpochMilli (long from-millis)) zone) java.time.temporal.ChronoUnit/MINUTES)
+        first-millis (.toEpochMilli (.toInstant first-minute))]
+    (for [m (range 0 (inc (long (/ (- to-millis first-millis) 60000))) 1)
+          :let [t (.plusMinutes first-minute (long m))
+                at (.toEpochMilli (.toInstant t))]
+          :when (and (<= from-millis at) (zero? (mod (.getMinute t) every)))]
       {:at at :label (.format t label)})))
 
 (defn number
@@ -165,3 +178,9 @@
   "The time of day of an instant with its seconds, such as `14:00:30`."
   [iso]
   (.format (local iso) (formatter "HH:mm:ss")))
+
+(defn local-input
+  "An instant as the value of a field of a form for a date and a time (`datetime-local`), which has no zone: the date and the
+  time on the clinic's clock, to the minute, such as `2026-10-13T14:00`."
+  [iso]
+  (.format (local iso) (formatter "yyyy-MM-dd'T'HH:mm")))

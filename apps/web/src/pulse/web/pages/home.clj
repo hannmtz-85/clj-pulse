@@ -149,11 +149,7 @@
 (defn- no-readings-section [links]
   [:section {:aria-labelledby "latest"}
    [:div {:class "mb-3"} (parts/section-heading "latest" "Your latest readings")]
-   (c/card (c/empty-state {:icon :activity
-                           :title "No readings yet"
-                           :actions (when-let [href (:new-reading links)]
-                                      (c/button {:size :lg :icon :plus :href href} "Record a reading"))}
-                          "When you record one, or a device sends one, you will see it here and how it compares with the usual range."))])
+   (parts/no-readings-card links)])
 
 ;; ---------------------------------------------------------------------------
 ;; The page

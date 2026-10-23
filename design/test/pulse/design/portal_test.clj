@@ -109,14 +109,14 @@
 
 (deftest the-readings-have-a-chart-for-the-phone-and-another-for-the-desk
   (let [doc (portal/readings context)
-        wide (figure-of doc "bp-wide")
-        narrow (figure-of doc "bp-narrow")]
+        wide (figure-of doc "chart-blood-pressure-wide")
+        narrow (figure-of doc "chart-blood-pressure-narrow")]
     (is (some? wide))
     (is (some? narrow))
     (testing "each is in a box that is shown from a medium screen on, or only before it"
-      (is (every? (hx/classes (box-of doc "bp-wide")) ["hidden" "md:block"]))
-      (is (hx/has-class? (box-of doc "bp-narrow") "md:hidden"))
-      (is (not (hx/has-class? (box-of doc "bp-narrow") "hidden"))))
+      (is (every? (hx/classes (box-of doc "chart-blood-pressure-wide")) ["hidden" "md:block"]))
+      (is (hx/has-class? (box-of doc "chart-blood-pressure-narrow") "md:hidden"))
+      (is (not (hx/has-class? (box-of doc "chart-blood-pressure-narrow") "hidden"))))
     (testing "drawn for the width it has: the wide one with the thresholds of the rule, the compact one without"
       (is (= "0 0 950 320" (:viewBox (hx/attributes (first (hx/by-tag wide :svg))))))
       (is (= "0 0 318 260" (:viewBox (hx/attributes (first (hx/by-tag narrow :svg))))))
@@ -169,22 +169,22 @@
 
 (deftest the-form-to-record-a-reading-has-the-fields-of-a-blood-pressure-and-the-error-of-the-api
   (let [doc (portal/new-reading context)
-        form (first (hx/by-tag doc :form))
-        input (fn [id] (hx/by-id form id))
+        form (first (filter #(= "post" (:method (hx/attributes %))) (hx/by-tag doc :form)))
+        input (fn [id] (hx/by-id doc id))
         [lower upper] (get-in measurement/measurements [:blood-pressure :channels :diastolic :plausible])]
-    (is (= "post" (:method (hx/attributes form))))
+    (is (some? form) "the reading is posted")
     (is (= ["132" "310"] (map #(:value (hx/attributes (input %))) ["systolic" "diastolic"])))
     (is (= [nil "true"] (map #(:aria-invalid (hx/attributes (input %))) ["systolic" "diastolic"])) "only the diastolic is wrong")
-    (is (str/includes? (hx/words (hx/by-id form "diastolic-error")) (str "between " lower " and " upper " mmHg"))
+    (is (str/includes? (hx/words (hx/by-id doc "diastolic-error")) (str "between " lower " and " upper " mmHg"))
         "the limits are the api's")
-    (is (= "alert" (:role (hx/attributes (first (hx/select form #(hx/has-class? % "bg-tone-high-soft")))))))
-    (is (str/includes? (hx/words (first (hx/select form #(hx/has-class? % "bg-tone-high-soft")))) "The reading was not saved"))
+    (is (= "alert" (:role (hx/attributes (first (hx/select doc #(hx/has-class? % "bg-tone-high-soft")))))))
+    (is (str/includes? (hx/words (first (hx/select doc #(hx/has-class? % "bg-tone-high-soft")))) "The reading was not saved"))
     (is (= (set (map name (keys measurement/measurements)))
            (set (map #(:value (hx/attributes %)) (hx/by-tag (input "measurement") :option))))
         "every measurement the api records")
     (is (= "datetime-local" (:type (hx/attributes (input "taken")))))
     (is (= "submit" (:type (hx/attributes (button-named form "Save the reading")))))
-    (is (= "../portal-readings.html" (href (button-named form "Cancel"))))))
+    (is (= "../portal-readings.html?measurement=blood-pressure" (href (button-named form "Cancel"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments

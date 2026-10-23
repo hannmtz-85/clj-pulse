@@ -5,7 +5,7 @@
 
 ## Context
 
-`GET /api/patients/{id}/summary` joins about a dozen FHIR queries: the patient, conditions, active medication, allergies, the latest reading of each vital sign (five), appointments and active alerts. Run one after another their latencies add up, and one slow query holds the whole page. One failing query should not hide the others, but a summary that silently lacks the allergies looks exactly like the summary of a patient with none, which in a clinical screen is worse than an error.
+`GET /api/patients/{id}/summary` joins about a dozen FHIR queries: the patient, conditions, active medication, allergies, the latest reading of each vital sign (six: every measurement that can be recorded; the temperature was added with the portal, in Phase 7, since a reading that a patient records has to be found again), appointments and active alerts. Run one after another their latencies add up, and one slow query holds the whole page. One failing query should not hide the others, but a summary that silently lacks the allergies looks exactly like the summary of a patient with none, which in a clinical screen is worse than an error.
 
 ## Decision
 

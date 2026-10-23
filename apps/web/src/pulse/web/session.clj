@@ -189,6 +189,23 @@
   [request]
   (get-in request [:session :csrf]))
 
+(defn flash-of
+  "What the previous request left for this one to say, in the session of `request`: a message that is told once, such as that a
+  reading has been recorded, or nil."
+  [request]
+  (get-in request [:session :flash]))
+
+(defn with-flash
+  "`response` that leaves `flash` in the session of `request` for the next page to say, which is how a request that changes
+  something (and answers with a redirect) tells the page it redirects to. The session is the request's own, with the flash in it."
+  [response request flash]
+  (assoc response :session (assoc (:session request) :flash flash)))
+
+(defn clear-flash
+  "`response` that takes the flash out of the session of `request`: it has been told, and is told once."
+  [response request]
+  (assoc response :session (dissoc (:session request) :flash)))
+
 (defn stale-cookie?
   "Whether the browser came with the cookie of a session that is not there any more: it ended, or the portal was restarted.
   It is not the case for a browser that has no cookie."

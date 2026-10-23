@@ -51,8 +51,9 @@
 
 (def ^:private vital-signs
   "The vital signs shown, by the name of their measurement in `pulse.fhir.measurement`: what to
-  search for and how to classify each comes from there."
-  [:blood-pressure :heart-rate :glucose :spo2 :weight])
+  search for and how to classify each comes from there. Every measurement that can be recorded is
+  here, so that a reading a patient records can be found again."
+  [:blood-pressure :heart-rate :glucose :spo2 :weight :temperature])
 
 ;; ---------------------------------------------------------------------------
 ;; The queries
@@ -171,7 +172,8 @@
      [:heart-rate reading-schema]
      [:glucose reading-schema]
      [:spo2 reading-schema]
-     [:weight reading-schema]]]
+     [:weight reading-schema]
+     [:temperature reading-schema]]]
    [:appointments {:description (str "The patient's appointments, the soonest first. " unloaded)}
     [:maybe [:vector appointments/view-schema]]]
    [:alerts {:description (str "The patient's active alerts, the newest first. " unloaded)}

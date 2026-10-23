@@ -71,6 +71,16 @@
       [:p {:class "text-sm text-muted"}
        (str (views/reading-text kind reading) " " (fmt/unit (:unit reading)) " · " (fmt/when-text (:at reading) now))]))))
 
+(defn no-readings-card
+  "The card that says that the patient has no readings yet, with the button to record one when the portal has the page for it
+  (`:new-reading` of `links`)."
+  [links]
+  (c/card (c/empty-state {:icon :activity
+                          :title "No readings yet"
+                          :actions (when-let [href (:new-reading links)]
+                                     (c/button {:size :lg :icon :plus :href href} "Record a reading"))}
+                         "When you record one, or a device sends one, you will see it here and how it compares with the usual range.")))
+
 (defn not-loaded
   "The message that stands where a part of a page should be when it could not be loaded: `title` says which part, and it says
   that the rest of the page is fine and that the problem is not the patient's. Its button, to try again, leads to `:retry` of

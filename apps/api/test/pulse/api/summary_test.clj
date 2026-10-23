@@ -10,6 +10,7 @@
             [pulse.api.test.harness :as h :refer [audit-events call with-api]]
             [pulse.fhir.client :as fc]
             [pulse.fhir.client.memory :as mem]
+            [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]
             [pulse.fhir.ranges :as ranges]
             [pulse.fhir.resource :as r]
@@ -80,7 +81,10 @@
               (is (nil? (:band weight)) "weight has no reference band")))
           (testing "vital signs that were never measured are null, and not unavailable"
             (is (nil? (get-in body [:vitals :glucose])))
-            (is (nil? (get-in body [:vitals :spo2]))))
+            (is (nil? (get-in body [:vitals :spo2])))
+            (is (nil? (get-in body [:vitals :temperature]))))
+          (testing "and every measurement that can be recorded has its place, so that none is lost"
+            (is (= (set (keys measurement/measurements)) (set (keys (:vitals body))))))
           (testing "the appointment"
             (let [[appointment :as appointments] (:appointments body)]
               (is (= 1 (count appointments)))
@@ -89,6 +93,20 @@
                      (select-keys appointment [:id :status :description :practitioner :requestedStart :requestedEnd])))
               (is (string? (:start appointment)))
               (is (string? (:end appointment))))))))))
+
+(deftest a-temperature-that-was-recorded-is-the-latest-one-of-the-summary
+  (let [client (h/demo-cohort)
+        record! (fn [id at value]
+                  (fc/put! client (measurement/observation {:measurement :temperature :unit "Cel" :value value}
+                                                           {:id id :patient "pt-ana" :at at})))]
+    (record! "obs-temp-1" "2026-10-13T08:00:00Z" 36.6)
+    (record! "obs-temp-2" "2026-10-13T09:00:00Z" 38.4)
+    (with-api {:fhir client}
+      (fn [api]
+        (let [view (get-in (:json (summary-of api :ana "pt-ana")) [:vitals :temperature])]
+          (is (= {:id "obs-temp-2" :at "2026-10-13T09:00:00Z" :value 38.4 :unit "Cel"}
+                 (select-keys view [:id :at :value :unit])))
+          (is (= (band :body-temperature 38.4) (:band view)) "and it is classified like the series of the same reading"))))))
 
 (deftest the-other-scenarios
   (let [client (h/demo-cohort)]
@@ -190,10 +208,10 @@
           (is (= 200 (:status r)))
           (is (= [] (get-in r [:json :unavailable])))
           (is (= {"Patient" 1 "Condition" 1 "MedicationRequest" 1 "AllergyIntolerance" 1
-                  "Appointment" 1 "Flag" 1 "Observation" 5}
+                  "Appointment" 1 "Flag" 1 "Observation" 6}
                  (frequencies (map second @calls)))
-              "eleven queries")
-          (is (< ms 1500) (str "eleven queries of 250 ms each took " (long ms) " ms; one after another it would be 2750")))))))
+              "twelve queries")
+          (is (< ms 1500) (str "twelve queries of 250 ms each took " (long ms) " ms; one after another it would be 3000")))))))
 
 (deftest the-queries-are-narrow
   (let [calls (atom [])]
@@ -202,10 +220,10 @@
         (summary-of api :admin "pt-ana")
         (let [searches (filter #(= :search (first %)) @calls)
               observation-params (map #(nth % 2) (filter #(= "Observation" (second %)) searches))]
-          (testing "five latest readings, one each, newest first: no further page is fetched"
-            (is (= 5 (count observation-params)))
+          (testing "six latest readings, one each, newest first: no further page is fetched"
+            (is (= 6 (count observation-params)))
             (is (every? #(= {:_count 1 :_sort "-date" :patient "Patient/pt-ana"} (dissoc % :code)) observation-params))
-            (is (= 5 (count (set (map :code observation-params))))))
+            (is (= 6 (count (set (map :code observation-params))))))
           (testing "only what is current"
             (is (= {:patient "Patient/pt-ana" :clinical-status "active"}
                    (nth (first (filter #(= "Condition" (second %)) searches)) 2)))
@@ -252,7 +270,7 @@
   (with-api {:fhir (h/misbehaving (h/demo-cohort) {"Observation" :fail})}
     (fn [api]
       (let [body (:json (summary-of api :admin "pt-ana"))]
-        (is (= ["vitals.blood-pressure" "vitals.glucose" "vitals.heart-rate" "vitals.spo2" "vitals.weight"]
+        (is (= ["vitals.blood-pressure" "vitals.glucose" "vitals.heart-rate" "vitals.spo2" "vitals.temperature" "vitals.weight"]
                (:unavailable body)))
         (is (every? nil? (vals (:vitals body))))
         (is (= 1 (count (:conditions body))))))))
@@ -288,7 +306,7 @@
 ;; Assembling the answer is pure
 
 (def ^:private list-sections [:conditions :medications :allergies :appointments :alerts])
-(def ^:private vital-keys (mapv (fn [v] [:vital v]) [:blood-pressure :heart-rate :glucose :spo2 :weight]))
+(def ^:private vital-keys (mapv (fn [v] [:vital v]) [:blood-pressure :heart-rate :glucose :spo2 :weight :temperature]))
 
 (defn- outcomes
   "Outcomes of a fan-out in which the sections in `failed` failed and the others found nothing."
@@ -316,5 +334,5 @@
 
 (deftest the-queries-are-named-for-the-fan-out
   (is (= #{:patient :conditions :medications :allergies :appointments :alerts
-           [:vital :blood-pressure] [:vital :heart-rate] [:vital :glucose] [:vital :spo2] [:vital :weight]}
+           [:vital :blood-pressure] [:vital :heart-rate] [:vital :glucose] [:vital :spo2] [:vital :weight] [:vital :temperature]}
          (set (keys (summary/tasks (h/demo-cohort) "pt-ana" "Patient/pt-ana"))))))
