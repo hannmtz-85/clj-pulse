@@ -12,7 +12,8 @@
             [pulse.ui.test.hiccup :as hx]
             [pulse.ui.test.html :as parsed]
             [pulse.web.html :as html]
-            [pulse.web.pages :as pages]))
+            [pulse.web.pages :as pages]
+            [pulse.web.pages.home :as home-page]))
 
 (def ^:private stylesheet (io/file "apps/web/resources/public/pulse.css"))
 
@@ -228,21 +229,71 @@
       (is (= "submit" (:type (hx/attributes button))))
       (is (= "Sign out" (hx/words button))))))
 
-(deftest the-page-of-a-person-who-is-in-greets-them-and-has-the-way-out
-  (let [text (html/render (pages/home-page {:name "Ana García" :csrf-token "tok-en_1"}))
-        page (tree text)]
+;; ---------------------------------------------------------------------------
+;; The frame of a page of a patient
+
+(defn- frame-page
+  "A page of a patient in the frame of the portal, read back from the HTML that is served."
+  [& [options]]
+  (tree (html/render (pages/page (merge {:title "Home" :current :home :person {:name "Ana García"} :csrf-token "tok-en_1"} options)
+                                 [:h1 "Hello"]))))
+
+(defn- nav-named [page label]
+  (first (hx/select page #(and (= :nav (hx/tag %)) (= label (:aria-label (hx/attributes %)))))))
+
+(deftest the-frame-of-a-page-of-a-patient-is-a-page-a-person-can-use
+  (let [page (frame-page)]
     (is (= [] (a11y/problems page {:page? true})))
-    (is (= ["Welcome, Ana García"] (map hx/words (hx/by-tag page :h1))))
     (is (= "Home · Pulse" (hx/words (first (hx/by-tag page :title)))))
-    (testing "the way out is the form, and htmx has the token too"
+    (is (= ["Hello"] (map hx/words (hx/by-tag (first (hx/by-tag page :main)) :h1))) "what the page says is in main")))
+
+(deftest the-navigation-is-the-pages-that-exist
+  (is (= [{:id :home :href "/" :label "Home" :icon :house}] pages/nav)
+      "each step of Phase 7 adds its own: nothing leads to a page that is not there")
+  (let [page (frame-page)
+        bar (nav-named page "Main")
+        dock (nav-named page "Main, on a phone")]
+    (is (= [["Home" "/"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
+    (is (= (map (comp :href hx/attributes) (hx/by-tag bar :a)) (map (comp :href hx/attributes) (hx/by-tag dock :a)))
+        "the dock is the same navigation")
+    (testing "the page it is on is marked, for a screen reader too"
+      (is (= ["page"] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
+      (is (= ["page"] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a)))))
+    (testing "and one that is not in it marks none"
+      (is (empty? (filter (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :elsewhere}) "Main") :a)))))
+    (is (= "/" (:href (hx/attributes (first (hx/by-tag (first (hx/by-tag page :header)) :a))))) "the mark leads home")))
+
+(deftest a-person-signs-out-from-the-menu-with-a-form-that-carries-the-token
+  (let [text (html/render (pages/page {:title "Home" :current :home :person {:name "Ana García"} :csrf-token "tok-en_1"} [:h1 "Hello"]))
+        page (tree text)
+        menu (first (hx/by-tag page :details))
+        form (first (hx/by-tag page :form))
+        button (first (hx/by-tag menu :button))]
+    (is (= "Account menu of Ana García" (:aria-label (hx/attributes (first (hx/by-tag menu :summary))))))
+    (is (= ["Sign out"] (map hx/words (hx/by-tag menu :li))) "the menu has the way out and nothing that leads nowhere")
+    (is (= "Sign out" (hx/words button)))
+    (testing "a button of a POST, since a link would let any page sign a person out"
+      (is (= {:type "submit" :form "account-sign-out"} (hx/attributes button)))
       (is (= 1 (count (hx/by-tag page :form))))
-      (is (= "/sign-out" (:action (hx/attributes (first (hx/by-tag page :form))))))
-      (is (= "tok-en_1" (:value (hx/attributes (first (hx/by-tag page :input))))))
-      (is (str/includes? text "X-CSRF-Token")))
-    (testing "a name is text, whatever it holds"
-      (let [hostile (html/render (pages/home-page {:name "<script>alert(1)</script>" :csrf-token "t"}))]
-        (is (not (str/includes? hostile "<script>alert")))
-        (is (str/includes? hostile "&lt;script&gt;alert(1)&lt;/script&gt;"))))))
+      (is (= {:id "account-sign-out" :method "post" :action "/sign-out"} (hx/attributes form)))
+      (is (= [{:type "hidden" :name "__anti-forgery-token" :value "tok-en_1"}] (map hx/attributes (hx/by-tag form :input)))
+          "with the token of the session, in the field that the check reads"))
+    (testing "and htmx has the token too"
+      (is (str/includes? text "X-CSRF-Token"))
+      (is (= {:X-CSRF-Token "tok-en_1"}
+             (json/read-value (:hx-headers (hx/attributes (first (hx/by-tag page :body)))) json/keyword-keys-object-mapper))))))
+
+(deftest the-bar-has-no-button-for-a-theme-that-it-cannot-change
+  (let [page (frame-page)]
+    (is (empty? (filter #(= "Dark theme" (:aria-label (hx/attributes %))) (hx/by-tag page :button)))
+        "the pages follow the preference of the browser until there is a script to change it")
+    (is (= 1 (count (hx/by-tag page :button))) "the only button is the way out")))
+
+(deftest the-name-of-a-person-is-text-whatever-it-holds
+  (let [hostile (html/render (pages/page {:title "Home" :current :home :person {:name "<script>alert(1)</script>"} :csrf-token "t"} [:h1 "x"]))]
+    (is (not (str/includes? hostile "<script>alert")))
+    (is (str/includes? hostile "&lt;script&gt;alert(1)&lt;/script&gt;"))
+    (is (= 1 (count (re-seq #"<script" hostile))) "the only script is htmx, a file of the portal")))
 
 ;; ---------------------------------------------------------------------------
 ;; The same cards in the review
@@ -267,9 +318,18 @@
 
 (deftest every-class-the-pages-use-has-a-rule-in-the-stylesheet
   (let [css (slurp stylesheet :encoding "UTF-8")
+        person {:name "Ana García"}
+        home (fn [model] (html/render (pages/page {:title "Home" :current :home :person person :csrf-token "token-1"}
+                                                  (home-page/content model portal/links))))
+        ana (portal/home-model "pt-ana")
+        lost (assoc ana :summary (assoc (:summary ana) :unavailable ["appointments" "vitals.glucose"]))
         markup (apply str (concat (for [kind (keys pages/error-kinds)] (page-html kind))
                                   [(html/render (pages/signed-out-page))
-                                   (html/render (pages/home-page {:name "Ana García" :csrf-token "token-1"}))]))]
+                                   (home ana)
+                                   (home (portal/home-model "pt-noah"))
+                                   (home lost)
+                                   (home (assoc ana :summary nil))
+                                   (home (assoc ana :recent nil))]))]
     (is (> (count (build/class-tokens markup)) 30) "the check has classes to check")
     (is (empty? (build/unknown-classes markup css))
         "run `bb design:web` when a page uses a class that the stylesheet was compiled without")

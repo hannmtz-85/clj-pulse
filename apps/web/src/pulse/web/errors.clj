@@ -4,10 +4,12 @@
   words for a patient, with the status that says what happened. Nothing of the failure itself is in them: the cause is in
   the log."
   (:require [pulse.platform.http.router :as router]
+            [pulse.web.api :as api]
             [pulse.web.html :as html]
             [pulse.web.pages :as pages]
             [pulse.web.return-to :as return-to]
-            [reitit.ring :as ring]))
+            [reitit.ring :as ring]
+            [taoensso.telemere :as t]))
 
 (defn failure
   "The response for a `kind` of failure of `pulse.web.pages/error-kinds`, for `request`, with `status` (the kind's own by
@@ -26,6 +28,24 @@
   "The page for a failure nobody expected, for `pulse.platform.http.middleware/wrap-exceptions`."
   [request]
   (failure :server-error request))
+
+(defn api-failure
+  "The page for `e`, a failure of a call to the api (`pulse.web.api/failure?`), or nil when it is not one. The api said that the
+  person may not see it (403): `forbidden`. Any other failure is on our side, whoever's it is, and says so, with the status
+  that tells what happened between the portal and the api: 504 when the api was too slow or said that something it asked was,
+  502 otherwise. What it said is in the log, never in the page."
+  [request e]
+  (when (api/failure? e)
+    (let [{:keys [type status reason path problem]} (ex-data e)]
+      (t/event! :pulse.web/api-failed
+                {:level (if (api/degradable? e) :warn :error)
+                 :data (cond-> {:failure (name type) :path path}
+                         status (assoc :status status)
+                         reason (assoc :reason reason)
+                         problem (assoc :problem problem))})
+      (if (= 403 status)
+        (failure :forbidden request)
+        (failure :server-error request :status (if (api/timeout? e) 504 502))))))
 
 (def default-handler
   "What answers a path that matches no route (404) and a method the route does not have (405, with `Allow`): the page that

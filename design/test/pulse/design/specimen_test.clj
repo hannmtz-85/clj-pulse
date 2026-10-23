@@ -7,11 +7,6 @@
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]))
 
-(deftest a-reading-is-written-as-people-write-it
-  (is (= "177/100" (specimen/reading-text :blood-pressure (data/latest "pt-ana" :blood-pressure))))
-  (is (= "82.4" (specimen/reading-text :weight {:value 82.4})))
-  (is (= "70" (specimen/reading-text :heart-rate {:value 70}))))
-
 (deftest a-tile-shows-the-latest-reading-of-a-patient
   (let [tile (specimen/vital-tile :blood-pressure (data/latest "pt-ana" :blood-pressure))
         text (hx/words tile)]

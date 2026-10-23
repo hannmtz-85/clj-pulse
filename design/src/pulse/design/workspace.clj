@@ -5,13 +5,15 @@
   from the context of the build to the document of its frame."
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
-            [pulse.design.format :as fmt]
+            [pulse.design.format :as jobs-fmt]
             [pulse.design.mockup :as mockup]
             [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
             [pulse.fhir.appointment :as appointment]
             [pulse.ui.component :as c]
-            [pulse.ui.layout :as layout])
+            [pulse.ui.layout :as layout]
+            [pulse.web.format :as fmt]
+            [pulse.web.views :as web-views])
   (:import (java.time LocalDate)))
 
 (def practitioner-id "pr-rivera")
@@ -74,8 +76,8 @@
 (defn- latest-cell [patient-id]
   (if-let [{:keys [kind reading]} (views/headline patient-id)]
     [:div
-     [:p {:class "font-medium whitespace-nowrap"} (str (specimen/reading-text kind reading) " " (fmt/unit (:unit reading)))]
-     [:p {:class "text-xs text-muted"} (str (get-in specimen/kind-info [kind :label]) ", " (fmt/when-phrase (:at reading) data/now-text))]]
+     [:p {:class "font-medium whitespace-nowrap"} (str (web-views/reading-text kind reading) " " (fmt/unit (:unit reading)))]
+     [:p {:class "text-xs text-muted"} (str (get-in web-views/kind-info [kind :label]) ", " (fmt/when-phrase (:at reading) data/now-text))]]
     "–"))
 
 (defn- next-visit [patient-id]
@@ -172,7 +174,7 @@
 
 (defn- chart-card [patient-id kind]
   (let [{:keys [days ticks-every] :or {days 14 ticks-every 2}} (chart-options kind)
-        label (get-in specimen/kind-info [kind :label])]
+        label (get-in web-views/kind-info [kind :label])]
     (c/card {:title label :subtitle (str "Last " days " days")}
             (specimen/line-chart patient-id kind {:days days :width 600 :height 300 :ticks-every ticks-every
                                                   :id (str "chart-" (name kind) "-" patient-id)}))))
@@ -193,7 +195,7 @@
    (c/list-row
     {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
      :trailing-wraps? true
-     :trailing (list (views/appointment-chip status) (appointment-actions status))}
+     :trailing (list (web-views/appointment-chip status) (appointment-actions status))}
     [:p {:class "font-semibold"} description]
     [:p {:class "text-muted"}
      (when show-patient?
@@ -353,14 +355,14 @@
     "interrupted" (c/tone-badge {:tone :high :size :sm} "Interrupted")))
 
 (defn- result-text [result]
-  (str/join ", " (for [[k v] result] (str v " " (fmt/words k)))))
+  (str/join ", " (for [[k v] result] (str v " " (jobs-fmt/words k)))))
 
 (defn- run-line
   "How the last run of a job went: its outcome, when it began, how long it took, and what it reported."
   [{:keys [startedAt durationMs outcome result error]}]
   [:span {:class "flex flex-wrap items-center gap-x-2 gap-y-1"}
    (outcome-chip outcome)
-   [:span (str (fmt/clock-seconds startedAt) " · " (fmt/duration-text durationMs))]
+   [:span (str (fmt/clock-seconds startedAt) " · " (jobs-fmt/duration-text durationMs))]
    (cond result [:span {:class "text-muted"} (result-text result)]
          error [:span {:class "text-muted"} (str "Error: " error)])])
 
@@ -374,7 +376,7 @@
    {:trailing-wraps? true :trailing (state-chip job)}
    [:p {:class "font-semibold"} id]
    [:p {:class "mb-3 text-muted"} description]
-   (c/facts [["Schedule" (fmt/schedule-text schedule)]
+   (c/facts [["Schedule" (jobs-fmt/schedule-text schedule)]
              ["Last run" (if lastRun (run-line lastRun) "Has not run yet")]
              ["Next run" (fmt/clock-seconds nextRun)]
              ["Runs" (str (:ok counts) " ok, " (:failed counts) " failed, " (:interrupted counts) " interrupted, "
@@ -395,7 +397,7 @@
             (c/stat {:label "Last run failed" :value (str (count failed)) :icon :circle-alert :tone (when (seq failed) :high)})]
            (for [{:keys [id lastRun nextRun]} failed]
              (c/alert {:tone :high :title (str "The last run of " id " failed")}
-                      (str (:error lastRun) " after " (fmt/duration-text (:durationMs lastRun)) ". The next run is at "
+                      (str (:error lastRun) " after " (jobs-fmt/duration-text (:durationMs lastRun)) ". The next run is at "
                            (fmt/clock-seconds nextRun) ".")))
            (c/card {:flush? true}
                    (c/list-group {:aria-label "Jobs of the scheduler"} (map job-row items)))])))

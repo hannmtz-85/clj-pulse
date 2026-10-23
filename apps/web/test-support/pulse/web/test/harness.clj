@@ -42,6 +42,36 @@
   "What the stand-in for the api answers to a readiness probe, until a test changes it."
   {:status 200 :body "{\"status\":\"ready\",\"checks\":{\"keycloak\":\"up\",\"fhir\":\"up\"}}"})
 
+(defn json-answer
+  "The answer of the stand-in for the api with `body`, data written as JSON, and `status` (200)."
+  ([body] (json-answer 200 body))
+  ([status body] {:status status :body (json/write-value-as-string body)}))
+
+(def ana-me
+  "What the api answers `GET /api/me` for Ana, a patient who is signed in as the fake provider says."
+  {:subject "user-pt-ana" :username "ana.garcia@pulse.test" :client "pulse-web" :roles ["patient"]
+   :fhirUser "Patient/pt-ana"
+   :resource {:resourceType "Patient" :id "pt-ana" :name [{:family "García" :given ["Ana"]}]}
+   :generalPractitioner {:reference "Practitioner/pr-rivera" :name "Dr. Elena Rivera" :specialty "Internal medicine"}})
+
+(def empty-summary
+  "What the api answers `GET /api/patients/pt-ana/summary` when there is nothing in the record: no reading and no appointment."
+  {:patient {:id "pt-ana" :name "Ana García" :family "García" :given ["Ana"] :birthDate "1968-03-14" :gender "female" :identifier "PULSE-0001"}
+   :conditions [] :medications [] :allergies []
+   :vitals {:blood-pressure nil :heart-rate nil :glucose nil :spo2 nil :weight nil}
+   :appointments [] :alerts [] :unavailable []})
+
+(defn default-api
+  "What the stand-in for the api answers until a test says otherwise, as a function of the request it got: readiness, who Ana
+  is, an empty record, and a series with no readings in it."
+  [{:keys [path]}]
+  (cond
+    (= "/readyz" path) api-ready
+    (= "/api/me" path) (json-answer ana-me)
+    (= "/api/patients/pt-ana/summary" path) (json-answer empty-summary)
+    (= "/api/patients/pt-ana/observations" path) (json-answer {:items [] :truncated false})
+    :else (json-answer 404 {:title "Not Found" :status 404})))
+
 (defn- epoch-second [the-clock]
   (.getEpochSecond (clock/instant the-clock)))
 
@@ -52,16 +82,18 @@
 
     `:handler`  the Ring handler
     `:idp`      the fake provider (`pulse.platform.test.idp`, and `pulse.platform.test.oidc` for who signs in)
-    `:jwks`     the key cache, `:api` the client of the api, `:api-answer` an atom with what the stand-in answers (`api-ready` at
-                first) and `:api-requests` an atom with the requests it got
+    `:jwks`     the key cache, `:api` the client of the api, `:api-answer` an atom with what the stand-in answers: a response, or
+                a function of the request that gives one (`default-api` at first), and `:api-requests` an atom with the
+                requests it got
     `:clock`    the clock (`pulse.platform.test.clock`): the sessions, the keepers and the tokens of the provider go by it
     `:sessions` the store of the sessions, `:oidc` the portal's client of the provider, `:access-verifier` and
     `:id-verifier` the two verifiers of the tokens of a sign-in
 
-  Options: `:routes` (more routes, added to the portal's), `:sessions` (limits of the store, to try them small) and
+  Options: `:routes` (more routes, added to the portal's), `:deps` (more of what the routes are made of: a `:series-timeout-ms`,
+  say), `:api-timeout-ms` (how long the client of the api waits for an answer), `:sessions` (limits of the store, to try them small) and
   `:base-url` (the address the portal is served at, `base-url` here by default: an https one makes the cookie and the headers
   those of a portal served over https)."
-  [{:keys [routes sessions] served-at :base-url} f]
+  [{:keys [routes deps sessions api-timeout-ms] served-at :base-url} f]
   (let [base-url (or served-at base-url)
         server (idp/start! [signing-key])
         the-clock (clock/clock "2026-10-19T10:00:00Z")
@@ -75,9 +107,11 @@
         source (jwt/jwks-source {:uri (:uri server) :min-refresh-interval-ms 200})
         verifier (fn [audience token-type]
                    (jwt/verifier {:jwks-source source :issuer issuer :audience audience :token-type token-type :clock now-s}))
-        api-answer (atom api-ready)
-        api-stub (stub/start! (fn [_] @api-answer))
-        api (http/client {:base-url (:url api-stub)})
+        api-answer (atom default-api)
+        ;; the api answers several requests at once, as a service does
+        api-stub (stub/start! (fn [request] (let [answer @api-answer] (if (map? answer) answer (answer request))))
+                              {:concurrent? true})
+        api (http/client (cond-> {:base-url (:url api-stub)} api-timeout-ms (assoc :timeout-ms api-timeout-ms)))
         sessions-store (session/memory-store (assoc sessions :clock (:clock the-clock)))
         the-oidc (oidc/client {:client-id "pulse-web"
                                :client-secret (config/secret client-secret)
@@ -91,8 +125,10 @@
         access-verifier (verifier "pulse-api" "Bearer")
         id-verifier (verifier "pulse-web" "ID")]
     (try
-      (f {:handler (handler/ring-handler (into (routes/routes {:jwks source :api api :oidc the-oidc :sessions sessions-store
-                                                               :access-verifier access-verifier :id-verifier id-verifier})
+      (f {:handler (handler/ring-handler (into (routes/routes (merge {:jwks source :api api :oidc the-oidc :sessions sessions-store
+                                                                      :access-verifier access-verifier :id-verifier id-verifier
+                                                                      :clock (:clock the-clock)}
+                                                                     deps))
                                                routes)
                                          {:issuer issuer :quiet-paths #{"/healthz" "/readyz"} :sessions sessions-store :oidc the-oidc})
           :idp server

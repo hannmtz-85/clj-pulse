@@ -4,8 +4,9 @@
   and what is reviewed is what is served: a page of the portal is a function of the data in the shapes of the api, and
   the mock-up gives it the synthetic cohort.
 
-  This namespace has the document that every page of the portal is, the pages for when something goes wrong, and the few pages
-  around signing in and out."
+  This namespace has the document that every page of the portal is, the frame of the pages of a patient who is signed in (the
+  bar, the dock and the menu), the pages for when something goes wrong, and the few pages around signing in and out. The pages
+  themselves are in `pulse.web.pages.*`."
   (:require [clojure.string :as str]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]))
@@ -60,11 +61,39 @@
                (assoc :body-attrs {:hx-headers (str "{\"X-CSRF-Token\":" (json-string (:csrf-token options)) "}")})))
          body))
 
+(def csrf-field-name
+  "The name of the field of a form that carries the CSRF token of the person's session, which `pulse.web.csrf` reads."
+  "__anti-forgery-token")
+
 (defn csrf-field
   "The hidden field that gives a form the CSRF token of the person's session, for the check that every request that changes
   something has to pass (`pulse.web.csrf`)."
   [csrf-token]
-  [:input {:type "hidden" :name "__anti-forgery-token" :value csrf-token}])
+  [:input {:type "hidden" :name csrf-field-name :value csrf-token}])
+
+;; ---------------------------------------------------------------------------
+;; The frame of a page of a patient
+
+(def nav
+  "The pages of the portal, in the order of the bar and the dock: `:id`, `:href`, `:label` and `:icon`. A page is here when it
+  exists, so that nothing in the navigation leads nowhere: each step of Phase 7 adds its own."
+  [{:id :home :href "/" :label "Home" :icon :house}])
+
+(defn page
+  "A page of a patient who is signed in: the document, with the CSRF token of their session for htmx, and in it the bar, the
+  dock and the menu of `person` (`:name`), who signs out from there with a form that carries the token, since a link would let
+  any page sign them out (ADR-0028). `:current` is the `:id` in `nav` of the page. The children are the page. The bar has no
+  button for the theme: the pages follow the preference of the browser until there is a script to change it (X-93)."
+  [{:keys [title current person csrf-token]} & content]
+  (document {:title title :csrf-token csrf-token}
+            (apply layout/portal-shell
+                   {:current current
+                    :nav nav
+                    :theme-button? false
+                    :user {:name (:name person)
+                           :items [{:id "sign-out" :label "Sign out" :icon :log-out :action "/sign-out"
+                                    :fields {csrf-field-name csrf-token}}]}}
+                   content)))
 
 ;; ---------------------------------------------------------------------------
 ;; When something goes wrong
@@ -189,15 +218,3 @@
   [:form {:method "post" :action "/sign-out"}
    (csrf-field csrf-token)
    (c/button {:type "submit" :variant :outline :size :lg :icon :log-out} "Sign out")])
-
-(defn home-page
-  "The page a person lands on when they are signed in, until the home of the portal is made (step 5 of Phase 7): who they are
-  signed in as, and the way out. `options` are the `:name` of the person and their `:csrf-token`."
-  [{:keys [name csrf-token]}]
-  (document {:title "Home" :csrf-token csrf-token}
-            (layout/login-frame {}
-                                (c/card (c/empty-state {:icon :circle-check
-                                                        :heading :h1
-                                                        :title (str "Welcome, " name)
-                                                        :actions (sign-out-form csrf-token)}
-                                                       "You are signed in. The pages of your record are on their way.")))))

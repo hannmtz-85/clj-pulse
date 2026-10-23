@@ -49,8 +49,10 @@
 
 (defn create
   "The portal's Ring handler. `options` is the `:pulse.web/handler` component: `:jwks`, `:api`, `:oidc`, `:sessions`,
-  the two verifiers of tokens (`:access-verifier` and `:id-verifier`), `:issuer` and `:quiet-paths`."
-  [{:keys [jwks api oidc sessions access-verifier id-verifier] :as options}]
+  the two verifiers of tokens (`:access-verifier` and `:id-verifier`), `:issuer` and `:quiet-paths`, and `:clock` (a
+  `java.time.Clock`), which the configuration does not give: it is for the tests, and the pages tell the time by the system's
+  without it."
+  [{:keys [jwks api oidc sessions access-verifier id-verifier clock] :as options}]
   (ring-handler (routes/routes {:jwks jwks :api api :oidc oidc :sessions sessions
-                                :access-verifier access-verifier :id-verifier id-verifier})
+                                :access-verifier access-verifier :id-verifier id-verifier :clock clock})
                 options))

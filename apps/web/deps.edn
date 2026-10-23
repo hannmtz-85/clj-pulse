@@ -3,6 +3,8 @@
         ;; Configuration, lifecycle, logging, malli, the router and the server come with the platform
         ;; library; so does the client of the api (ADR-0028).
         pulse/platform {:local/root "../../libs/platform"}
+        ;; What an appointment allows a patient is the lifecycle of the clinic (ADR-0015, ADR-0027), which the pages ask
+        pulse/fhir {:local/root "../../libs/fhir"}
         ;; The components of the interface, which the pages are made of
         pulse/ui {:local/root "../../libs/ui"}
         ;; The pages are hiccup, written as HTML by Hiccup 2 (the review of the mock-ups does the same)

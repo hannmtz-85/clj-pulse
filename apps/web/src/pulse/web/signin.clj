@@ -1,6 +1,5 @@
 (ns pulse.web.signin
-  "Signing in and out of the portal (ADR-0028): the handlers of `/sign-in`, `/oauth2/callback`, `/sign-out` and `/signed-out`, and of
-  the page a person lands on once they are in.
+  "Signing in and out of the portal (ADR-0028): the handlers of `/sign-in`, `/oauth2/callback`, `/sign-out` and `/signed-out`.
 
   The sign-in is the authorization-code flow with PKCE, `state` and `nonce`, and it can only happen once and only in the browser
   that began it:
@@ -201,13 +200,3 @@
   "The handler of `GET /signed-out`, where the identity provider sends the browser back to once it has signed the person out."
   [_request]
   (html/response (pages/signed-out-page)))
-
-;; ---------------------------------------------------------------------------
-;; The page of a person who is in
-
-(defn home
-  "The handler of `GET /`, the page of a person who is signed in, until the home of the portal is made (step 5): who they are
-  signed in as, and the way out."
-  [request]
-  (html/response (pages/home-page {:name (:name (authz/person request))
-                                   :csrf-token (session/csrf-token-of request)})))

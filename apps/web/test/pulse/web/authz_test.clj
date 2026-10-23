@@ -136,3 +136,98 @@
   (is (true? (authz/htmx? {:headers {"hx-request" "true"}})))
   (doseq [headers [{} {"hx-request" "false"} {"hx-request" "TRUE"} {"hx-request" ""} {"HX-Request" "true"}]]
     (is (false? (authz/htmx? {:headers headers})) (pr-str headers))))
+
+;; ---------------------------------------------------------------------------
+;; A page of a patient that fails
+
+(defn- failing-routes
+  "A route whose page throws what `failure` (an atom) holds."
+  [failure]
+  [["/fails" {:get {:authz :patient :handler (fn [_] (throw @failure))}}]])
+
+(defn- failing
+  "Calls `(f web fail!)` with a portal whose page `/fails` throws what `fail!` was last given, and a person who is signed in."
+  [f]
+  (let [failure (atom nil)]
+    (with-web {:routes (failing-routes failure)}
+      (fn [web]
+        (f web (fn [e] (reset! failure e))
+           (fn [] (call web :get "/fails" :query "x=1" :session {:person {:name "Ana García"} :csrf "t"})))))))
+
+(defn- api-failure [data]
+  (ex-info "the call failed" (merge {:path "/api/me"} data)))
+
+(deftest a-call-to-the-api-that-failed-is-a-page-that-says-it-is-on-our-side
+  (failing
+   (fn [_web fail! ask!]
+     (doseq [[data status] [[{:type :pulse.platform.http.client/unreachable :reason :connect} 502]
+                            [{:type :pulse.platform.http.client/unreachable :reason :timeout} 504]
+                            [{:type :pulse.platform.http.client/failed :status 500} 502]
+                            [{:type :pulse.platform.http.client/failed :status 502} 502]
+                            [{:type :pulse.platform.http.client/failed :status 503} 502]
+                            [{:type :pulse.platform.http.client/failed :status 504} 504]
+                            [{:type :pulse.platform.http.client/failed :status 200 :reason :bad-response} 502]
+                            [{:type :pulse.platform.http.client/failed :status 401} 502]
+                            [{:type :pulse.platform.http.client/failed :status 404} 502]
+                            [{:type :pulse.platform.http.client/failed :status 422} 502]]]
+       (fail! (api-failure data))
+       (let [r (ask!)]
+         (testing (pr-str data)
+           (is (= status (:status r)))
+           (is (str/includes? (:text r) "Something went wrong on our side"))
+           (is (str/includes? (:text r) "href=\"/fails?x=1\"") "to try again is to ask for the same page")
+           (is (= 1 (count (filter #(= :pulse.web/api-failed (:id %)) (:signals r)))))))))))
+
+(deftest a-call-the-api-refused-because-the-person-may-not-see-it-is-forbidden
+  (failing
+   (fn [_web fail! ask!]
+     (fail! (api-failure {:type :pulse.platform.http.client/failed :status 403}))
+     (let [r (ask!)]
+       (is (= 403 (:status r)))
+       (is (str/includes? (:text r) "You cannot see this"))
+       (is (not (str/includes? (:text r) "Something went wrong")))))))
+
+(deftest what-the-api-said-is-in-the-log-and-not-in-the-page
+  (failing
+   (fn [_web fail! ask!]
+     (fail! (api-failure {:type :pulse.platform.http.client/failed :status 503 :path "/api/patients/pt-ana/summary"
+                          :problem {:title "Service Unavailable" :detail "The FHIR server did not answer in time. Password hunter2."}}))
+     (let [r (ask!)
+           [event] (filter #(= :pulse.web/api-failed (:id %)) (:signals r))]
+       (is (= :warn (:level event)))
+       (is (= {:failure "failed" :path "/api/patients/pt-ana/summary" :status 503
+               :problem {:title "Service Unavailable" :detail "The FHIR server did not answer in time. Password hunter2."}}
+              (:data event)))
+       (is (not (str/includes? (:text r) "hunter2")))
+       (is (not (str/includes? (:text r) "FHIR")))))))
+
+(deftest a-failure-that-is-not-the-apis-is-for-the-exception-handler
+  (failing
+   (fn [_web fail! ask!]
+     (fail! (ex-info "a bug" {:type :something-else}))
+     (let [r (ask!)]
+       (is (= 500 (:status r)))
+       (is (str/includes? (:text r) "Something went wrong on our side"))
+       (is (empty? (filter #(= :pulse.web/api-failed (:id %)) (:signals r))) "it is not taken for the api's")
+       (is (= 1 (count (filter #(= :pulse.http/unhandled-exception (:id %)) (:signals r))))))
+     (fail! (IllegalStateException. "not even an ex-info"))
+     (is (= 500 (:status (ask!)))))))
+
+(deftest a-failure-of-the-token-that-arrives-wrapped-is-still-the-tokens
+  ;; a part of a page asked for on another thread brings what happened to it as the cause of what the caller throws
+  (let [token-failure (fn [reason] (ex-info "no token" {:type :pulse.platform.token/unavailable :reason reason}))]
+    (failing
+     (fn [_web fail! ask!]
+       (testing "the provider refused: the session is over"
+         (fail! (ex-info "a part of the page failed" {:type :something} (token-failure :rejected)))
+         (let [r (ask!)]
+           (is (= 401 (:status r)))
+           (is (str/includes? (:text r) "Your session has ended"))
+           (is (= :refresh-rejected (:reason (:data (first (filter #(= :pulse.web/session-ended (:id %)) (:signals r)))))))))
+       (testing "the provider could not be reached: the person is told, and nothing else"
+         (fail! (ex-info "a part of the page failed" {:type :something} (RuntimeException. "wrapped" (token-failure :server))))
+         (let [r (ask!)]
+           (is (= 503 (:status r)))
+           (is (str/includes? (:text r) "Sign-in is not available right now"))))
+       (testing "and not taken for a failure of the api"
+         (is (empty? (filter #(= :pulse.web/api-failed (:id %)) (:signals (ask!))))))))))

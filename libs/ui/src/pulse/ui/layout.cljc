@@ -45,8 +45,9 @@
   "The frame of the patient portal: a bar at the top with the navigation, from a medium screen on, and the same
   navigation as a dock at the bottom of a phone. `:current` is the `:id` of the item of the page, `:nav` is
   `[{:id :href :label :icon} ...]` and `:user` is the arguments of `user-menu`. Everything is as large as a finger
-  needs: the links of the bar are 44 px high. The children are the page, in `main`."
-  [{:keys [current nav user]} & content]
+  needs: the links of the bar are 44 px high. The bar has a button to change the theme, which does nothing by itself: a
+  page that has no script to give it passes `:theme-button? false`. The children are the page, in `main`."
+  [{:keys [current nav user theme-button?] :or {theme-button? true}} & content]
   [:div {:class "min-h-screen bg-base-200 pb-24 md:pb-0"}
    (skip-link "main")
    [:header {:class "border-b border-base-300 bg-base-100"}
@@ -62,7 +63,7 @@
                    (= id current) (assoc :aria-current "page"))
               text]))
      [:div {:class "ml-auto flex items-center gap-1"}
-      (c/icon-button {:icon :moon :label "Dark theme" :variant :ghost :size :lg})
+      (when theme-button? (c/icon-button {:icon :moon :label "Dark theme" :variant :ghost :size :lg}))
       (c/user-menu user)]]]
    (into [:main {:id "main" :class "mx-auto max-w-5xl px-4 py-6 md:py-10"}] content)
    (into [:nav {:aria-label "Main, on a phone" :class "dock md:hidden"}]

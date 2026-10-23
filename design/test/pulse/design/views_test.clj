@@ -5,29 +5,10 @@
             [clojure.test :refer [deftest is testing]]
             [pulse.design.data :as data]
             [pulse.design.views :as views]
-            [pulse.scheduler.rules :as rules]
-            [pulse.ui.test.hiccup :as hx]))
+            [pulse.scheduler.rules :as rules]))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments
-
-(deftest the-chip-of-an-appointment-says-its-status-in-words
-  (is (= ["Confirmed" "Requested" "Pending" "Cancelled" "Completed" "Noshow"]
-         (map (comp hx/words views/appointment-chip) ["booked" "proposed" "pending" "cancelled" "fulfilled" "noshow"]))
-      "a status it does not know is shown as it is, in words")
-  (testing "a confirmed appointment is normal, a request is information, and what is over is a plain label"
-    (is (hx/has-class? (views/appointment-chip "booked") "bg-tone-normal-soft"))
-    (is (hx/has-class? (views/appointment-chip "proposed") "bg-tone-info-soft"))
-    (is (hx/has-class? (views/appointment-chip "pending") "bg-tone-info-soft"))
-    (is (hx/has-class? (views/appointment-chip "cancelled") "badge-outline"))
-    (is (hx/has-class? (views/appointment-chip "fulfilled") "badge-outline"))
-    (is (hx/has-class? (views/appointment-chip "noshow") "badge-outline")))
-  (testing "each has an icon of its own, so that the colour is not the only difference"
-    (is (= 1 (count (hx/by-tag (views/appointment-chip "booked") :svg))))
-    (is (not= (hx/by-tag (views/appointment-chip "booked") :svg) (hx/by-tag (views/appointment-chip "proposed") :svg))))
-  (testing "attributes go to the chip"
-    (is (hx/has-class? (views/appointment-chip "booked" {:class "mt-1"}) "mt-1"))
-    (is (hx/has-class? (views/appointment-chip "cancelled" {:class "mt-1"}) "mt-1"))))
 
 (deftest a-booked-appointment-has-its-day-its-time-and-its-doctor
   (let [row (first (filter #(= "appt-ana-1" (:id %)) (views/appointment-rows)))]

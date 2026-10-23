@@ -135,6 +135,12 @@
   [failure]
   (= ::token/unavailable (:type (if (map? failure) failure (ex-data failure)))))
 
+(defn token-failure
+  "The failure of a keeper (an `ex-info` of type `::token/unavailable`) that `e` is or has as a cause, or nil. A call that was made
+  on another thread, as the parts of a page are, may bring it wrapped in something else."
+  [e]
+  (first (filter unavailable? (take-while some? (iterate ex-cause e)))))
+
 (defn client
   "The `oidc` component for the options of `:pulse.web/oidc`: `:client-id`, `:client-secret`, `:base-url`, `:token-uri`
   (the back channel), `:authorization-uri`, `:end-session-uri`, the timeouts, and `:clock` (the system clock by default)."

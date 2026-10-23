@@ -3,10 +3,10 @@
   it, with the synthetic cohort."
   (:require [pulse.design.chrome :as chrome]
             [pulse.design.data :as data]
-            [pulse.design.format :as fmt]
             [pulse.design.specimen :as specimen]
             [pulse.design.tile :as tile]
-            [pulse.ui.component :as c]))
+            [pulse.ui.component :as c]
+            [pulse.web.format :as fmt]))
 
 (defn- frame [{:keys [pages themes]} file title & content]
   (apply chrome/page {:title title :pages pages :file file :themes themes} content))

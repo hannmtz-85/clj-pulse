@@ -172,6 +172,47 @@
     (is (not-any? #(contains? (hx/attributes m) %) [:name :items :name-class]))
     (is (empty? (a11y/problems m)))))
 
+(def ^:private menu-with-a-form
+  (c/user-menu {:name "Ana García"
+                :items [{:href "/profile" :label "Profile" :icon :user}
+                        {:id "sign-out" :label "Sign out" :icon :log-out :action "/sign-out"
+                         :fields {"__anti-forgery-token" "tok-en_1" "other" "a\"b"}}]}))
+
+(deftest an-item-of-the-menu-that-changes-something-is-a-button-and-not-a-link
+  (let [ul (first (hx/by-tag menu-with-a-form :ul))
+        [profile sign-out] (hx/by-tag ul :li)
+        button (first (hx/by-tag sign-out :button))]
+    (testing "it is an item of the list, as a link is, with its icon and its words"
+      (is (= 2 (count (hx/by-tag ul :li))))
+      (is (= :a (hx/tag (first (hx/child-nodes profile)))))
+      (is (= :button (hx/tag (first (hx/child-nodes sign-out)))))
+      (is (= "Sign out" (hx/words button)))
+      (is (= 1 (count (hx/by-tag button :svg)))))
+    (testing "it submits its form, which is told apart by the id of the item"
+      (is (= {:type "submit" :form "account-sign-out"} (hx/attributes button))))
+    (testing "and no address that a page could send a person to leads to it"
+      (is (= ["/profile"] (map #(:href (hx/attributes %)) (hx/by-tag menu-with-a-form :a)))))))
+
+(deftest the-form-of-an-item-is-a-post-beside-the-list-with-its-hidden-fields
+  (let [forms (hx/by-tag menu-with-a-form :form)
+        form (first forms)]
+    (is (= 1 (count forms)) "one for the item that posts, none for a link")
+    (is (empty? (hx/by-tag (first (hx/by-tag menu-with-a-form :ul)) :form)) "not in the list, where it would take the place of an item")
+    (is (= {:id "account-sign-out" :method "post" :action "/sign-out"} (hx/attributes form)))
+    (is (= #{{:type "hidden" :name "__anti-forgery-token" :value "tok-en_1"} {:type "hidden" :name "other" :value "a\"b"}}
+           (set (map hx/attributes (hx/by-tag form :input)))))
+    (is (empty? (a11y/problems menu-with-a-form)) "every id is there once, and what points at one finds it")))
+
+(deftest a-menu-with-no-item-that-posts-has-no-form
+  (is (empty? (hx/by-tag (c/user-menu {:name "A B" :items [{:href "/x" :label "X"}]}) :form)))
+  (is (empty? (hx/by-tag (c/user-menu {:name "A B" :items []}) :form))))
+
+(deftest an-item-that-posts-needs-an-id-to-be-tied-to-its-form
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"needs an :id: \"Sign out\""
+                        (c/user-menu {:name "A B" :items [{:label "Sign out" :action "/sign-out"}]})))
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"needs an :id"
+                        (c/user-menu {:name "A B" :items [{:id "" :label "Sign out" :action "/sign-out"}]}))))
+
 (deftest a-screen-that-shows-the-person-elsewhere-hides-the-name-of-the-menu
   (let [name-of (fn [m] (first (hx/select m #(hx/has-class? % "sm:inline"))))]
     (is (not (hx/has-class? (name-of (c/user-menu {:name "A B" :items []})) "lg:hidden")))

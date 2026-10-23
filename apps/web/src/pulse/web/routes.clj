@@ -1,19 +1,20 @@
 (ns pulse.web.routes
   "The portal's routes, as data: path, method, who may see it (`:authz`, see `pulse.web.authz`) and the handler
-  (ADR-0028). What there is is what any service has, the files the portal serves itself, and the sign-in and the sign-out
-  (`pulse.web.signin`); the pages of a patient come with the steps that make them."
+  (ADR-0028). What there is is what any service has, the files the portal serves itself, the sign-in and the sign-out
+  (`pulse.web.signin`), and the pages of a patient, which come with the steps that make them: the home so far."
   (:require [pulse.web.assets :as assets]
             [pulse.web.health :as health]
+            [pulse.web.home :as home]
             [pulse.web.signin :as signin]
             [ring.middleware.not-modified :as not-modified]))
 
 (defn routes
-  "The route table. `deps` is `{:jwks :api :oidc :sessions :access-verifier :id-verifier}`: the key cache of the identity
-  provider and the client of the api, which readiness asks about, and what the sign-in is made of."
+  "The route table. `deps` is `{:jwks :api :oidc :sessions :access-verifier :id-verifier :clock}`: the key cache of the identity
+  provider and the client of the api, which readiness asks about and the pages read from, what the sign-in is made of, and the
+  clock the pages tell the time by (optional: the system's)."
   [deps]
-  [;; until the home of the portal is made, the page of a person who is signed in says so, and has the way out
-   ["/" {:get {:authz :patient
-               :handler signin/home}}]
+  [["/" {:get {:authz :patient
+               :handler (home/handler deps)}}]
    ["/sign-in" {:get {:authz :public
                       :handler (signin/sign-in deps)}}]
    ["/oauth2/callback" {:get {:authz :public

@@ -45,8 +45,10 @@
  ;; (ADR-0028). The client has no token of its own: each call is given the keeper of the session.
  :pulse.web/api
  {:base-url #or [#env API_BASE_URL "http://localhost:4000"]
-  ;; A request that takes longer is abandoned, and so is a connection that takes longer to make
-  :timeout-ms 10000
+  ;; A request that takes longer is abandoned, and so is a connection that takes longer to make. The api gives up on a part of a
+  ;; summary after four seconds and answers with what it has, so six is a little more than a healthy api ever needs: a page may
+  ;; ask three times in a row, and a person should not wait a minute to be told that something is wrong
+  :timeout-ms 6000
   :connect-timeout-ms 3000}
 
  ;; The portal as a client of the identity provider (ADR-0028): the client `pulse-web` of the realm, which is

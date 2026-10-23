@@ -164,10 +164,18 @@
           (is (= #{"state" "session_state" "iss" "code"} (set (keys (params-of (location answer))))))
           (is (= 303 (:status callback)))
           (is (= "/" (location callback))))
-        (testing "the page of the person says who they are, as the id token of the realm says it"
-          (let [home (request! (:portal browser) :get (str portal-url "/"))]
+        (testing "the page of the person is their home, made from what the real api says of them, asked for with their own token"
+          (let [home (request! (:portal browser) :get (str portal-url "/"))
+                body (:body home)]
             (is (= 200 (:status home)))
-            (is (str/includes? (:body home) "Welcome, Ana García"))))
+            (is (str/includes? body "Account menu of Ana García") "who they are, as the id token of the realm says it")
+            (is (re-find #"Good (morning|afternoon|evening), Ana" body) "named as their record names them")
+            (is (str/includes? body "Your next appointment"))
+            (is (str/includes? body "Hypertension follow-up"))
+            (is (str/includes? body "Dr. Elena Rivera") "and their doctor, as the api names them")
+            (is (str/includes? body "Your latest readings"))
+            (is (str/includes? body "Blood pressure"))
+            (is (not (re-find #"Sofía|Liam|Maya|Omar|Noah" body)) "and nobody else")))
         (testing "the session is on the server: the person, the keeper of their tokens and a CSRF token"
           (let [{:keys [person tokens csrf]} (session-of system browser)]
             (is (= "Ana García" (:name person)))

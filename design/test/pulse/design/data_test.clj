@@ -6,8 +6,11 @@
             [pulse.api.alerts :as api-alerts]
             [pulse.api.appointments :as api-appointments]
             [pulse.api.jobs :as api-jobs]
+            [pulse.api.me :as api-me]
             [pulse.api.observations :as api-observations]
+            [pulse.api.summary :as api-summary]
             [pulse.design.data :as data]
+            [pulse.fhir.client.memory :as memory]
             [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]))
 
@@ -175,3 +178,70 @@
     (testing "the counts are those of a scheduler that has been up a while"
       (is (= [214 428 105] (map (comp :ok :counts) items)))
       (is (= [0 1 1] (map (comp :failed :counts) items))))))
+
+;; ---------------------------------------------------------------------------
+;; What the api answers a patient, from the same cohort
+
+(def ^:private fhir
+  "The cohort of the mock-ups in a FHIR server, which the handlers of the api are given."
+  (delay (memory/memory-client (data/resources))))
+
+(defn- me-of-api [id]
+  (let [identity {:subject (str "user-" id) :username (:email (data/patient id)) :client "pulse-web" :roles #{:patient}
+                  :fhir-user {:type "Patient" :id id}}]
+    (:body ((api-me/handler {:fhir @fhir}) {:identity identity}))))
+
+(defn- summary-of-api [id]
+  (:body ((api-summary/handler {:fhir @fhir :summary-timeout-ms 5000}) {:path-params {:id id}})))
+
+(defn- series-of-api [id kind limit]
+  (:body ((api-observations/list-handler {:fhir @fhir})
+          {:path-params {:id id} :parameters {:query {:measurement (name kind) :sort "-date" :limit limit}}})))
+
+(deftest what-the-api-answers-who-a-patient-is-is-what-the-mock-ups-have
+  (doseq [{:keys [id]} (data/patients)]
+    (testing id
+      (is (m/validate api-me/schema (data/me id)))
+      (is (= (me-of-api id) (data/me id)) "the same as the handler of the api makes of the same cohort")))
+  (testing "the doctor is named as the clinic writes it"
+    (is (= {:reference "Practitioner/pr-rivera" :name "Dr. Elena Rivera" :specialty "Internal medicine"}
+           (:generalPractitioner (data/me "pt-ana"))))
+    (is (= "Dr. Chidi Okafor" (get-in (data/me "pt-noah") [:generalPractitioner :name])))))
+
+(deftest what-the-api-answers-the-summary-of-a-patient-is-what-the-mock-ups-have
+  (let [by-the-hand (set (map :id data/other-appointments))
+        by-the-cohort (fn [summary] (vec (remove #(contains? by-the-hand (:id %)) (:appointments summary))))]
+    (doseq [{:keys [id]} (data/patients)
+            :let [mine (data/summary id)
+                  theirs (summary-of-api id)]]
+      (testing id
+        (is (m/validate api-summary/schema mine) "the shape the api gives, the parts written by hand included")
+        (is (= (select-keys theirs [:patient :conditions :medications :allergies :vitals :unavailable])
+               (select-keys mine [:patient :conditions :medications :allergies :vitals :unavailable]))
+            "the record and the latest readings, as the handler of the api makes them of the same cohort")
+        (is (= (:appointments theirs) (by-the-cohort mine)) "and the appointments of the cohort")
+        (is (= [] (:unavailable mine)) "nothing that could not be loaded"))))
+  (testing "what the cohort does not hold is written by hand: Ana has two more appointments and an alert"
+    (let [ana (data/summary "pt-ana")]
+      (is (= ["appt-ana-0" "appt-ana-1" "appt-ana-2"] (map :id (:appointments ana))) "soonest first")
+      (is (= ["flag-pt-ana-R1"] (map :id (:alerts ana))))
+      (is (empty? (:alerts (data/summary "pt-liam"))) "the alert of Liam was acknowledged, and is not active")))
+  (testing "a vital sign the patient has no reading of is null, and the summary has no temperature"
+    (is (= #{:blood-pressure :heart-rate :glucose :spo2 :weight} (set (keys (:vitals (data/summary "pt-ana"))))))
+    (is (= [:blood-pressure :heart-rate :weight] (sort-by {:blood-pressure 0 :heart-rate 1 :weight 2} (keep (fn [[k v]] (when v k)) (:vitals (data/summary "pt-ana"))))))
+    (is (every? nil? (vals (:vitals (data/summary "pt-noah")))))))
+
+(deftest what-the-api-answers-a-series-is-what-the-mock-ups-have
+  (doseq [{:keys [id]} (data/patients)
+          kind (keys measurement/measurements)]
+    (let [mine (data/series id kind 5)]
+      (is (m/validate api-observations/list-schema mine) (str id " " kind))
+      (is (= (series-of-api id kind 5) mine) (str id " " kind))))
+  (testing "the newest first, at most the limit, and whether there were more"
+    (let [{:keys [items truncated]} (data/series "pt-ana" :blood-pressure 5)]
+      (is (= 5 (count items)))
+      (is (true? truncated))
+      (is (= (reverse (sort (map :at items))) (map :at items)))
+      (is (= "blood-pressure" (:measurement (first items)))))
+    (is (= {:items [] :truncated false} (data/series "pt-noah" :weight 5)))
+    (is (false? (:truncated (data/series "pt-ana" :weight 500))))))

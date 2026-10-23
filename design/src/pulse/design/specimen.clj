@@ -3,38 +3,15 @@
   from the cohort. This is the layer between the shape of the api and the components of `libs/ui`, which the
   pages of `web` and `spa` will have too."
   (:require [pulse.design.data :as data]
-            [pulse.design.format :as fmt]
             [pulse.fhir.ranges :as ranges]
             [pulse.ui.chart :as chart]
-            [pulse.ui.component :as c]))
-
-(def kind-info
-  "How each measurement is named and drawn."
-  {:blood-pressure {:label "Blood pressure" :icon :gauge}
-   :heart-rate {:label "Heart rate" :icon :heart-pulse}
-   :spo2 {:label "Oxygen saturation" :icon :wind}
-   :glucose {:label "Glucose" :icon :droplet}
-   :weight {:label "Weight" :icon :scale}
-   :temperature {:label "Temperature" :icon :thermometer}})
-
-(defn reading-text
-  "The number or numbers of a reading as text: `172/104` for a blood pressure, `72` for the rest."
-  [kind reading]
-  (if (= :blood-pressure kind)
-    (str (fmt/number (:systolic reading)) "/" (fmt/number (:diastolic reading)))
-    (fmt/number (:value reading))))
+            [pulse.web.format :as fmt]
+            [pulse.web.views :as web-views]))
 
 (defn vital-tile
-  "The tile of the latest reading `reading` of `kind`."
+  "The tile of the latest reading `reading` of `kind`, as it is at the moment of the mock-ups."
   ([kind reading] (vital-tile kind reading nil))
-  ([kind reading attributes]
-   (let [{:keys [label icon]} (kind-info kind)]
-     (c/vital-tile (merge attributes
-                          {:label label :icon icon
-                           :value (reading-text kind reading)
-                           :unit (fmt/unit (:unit reading))
-                           :band (:band reading)
-                           :at (fmt/when-text (:at reading) data/now-text)})))))
+  ([kind reading attributes] (web-views/vital-tile kind reading data/now-text attributes)))
 
 ;; ---------------------------------------------------------------------------
 ;; Charts
@@ -92,7 +69,7 @@
         newest (last series-readings)]
     (str label " over the last " days " days: between " (fmt/number (apply min values)) " and "
          (fmt/number (apply max values)) " " unit "; the latest, "
-         (fmt/when-phrase (:at newest) data/now-text) ", is " (reading-text kind newest) " " unit ".")))
+         (fmt/when-phrase (:at newest) data/now-text) ", is " (web-views/reading-text kind newest) " " unit ".")))
 
 (defn line-chart
   "The chart of a patient's `kind` over `days` days, in a drawing of `width` by `height` pixels. Options:
@@ -100,7 +77,7 @@
   `:bands?` (the lines of the rules and the shaded normal range, with their words in the right margin)."
   [patient-id kind {:keys [id days width height ticks-every thresholds? bands?]
                     :or {days 7 width 640 height 260 ticks-every 1 thresholds? true bands? true}}]
-  (let [{:keys [label]} (kind-info kind)
+  (let [{:keys [label]} (web-views/kind-info kind)
         recent (vec (within (data/readings patient-id kind) days))
         to (.toEpochMilli data/now)
         from (- to (* days 24 3600 1000))
@@ -140,4 +117,4 @@
                (:low :elevated) :elevated
                :neutral)]
     (chart/sparkline {:points (points recent channel) :tone tone
-                      :label (str (get-in kind-info [kind :label]) " over the last " days " days")})))
+                      :label (str (get-in web-views/kind-info [kind :label]) " over the last " days " days")})))

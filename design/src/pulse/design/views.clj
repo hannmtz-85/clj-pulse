@@ -1,51 +1,24 @@
 (ns pulse.design.views
-  "What the pages of the mock-ups show of an appointment, an alert or a patient (ADR-0026): view models made from the
-  data in the shapes of the api, as the interfaces will make them from what the api answers."
+  "What the pages of the mock-ups of the workspace show of an appointment, an alert or a patient (ADR-0026): view models made
+  from the data in the shapes of the api, as the interfaces will make them from what the api answers. What the patient portal
+  shows of an appointment is in `pulse.web.views`, which these build on."
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
-            [pulse.design.format :as fmt]
-            [pulse.design.specimen :as specimen]
-            [pulse.ui.component :as c]
-            [pulse.ui.tone :as tone]))
+            [pulse.ui.tone :as tone]
+            [pulse.web.format :as fmt]
+            [pulse.web.views :as web-views]))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments
-
-(defn appointment-chip
-  "The chip of the status of an appointment, in words and with an icon: a confirmed one is normal, a request is
-  information, and one that is over, or has no name of its own, such as a cancelled one, is a plain label."
-  ([status] (appointment-chip status nil))
-  ([status attributes]
-   (case status
-     "booked" (c/tone-badge (assoc attributes :tone :normal :icon :calendar-check) "Confirmed")
-     "proposed" (c/tone-badge (assoc attributes :tone :info :icon :clock) "Requested")
-     "pending" (c/tone-badge (assoc attributes :tone :info :icon :clock) "Pending")
-     "fulfilled" (c/badge (assoc attributes :variant :outline) "Completed")
-     (c/badge (assoc attributes :variant :outline) (str/capitalize (str status))))))
-
-(defn- practitioner-name [reference]
-  (some-> reference (str/split #"/") second data/practitioner :name))
 
 (defn- patient-of [reference]
   (some-> reference (str/split #"/") second data/patient))
 
 (defn appointment-row
-  "An appointment as a page shows it: `:id :status :description`, `:patient` (the view of the patient), `:doctor`
-  (the name), and the time as the page writes it: `:month :day` and `:when` (`Wed 14 Oct, 10:00–10:30`) for one that
-  has a time, or `:asked` (`Asked for a visit between Oct 14 and Oct 20`) for a request."
-  [{:keys [id status description start end requestedStart requestedEnd practitioner patient reason]}]
-  (cond-> {:id id
-           :status status
-           :description description
-           :patient (patient-of patient)
-           :doctor (practitioner-name practitioner)}
-    reason (assoc :reason reason)
-    start (assoc :month (fmt/month-abbreviation start)
-                 :day (fmt/day-of-month start)
-                 :when (str (fmt/weekday-date start) ", " (fmt/time-range start end))
-                 :start start)
-    (and (not start) requestedStart) (assoc :asked (str "Asked for a visit between " (str/replace (fmt/date-range requestedStart requestedEnd) " to " " and "))
-                                            :requested-start requestedStart)))
+  "An appointment as a page of the workspace shows it: the row of `pulse.web.views/appointment-row`, with the doctor by
+  name from the cohort, and `:patient`, the view of the patient."
+  [{:keys [patient] :as appointment}]
+  (assoc (web-views/appointment-row appointment (data/practitioner-names)) :patient (patient-of patient)))
 
 (defn appointment-rows
   "Every appointment as `appointment-row`s, soonest first: those of the cohort and `data/other-appointments`."
@@ -93,7 +66,7 @@
      :since since
      :since-phrase (fmt/when-phrase since data/now-text)
      :evidence (for [r (reverse readings)]
-                 (str (specimen/reading-text measurement r) " " (fmt/unit unit) ", " (fmt/when-phrase (:at r) data/now-text)))
+                 (str (web-views/reading-text measurement r) " " (fmt/unit unit) ", " (fmt/when-phrase (:at r) data/now-text)))
      :active? (= "active" status)
      :until-phrase (some-> until (fmt/when-phrase data/now-text))}))
 

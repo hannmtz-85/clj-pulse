@@ -110,6 +110,22 @@
         (is (false? (oidc/rejected? x)) (pr-str x))
         (is (false? (oidc/unavailable? x)) (pr-str x))))))
 
+(deftest the-failure-of-a-keeper-is-found-where-it-is-in-the-chain-of-causes
+  (let [failure (ex-info "no token" {:type ::token/unavailable :reason :rejected})]
+    (testing "it is the exception itself"
+      (is (identical? failure (oidc/token-failure failure))))
+    (testing "or what an exception was caused by, at any depth, as a part of a page that was asked for elsewhere brings it"
+      (is (identical? failure (oidc/token-failure (ex-info "a part failed" {} failure))))
+      (is (identical? failure (oidc/token-failure (RuntimeException. "wrapped" (ex-info "a part failed" {:type :something} failure)))))
+      (is (identical? failure (oidc/token-failure (RuntimeException. "a" (RuntimeException. "b" (RuntimeException. "c" failure)))))))
+    (testing "the first one there is, from the outside"
+      (let [inner (ex-info "inner" {:type ::token/unavailable :reason :server})
+            outer (ex-info "outer" {:type ::token/unavailable :reason :rejected} inner)]
+        (is (identical? outer (oidc/token-failure outer)))))
+    (testing "and nil when there is none, or when it is not an exception at all"
+      (doseq [x [(ex-info "x" {:type :something-else}) (ex-info "x" {} (RuntimeException. "y")) (RuntimeException. "x") nil]]
+        (is (nil? (oidc/token-failure x)) (pr-str x))))))
+
 ;; ---------------------------------------------------------------------------
 ;; The exchange, and the keeper, against the provider
 

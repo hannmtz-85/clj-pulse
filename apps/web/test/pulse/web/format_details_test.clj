@@ -1,8 +1,8 @@
-(ns pulse.design.format-details-test
+(ns pulse.web.format-details-test
   "What a mutation analysis found the tests of the formats did not notice: the language whatever the machine's, the
   day in Madrid and not in UTC, and the two ends of the ranges of the ticks."
   (:require [clojure.test :refer [deftest is testing]]
-            [pulse.design.format :as fmt])
+            [pulse.web.format :as fmt])
   (:import (java.util Locale)))
 
 (defn- clock-of [millis]

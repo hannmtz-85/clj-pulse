@@ -18,7 +18,8 @@
   A patient's route is also where the person's token is needed: the handler asks the api with the keeper of the session, and
   when the keeper cannot give a token the request ends here, in a page. If the identity provider refused to renew it, the
   session is over and the person is told so; if it could not be reached, the person is told that signing in is not available
-  and the session stays, since the next try may work (ADR-0028)."
+  and the session stays, since the next try may work (ADR-0028). A call to the api that fails and that the handler did not
+  answer for ends here too, in a page that says that the failure is on our side (`pulse.web.errors/api-failure`)."
   (:require [pulse.platform.http.client :as http]
             [pulse.platform.http.router :as router]
             [pulse.web.errors :as errors]
@@ -97,9 +98,9 @@
       (try
         (handler request)
         (catch clojure.lang.ExceptionInfo e
-          (if (oidc/unavailable? e)
-            (token-unavailable request e)
-            (throw e))))
+          (if-let [failure (oidc/token-failure e)]
+            (token-unavailable request failure)
+            (or (errors/api-failure request e) (throw e)))))
       (unauthenticated request))))
 
 (defn- deny-all

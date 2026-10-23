@@ -195,7 +195,8 @@
         (testing "and the person is in: the page says so"
           (let [home (h/visit! b :get "/")]
             (is (= 200 (:status home)))
-            (is (str/includes? (:text home) "Welcome, Ana García"))))))))
+            (is (str/includes? (:text home) "Welcome, Ana"))
+            (is (str/includes? (:text home) "Account menu of Ana García"))))))))
 
 (deftest a-sign-in-is-an-audit-event-and-nothing-secret-is-in-the-log
   (with-web {}

@@ -64,6 +64,16 @@
     (is (= [1 1 1] (map #(count (hx/by-tag % :svg)) links)) "an icon over each label")
     (is (= ["Home" "Readings" "Profile"] (map #(hx/words (first (hx/select % (fn [e] (hx/has-class? e "dock-label"))))) links)))))
 
+(deftest the-bar-has-a-button-for-the-theme-unless-the-page-says-it-has-no-script-for-it
+  (let [theme-buttons (fn [shell] (hx/select shell #(and (= :button (hx/tag %)) (= "Dark theme" (:aria-label (hx/attributes %))))))
+        bar-of (fn [shell] (first (hx/by-tag shell :header)))]
+    (is (= 1 (count (theme-buttons portal))) "by default, as the mock-ups have it")
+    (is (= 1 (count (theme-buttons (layout/portal-shell {:current :home :nav portal-nav :user user :theme-button? true} [:h1 "T"])))))
+    (let [shell (layout/portal-shell {:current :home :nav portal-nav :user user :theme-button? false} [:h1 "T"])]
+      (is (empty? (theme-buttons shell)))
+      (is (= 1 (count (hx/by-tag (bar-of shell) :details))) "the menu of the person is still there")
+      (is (= ["Home" "Readings" "Profile"] (map hx/words (hx/by-tag (nav-named shell "Main") :a))) "and so is the navigation"))))
+
 (deftest the-portal-passes-the-checks-of-accessibility
   (is (= [] (a11y/problems (layout/document {:title "Readings"} portal) {:page? true})))
   (testing "with a current page that is not in the navigation, nothing is current"

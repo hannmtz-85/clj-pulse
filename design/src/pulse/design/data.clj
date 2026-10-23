@@ -10,7 +10,8 @@
             [pulse.fhir.measurement :as measurement]
             [pulse.fhir.observation :as obs]
             [pulse.fhir.ranges :as ranges]
-            [pulse.fhir.synthetic :as synthetic])
+            [pulse.fhir.synthetic :as synthetic]
+            [pulse.web.views :as views])
   (:import (java.time Instant)))
 
 (def now-text "2026-10-13T12:00:00Z")
@@ -68,6 +69,12 @@
 
 (defn practitioner [id] (get (practitioners) id))
 
+(defn practitioner-names
+  "The names of the practitioners by their FHIR reference, as the pages look a doctor up: a map from `Practitioner/pr-rivera`
+  to `Dr. Elena Rivera`."
+  []
+  (into {} (for [[id {:keys [name]}] (practitioners)] [(str "Practitioner/" id) name])))
+
 (defn panel-of
   "The patients whose general practitioner is `practitioner-id`, by family name."
   [practitioner-id]
@@ -114,8 +121,8 @@
   (peek (readings patient-id kind)))
 
 (def kinds
-  "The measurements the interfaces show, in the order they are shown."
-  [:blood-pressure :heart-rate :spo2 :glucose :weight :temperature])
+  "The measurements the interfaces show, in the order they are shown (those of `pulse.web.views`)."
+  views/kinds)
 
 (defn vitals
   "The latest reading of each measurement the patient has: `{kind reading}`."
@@ -261,3 +268,69 @@
             :lastRun {:trigger "schedule" :startedAt "2026-10-13T12:00:00Z" :finishedAt "2026-10-13T12:00:10Z"
                       :durationMs 10012 :outcome "failed" :error "HttpTimeoutException"}
             :counts {:ok 105 :failed 1 :interrupted 0 :skipped 0}}]})
+
+;; ---------------------------------------------------------------------------
+;; What the api answers a patient
+
+(defn me
+  "What `GET /api/me` answers the patient `patient-id`: who they are as the api sees it, their Patient resource and their
+  general practitioner, named. The user is the one of the realm, whose name is the email of the patient."
+  [patient-id]
+  (let [resource (first (filter #(= patient-id (:id %)) (of-type "Patient")))
+        view (patient patient-id)
+        gp-reference (get-in resource [:generalPractitioner 0 :reference])
+        gp (some-> gp-reference reference-id practitioner)]
+    {:subject (str "user-" patient-id)
+     :username (:email view)
+     :client "pulse-web"
+     :roles ["patient"]
+     :fhirUser (str "Patient/" patient-id)
+     :resource resource
+     :generalPractitioner (when gp {:reference gp-reference :name (:name gp) :specialty (:specialty gp)})}))
+
+(def ^:private summary-vitals
+  "The vital signs of the summary of the api, which has no temperature."
+  [:blood-pressure :heart-rate :glucose :spo2 :weight])
+
+(defn- appointments-in-summary [patient-id]
+  (->> (concat (appointments-of patient-id)
+               (filter #(= (str "Patient/" patient-id) (:patient %)) other-appointments))
+       (map #(dissoc % :patient))
+       (sort-by #(or (:start %) (:requestedStart %) ""))
+       vec))
+
+(defn summary
+  "What `GET /api/patients/{id}/summary` answers for `patient-id`, with nothing missing: the patient, the record, the latest
+  reading of each vital sign (nil for one the patient has none of), the appointments, the active alerts and no section that
+  could not be loaded."
+  [patient-id]
+  (let [by-display (fn [items] (vec (sort-by #(or (:display %) "") items)))]
+    {:patient (select-keys (patient patient-id) [:id :name :family :given :birthDate :gender :identifier])
+     :conditions (by-display (conditions patient-id))
+     :medications (by-display (medications patient-id))
+     :allergies (by-display (allergies patient-id))
+     :vitals (into {} (for [kind summary-vitals] [kind (latest patient-id kind)]))
+     :appointments (appointments-in-summary patient-id)
+     :alerts (->> alerts
+                  (filter #(and (= (str "Patient/" patient-id) (:patient %)) (= "active" (:status %))))
+                  (map #(select-keys % [:id :text :status :since]))
+                  (sort-by #(or (:since %) ""))
+                  reverse
+                  vec)
+     :unavailable []}))
+
+(defn series
+  "What `GET /api/patients/{id}/observations` answers for the measurement `kind` of `patient-id`: the newest `limit` readings
+  first, each with the name of the measurement and who took it, and whether there were more."
+  [patient-id kind limit]
+  (let [concept (get-in measurement/measurements [kind :concept])
+        found (->> (of-type "Observation")
+                   (filter #(and (= patient-id (obs/patient-id %)) (obs/concept? % concept)))
+                   (sort-by :effectiveDateTime)
+                   reverse
+                   (take (inc limit)))]
+    {:items (vec (for [observation (take limit found)]
+                   (assoc (reading-view kind observation)
+                          :measurement (name kind)
+                          :by (get-in observation [:performer 0 :reference]))))
+     :truncated (> (count found) limit)}))

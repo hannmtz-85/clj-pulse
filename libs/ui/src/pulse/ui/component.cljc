@@ -529,22 +529,47 @@
                (assoc :type "search" :aria-label label :id id :placeholder placeholder)
                (attrs/with-classes "grow"))]])
 
+(defn- menu-item
+  "An item of the menu of a person: a link, or, for one that has an `:action`, a button that submits the form of that action
+  (see `user-menu`)."
+  [{:keys [href icon id action] text :label}]
+  (let [content (list (when icon (i/icon icon {:size :md})) text)]
+    [:li (if action
+           [:button {:type "submit" :form (str "account-" id)} content]
+           [:a {:href href} content])]))
+
+(defn- menu-form
+  "The form that an item with an `:action` submits: a POST with the hidden `:fields` of the item."
+  [{:keys [id action fields]}]
+  (into [:form {:id (str "account-" id) :method "post" :action action}]
+        (for [[field-name value] fields]
+          [:input {:type "hidden" :name field-name :value value}])))
+
 (defn user-menu
   "The menu of the person who is signed in: their avatar and name, and a list of links when it is opened. `:items` is
-  `[{:href :label :icon} ...]`; it opens and closes without a script, with `<details>`. `:name-class` is added to the
-  name, which a screen that shows the person elsewhere hides (`\"lg:hidden\"`)."
+  `[{:href :label :icon} ...]`; it opens and closes without a script, with `<details>`. An item that changes something,
+  such as signing out, is not a link, which any page could send a person to: it has an `:action`, the address a form posts
+  to, an `:id` (a word, which ties the button to its form) and its hidden `:fields`, a map from name to value, such as the
+  token of the session that the check of the request needs. Its button is of the list and looks as the links do; the form is
+  beside the list, since a form in an item would take the place of the item. `:name-class` is added to the name, which a screen
+  that shows the person elsewhere hides (`\"lg:hidden\"`)."
   [{:keys [name items name-class] :as attributes}]
-  [:details (-> attributes
-                (attrs/owned :name :items :name-class)
-                (attrs/with-classes "dropdown dropdown-end"))
-   [:summary {:class "flex cursor-pointer list-none items-center gap-2 rounded-field px-2 py-1.5 hover:bg-base-200"
-              :aria-label (str "Account menu of " name)}
-    (avatar {:name name :size :sm})
-    [:span {:class (attrs/classes "hidden text-sm font-medium sm:inline" name-class)} name]
-    (i/icon :chevron-down {:size :sm})]
-   (into [:ul {:class "menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-overlay"}]
-         (for [{:keys [href icon] text :label} items]
-           [:li [:a {:href href} (when icon (i/icon icon {:size :md})) text]]))])
+  (doseq [{:keys [id action] text :label} items
+          :when (and action (str/blank? id))]
+    (throw (ex-info (str "A menu item that posts needs an :id: " (pr-str text)) {:item text})))
+  (into [:details (-> attributes
+                      (attrs/owned :name :items :name-class)
+                      (attrs/with-classes "dropdown dropdown-end"))
+         [:summary {:class "flex cursor-pointer list-none items-center gap-2 rounded-field px-2 py-1.5 hover:bg-base-200"
+                    :aria-label (str "Account menu of " name)}
+          (avatar {:name name :size :sm})
+          [:span {:class (attrs/classes "hidden text-sm font-medium sm:inline" name-class)} name]
+          (i/icon :chevron-down {:size :sm})]
+         (into [:ul {:class "menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-overlay"}]
+               (map menu-item)
+               items)]
+        (comp (filter :action) (map menu-form))
+        items))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialogs and toasts

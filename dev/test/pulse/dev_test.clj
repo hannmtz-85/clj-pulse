@@ -443,8 +443,33 @@
           (is (= 302 (:status at-the-provider)))
           (is (= 303 (:status callback)))
           (is (= "/" (get-in callback [:headers "location"])))
-          (is (= 200 (:status home)))
-          (is (re-find #"Welcome, Ana García" (:body home))))
+          (is (= 200 (:status home))))
+        (testing "the home is what the real api says of her, asked for with her own token: an appointment with her doctor, and no reading yet"
+          (is (re-find #"Welcome, Ana" (:body home)))
+          (is (re-find #"Your next appointment" (:body home)))
+          (is (re-find #"Hypertension follow-up" (:body home)))
+          (is (re-find #"Dr[.] Elena Rivera" (:body home)))
+          (is (re-find #"Confirmed" (:body home)))
+          (is (re-find #"No readings yet" (:body home)))
+          (is (not (re-find #"Sofía|Liam|Maya|Omar|Noah" (:body home))) "only her own"))
+        (testing "she records a reading, which the api checks and bands, and the home shows it"
+          (let [session (store/read-session (:pulse.web/sessions system) (get @jar "pulse-session"))
+                record! (fn [body]
+                          (http/post (str api-url "/api/patients/pt-ana/observations")
+                                     {:throw false
+                                      :headers {"Authorization" (str "Bearer " (token/access-token (:tokens session)))
+                                                "Accept" "application/json" "Content-Type" "application/json"}
+                                      :body (json/write-value-as-string body)}))]
+            (is (= 201 (:status (record! {:measurement "blood-pressure" :systolic 172 :diastolic 104}))))
+            (is (= 201 (:status (record! {:measurement "heart-rate" :value 70}))))
+            (let [again (browse jar :get (str web-url "/"))]
+              (is (= 200 (:status again)))
+              (is (re-find #"Good (morning|afternoon|evening), Ana" (:body again)))
+              (is (re-find #"172/104" (:body again)))
+              (is (re-find #"Very high" (:body again)) "as the api bands it")
+              (is (re-find #"Your last blood pressure reading is very high" (:body again)))
+              (is (re-find #"Recent readings" (:body again)))
+              (is (not (re-find #"No readings yet" (:body again)))))))
         (testing "the session is on the server, with her tokens, and the browser has a cookie and nothing else"
           (is (= #{"pulse-session"} (set (keys @jar))))
           (is (= "Ana García" (get-in session [:person :name])))
