@@ -161,10 +161,18 @@
   [start end]
   (str (clock start) "–" (clock end)))
 
+(defn last-date
+  "A date such as `Oct 20` for the last day of a period that ends at `iso`: the day of the moment just before it, so that a
+  period that ends at midnight ends on the day before (the form that asks for a visit says its last day, and the period ends
+  when that day does)."
+  [iso]
+  (short-date (str (.minusMillis (Instant/parse iso) 1))))
+
 (defn date-range
-  "Two instants as a range of days, such as `Oct 14 to Oct 20`."
+  "Two instants, the start and the end of a period, as a range of days, such as `Oct 14 to Oct 20`: the day it starts and the
+  last day it covers (see `last-date`)."
   [start end]
-  (str (short-date start) " to " (short-date end)))
+  (str (short-date start) " to " (last-date end)))
 
 (defn part-of-day
   "`morning`, `afternoon` or `evening`, by the time in the clinic of the instant."

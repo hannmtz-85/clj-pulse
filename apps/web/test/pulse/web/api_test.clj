@@ -1,7 +1,8 @@
 (ns pulse.web.api-test
   "The portal's calls to the api for the person who is signed in (ADR-0028): their own token and the id of the request go with
   each, and what goes wrong is told as what it is. Against a stand-in for the api and the keeper of a session."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
             [pulse.platform.http.client :as http]
             [pulse.platform.test.stub :as stub]
@@ -282,3 +283,98 @@
     (let [{:keys [error signals]} (t/with-signals true (api/degrading "summary" #(throw e)))]
       (is (identical? e error) (pr-str (ex-data e)))
       (is (empty? signals) "and the part is not said to be lost: the whole page is"))))
+
+;; ---------------------------------------------------------------------------
+;; A post that has more to refuse for
+
+(deftest a-post-can-say-which-other-statuses-are-the-api-refusing-and-not-failing
+  (with-api {:status 409 :body (json/write-value-as-string {:title "Conflict" :detail "You have no doctor."})}
+    (fn [client _]
+      (testing "by default a 409 is a failure, as any other status that is not a success or a refusal of the shape"
+        (is (= 409 (:status (ex-data (failure-of #(api/post-json client (request-of) "/p" {})))))))
+      (testing "and when the caller says so it is a refusal, with no fields to say"
+        (is (= {:refused {:status 409 :errors nil}} (api/post-json client (request-of) "/p" {} #{409}))))
+      (testing "but only the statuses it said"
+        (is (= 409 (:status (ex-data (failure-of #(api/post-json client (request-of) "/p" {} #{404 422})))))))))
+  (testing "the refusals of the shape are always refusals"
+    (doseq [status [400 422]]
+      (with-api {:status status :body (json/write-value-as-string {:errors {:x ["y"]}})}
+        (fn [client _]
+          (is (= {:refused {:status status :errors {:x ["y"]}}} (api/post-json client (request-of) "/p" {} #{409})) (str status))))))
+  (testing "and what is not one of them is a failure"
+    (with-api {:status 404 :body (json/write-value-as-string {:title "Not Found"})}
+      (fn [client _]
+        (is (= 404 (:status (ex-data (failure-of #(api/post-json client (request-of) "/p" {} #{409}))))))))))
+
+;; ---------------------------------------------------------------------------
+;; A change
+
+(deftest a-patch-carries-the-token-of-the-person-the-id-of-the-request-and-the-body-as-json
+  (with-api (json-ok {:id "appt-ana-1" :status "cancelled"})
+    (fn [client requests]
+      (is (= {:changed {:id "appt-ana-1" :status "cancelled"}}
+             (api/patch-json client (request-of) "/api/appointments/appt-ana-1" {:action "cancel" :reason "I had to travel."})))
+      (let [[sent] @requests]
+        (is (= "PATCH" (:method sent)))
+        (is (= "/api/appointments/appt-ana-1" (:path sent)))
+        (is (= {:action "cancel" :reason "I had to travel."} (json/read-value (:body sent) json/keyword-keys-object-mapper)))
+        (is (= "Bearer the-token-of-ana" (get-in sent [:headers "authorization"])))
+        (is (= "visit-42" (get-in sent [:headers "x-request-id"])))
+        (is (= "application/json" (get-in sent [:headers "content-type"])))))))
+
+(deftest every-success-of-a-patch-is-a-change
+  (doseq [status [200 201 202]]
+    (with-api {:status status :body (json/write-value-as-string {:id "x"})}
+      (fn [client _]
+        (is (= {:changed {:id "x"}} (api/patch-json client (request-of) "/p" {})) (str status)))))
+  (testing "even one with nothing to say"
+    (with-api {:status 204 :body ""}
+      (fn [client _]
+        (is (= {:changed nil} (api/patch-json client (request-of) "/p" {})))))))
+
+(deftest what-the-api-will-not-do-to-a-patch-comes-back-as-what-it-said
+  (doseq [status [400 404 409 422]]
+    (testing (str status)
+      (with-api {:status status :body (json/write-value-as-string {:title "x" :status status :errors {:reason ["must be 1 to 200 characters"]}})}
+        (fn [client _]
+          (is (= {:refused {:status status :errors {:reason ["must be 1 to 200 characters"]}}}
+                 (api/patch-json client (request-of) "/p" {}))))))
+    (testing (str status " with no fields to say")
+      (with-api {:status status :body "<html>no</html>"}
+        (fn [client _]
+          (is (= {:refused {:status status :errors nil}} (api/patch-json client (request-of) "/p" {}))))))))
+
+(deftest any-other-answer-to-a-patch-is-a-failure-as-a-get-has-them
+  (doseq [status [401 403 405 429 500 502 503 504]]
+    (with-api {:status status :body (json/write-value-as-string {:title "Failed" :detail "It did." :errors {:x ["y"]}})}
+      (fn [client _]
+        (let [e (failure-of #(api/patch-json client (request-of) "/api/appointments/appt-ana-1" {}))]
+          (is (= {:type ::http/failed :status status :path "/api/appointments/appt-ana-1"} (select-keys (ex-data e) [:type :status :path])) (str status))
+          (is (= "PATCH /api/appointments/appt-ana-1 answered " (subs (ex-message e) 0 (count "PATCH /api/appointments/appt-ana-1 answered "))) "it says what it was")
+          (is (= {:title "Failed" :detail "It did."} (:problem (ex-data e))) "and what it said, without the fields")
+          (is (true? (api/failure? e))))))))
+
+(deftest a-success-of-a-patch-that-is-not-json-is-a-failure-and-not-a-change
+  (with-api {:status 200 :body "done"}
+    (fn [client _]
+      (let [e (failure-of #(api/patch-json client (request-of) "/p" {}))]
+        (is (= {:type ::http/failed :status 200 :reason :bad-response} (select-keys (ex-data e) [:type :status :reason])))
+        (is (str/starts-with? (ex-message e) "PATCH /p answered 200"))
+        (is (true? (api/degradable? e)))))))
+
+(deftest a-patch-that-cannot-be-made-is-the-failure-the-platform-says
+  (testing "the api was too slow"
+    (with-api (fn [_] {:status 200 :body "{}" :delay-ms 1500})
+      (fn [client _]
+        (is (= {:type ::http/unreachable :reason :timeout}
+               (select-keys (ex-data (failure-of #(api/patch-json client (request-of) "/p" {}))) [:type :reason]))))))
+  (testing "the api was not there"
+    (let [client (http/client {:base-url "http://127.0.0.1:1" :timeout-ms 500 :connect-timeout-ms 500})]
+      (is (= {:type ::http/unreachable :reason :connect}
+             (select-keys (ex-data (failure-of #(api/patch-json client (request-of) "/p" {}))) [:type :reason])))
+      (http/close! client))))
+
+(deftest a-failure-of-a-post-says-it-was-a-post
+  (with-api {:status 500 :body ""}
+    (fn [client _]
+      (is (str/starts-with? (ex-message (failure-of #(api/post-json client (request-of) "/p" {}))) "POST /p answered 500")))))

@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [pulse.design.data :as data]
+            [pulse.fhir.appointment :as lifecycle]
             [pulse.fhir.measurement :as measurement]
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]
@@ -239,3 +240,108 @@
       (is (= ["appt-noah-1" "Asked for a visit between Oct 14 and Oct 20" "Dr. Chidi Okafor"] ((juxt :id :asked :doctor) row)))))
   (testing "Omar has none"
     (is (nil? (views/next-appointment (:appointments (data/summary "pt-omar")) data/now-text)))))
+
+;; ---------------------------------------------------------------------------
+;; The list of appointments
+
+(deftest the-doctors-of-a-patient-are-looked-up-by-the-reference-the-api-gave
+  (is (= {"Practitioner/pr-rivera" "Dr. Elena Rivera"} (views/doctors-of (data/me "pt-ana"))))
+  (is (= {"Practitioner/pr-okafor" "Dr. Chidi Okafor"} (views/doctors-of (data/me "pt-noah"))))
+  (testing "a patient the api names no doctor of has none to look up"
+    (doseq [me [{} {:generalPractitioner nil} {:generalPractitioner {:name "Dr. X"}} {:generalPractitioner {}} nil]]
+      (is (= {} (views/doctors-of me)) (pr-str me)))))
+
+(def ^:private listed
+  "Appointments of the api, each in the section it belongs to at the moment of the mock-ups, in no order."
+  [(appointment :id "late" :start "2026-10-20T08:00:00Z" :end "2026-10-20T08:30:00Z")
+   (appointment :id "soon" :start "2026-10-14T08:00:00Z" :end "2026-10-14T08:30:00Z")
+   (appointment :id "past" :start "2026-10-01T08:00:00Z" :end "2026-10-01T08:30:00Z")
+   (appointment :id "older" :start "2026-09-01T08:00:00Z" :end "2026-09-01T08:30:00Z")
+   (appointment :id "ask" :status "proposed" :requestedStart "2026-10-18T00:00:00Z" :requestedEnd "2026-10-25T00:00:00Z")
+   (appointment :id "gone" :status "cancelled" :start "2026-09-29T07:00:00Z" :end "2026-09-29T07:30:00Z" :reason "I had to travel.")
+   (appointment :id "gone-ask" :status "cancelled" :requestedStart "2026-10-05T00:00:00Z" :requestedEnd "2026-10-09T00:00:00Z")
+   (appointment :id "nothing" :status "pending")])
+
+(defn- ids [rows] (mapv :id rows))
+
+(deftest the-appointments-of-a-patient-are-what-is-coming-what-began-and-what-was-cancelled
+  (let [{:keys [coming earlier cancelled]} (views/appointment-sections listed doctors now)]
+    (testing "what is coming: the booked ones that have not begun and the requests, the soonest first, and what has no time last"
+      (is (= ["soon" "ask" "late" "nothing"] (ids coming))))
+    (testing "what began, which the system does not know took place, the newest first"
+      (is (= ["past" "older"] (ids earlier))))
+    (testing "what was cancelled, the newest first: a request by the days it asked for"
+      (is (= ["gone-ask" "gone"] (ids cancelled))))
+    (testing "and none is lost"
+      (is (= (set (map :id listed)) (set (mapcat ids [coming earlier cancelled]))))
+      (is (= (count listed) (count (mapcat ids [coming earlier cancelled])))))))
+
+(deftest the-sections-are-made-of-the-rows-a-page-shows
+  (let [{:keys [coming cancelled]} (views/appointment-sections listed doctors now)]
+    (is (= (views/appointment-row (first listed) doctors) (first (filter #(= "late" (:id %)) coming))))
+    (is (= "Dr. Elena Rivera" (:doctor (first coming))) "with the name of the doctor")
+    (is (= "I had to travel." (:reason (first (filter #(= "gone" (:id %)) cancelled)))) "and the reason a cancelled one has")))
+
+(deftest the-order-of-the-sections-is-the-same-whatever-order-the-api-gave
+  (let [expected (views/appointment-sections listed doctors now)]
+    (dotimes [_ 20]
+      (is (= expected (views/appointment-sections (shuffle listed) doctors now))))))
+
+(deftest appointments-of-one-moment-go-by-their-ids
+  (let [same (fn [id] (appointment :id id :start "2026-10-20T08:00:00Z" :end "2026-10-20T08:30:00Z"))]
+    (is (= ["a" "b" "c"] (ids (:coming (views/appointment-sections [(same "c") (same "a") (same "b")] doctors now)))))
+    (is (= ["c" "b" "a"] (ids (:earlier (views/appointment-sections [(same "c") (same "a") (same "b")] doctors "2026-11-01T00:00:00Z"))))
+        "the newest first, which for two of one moment is the other way round")))
+
+(deftest an-appointment-is-the-moment-it-begins-an-appointment-that-has-begun
+  (let [booked [(appointment :id "x" :start "2026-10-14T08:00:00Z" :end "2026-10-14T08:30:00Z")]]
+    (is (= ["x"] (ids (:coming (views/appointment-sections booked doctors "2026-10-14T07:59:59Z")))))
+    (is (= ["x"] (ids (:earlier (views/appointment-sections booked doctors "2026-10-14T08:00:00Z")))) "as the lifecycle says")
+    (is (= [] (ids (:coming (views/appointment-sections booked doctors "2026-10-14T08:00:00Z"))))))
+  (testing "one that was cancelled is cancelled, whether it began or not"
+    (doseq [at ["2026-10-01T00:00:00Z" "2026-12-01T00:00:00Z"]]
+      (is (= ["gone"] (ids (:cancelled (views/appointment-sections [(appointment :id "gone" :status "cancelled" :start "2026-10-14T08:00:00Z")] doctors at))))
+          at))))
+
+(deftest what-other-systems-write-is-never-lost-or-an-error
+  (let [odd [(appointment :id "a" :start "soon" :end "later")
+             (appointment :id "b" :status "proposed" :requestedStart "next week" :requestedEnd "later")
+             (appointment :id "c" :status nil :start nil)
+             (appointment :id "d" :status "fulfilled" :start "2026-10-01T08:00:00Z" :end "2026-10-01T08:30:00Z")
+             (appointment :id "e" :status "noshow" :start "2026-10-02T08:00:00Z" :end "2026-10-02T08:30:00Z")
+             {:id "f"}]
+        {:keys [coming earlier cancelled]} (views/appointment-sections odd doctors now)]
+    (testing "a time that cannot be read is no time, so it is not an appointment that has begun"
+      (is (= #{"a" "b" "c" "f"} (set (ids coming)))))
+    (testing "what has begun has begun, whatever its status says"
+      (is (= ["e" "d"] (ids earlier))))
+    (is (= [] cancelled)))
+  (testing "nothing at all is three empty lists"
+    (doseq [items [nil []]]
+      (is (= {:coming [] :earlier [] :cancelled []} (views/appointment-sections items doctors now))))))
+
+(deftest a-patient-cannot-cancel-what-the-lifecycle-does-not-let-them
+  (let [blocker #(views/cancel-blocker % now)]
+    (testing "they can cancel a request, and a booked appointment that has not begun"
+      (is (nil? (blocker (appointment :status "proposed" :requestedStart "2026-10-14T00:00:00Z"))))
+      (is (nil? (blocker (appointment :status "booked" :start "2026-10-14T08:00:00Z")))))
+    (testing "not one that is cancelled already"
+      (is (= :already-cancelled (blocker (appointment :status "cancelled" :start "2026-10-14T08:00:00Z"))))
+      (is (= :already-cancelled (blocker (appointment :status "cancelled" :start "2026-10-01T08:00:00Z")))))
+    (testing "not a booked one that has begun: only the clinic can"
+      (is (= :begun (blocker (appointment :status "booked" :start "2026-10-13T11:00:00Z"))))
+      (is (nil? (views/cancel-blocker (appointment :status "booked" :start "2026-10-13T12:00:01Z") now)))
+      (is (= :begun (views/cancel-blocker (appointment :status "booked" :start "2026-10-13T12:00:00Z") now)) "the moment it begins it has begun"))
+    (testing "and not what has no status a patient can cancel"
+      (doseq [status ["pending" "fulfilled" "noshow" "arrived" "entered-in-error" nil "whatever"]]
+        (is (= :not-cancellable (blocker (appointment :status status :start "2026-10-01T08:00:00Z"))) (pr-str status))))
+    (testing "a row has what it takes, since it has the status and the start"
+      (is (nil? (blocker (views/appointment-row (appointment :status "booked" :start "2026-10-14T08:00:00Z" :end "2026-10-14T08:30:00Z") doctors))))
+      (is (= :already-cancelled (blocker (views/appointment-row (appointment :status "cancelled" :start "2026-10-14T08:00:00Z") doctors)))))))
+
+(deftest the-reason-a-patient-cannot-cancel-agrees-with-the-lifecycle-for-every-status-and-time
+  (doseq [status ["proposed" "booked" "cancelled" "pending" "fulfilled" nil]
+          start [nil "2026-10-01T08:00:00Z" "2026-10-13T11:59:59Z" "2026-10-13T12:00:00Z" "2026-10-13T12:00:01Z" "2026-12-01T08:00:00Z"]
+          :let [appointment {:status status :start start}
+                allowed? (contains? (lifecycle/available-actions appointment :patient now) :cancel)]]
+    (is (= allowed? (nil? (views/cancel-blocker appointment now))) (pr-str [status start]))))

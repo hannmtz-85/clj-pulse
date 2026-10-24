@@ -16,6 +16,7 @@
             [pulse.platform.test.oidc :as oidc-fake]
             [pulse.platform.token :as token]
             [pulse.scheduler.executor :as executor]
+            [pulse.web.format :as fmt]
             [pulse.web.session :as session]
             [ring.middleware.session.store :as store])
   (:import (java.io File)))
@@ -501,6 +502,61 @@
               (is (= 303 (:status (post! {"measurement" "temperature" "value" "36.6"}))))
               (is (re-find #"Temperature" (:body (browse jar :get (str web-url "/readings")))))
               (is (re-find #"36[.]6" (:body (browse jar :get (str web-url "/"))))))))
+        (testing "she asks for a visit and cancels, through the pages of the portal, and the real api judges it all as hers"
+          (let [post! (fn [path fields]
+                        (browse jar :post (str web-url path) :headers {"Origin" web-url}
+                                :form-params (merge {"__anti-forgery-token" (:csrf session)} fields)))
+                api-get (fn [path]
+                          (let [r (http/get (str api-url path)
+                                            {:throw false
+                                             :headers {"Authorization" (str "Bearer " (token/access-token (:tokens session))) "Accept" "application/json"}})]
+                            (json/read-value (:body r) json/keyword-keys-object-mapper)))
+                today (java.time.LocalDate/now fmt/zone)
+                appointments (fn [] (browse jar :get (str web-url "/appointments")))
+                refused (post! "/appointments" {"reason" "Back pain" "from" (str today) "to" (str (.plusDays today 60))})
+                asked (post! "/appointments" {"reason" "Back pain" "from" (str today) "to" (str (.plusDays today 7))})
+                listed (browse jar :get (str web-url (get-in asked [:headers "location"])))]
+            (testing "the api refuses a window that is too long, in its own words, beside the field"
+              (is (= 422 (:status refused)))
+              (is (re-find #"Must be at most 30 days after the start[.]" (:body refused)))
+              (is (re-find #"Back pain" (:body refused)) "and what she typed is still there"))
+            (testing "and takes the one that is not: it is hers, with her doctor, and the page says so, once"
+              (is (= 303 (:status asked)))
+              (is (= "/appointments" (get-in asked [:headers "location"])))
+              (is (re-find #"Request sent" (:body listed)))
+              (is (re-find #"Dr[.] Elena Rivera will confirm a time" (:body listed)))
+              (is (not (re-find #"Request sent" (:body (appointments)))))
+              (let [mine (:items (api-get "/api/appointments"))
+                    request (first (filter #(= "Back pain" (:description %)) mine))]
+                (is (= ["proposed" "Practitioner/pr-rivera" "Patient/pt-ana"] ((juxt :status :practitioner :patient) request)))
+                (is (= 2 (count mine)) "the appointment of the cohort and the request")))
+            (testing "the question before the confirmed appointment is cancelled, and its answer"
+              (let [question (browse jar :get (str web-url "/appointments/appt-ana-1/cancel"))
+                    cancelled (post! "/appointments/appt-ana-1/cancel" {"why" "I had to travel."})
+                    after (browse jar :get (str web-url (get-in cancelled [:headers "location"])))
+                    again (post! "/appointments/appt-ana-1/cancel" {})]
+                (is (= 200 (:status question)))
+                (is (re-find #"Cancel this appointment[?]" (:body question)))
+                (is (= 303 (:status cancelled)))
+                (is (re-find #"Appointment cancelled" (:body after)))
+                (is (re-find #"Reason: I had to travel[.]" (:body after)))
+                (let [item (first (filter #(= "appt-ana-1" (:id %)) (:items (api-get "/api/appointments"))))]
+                  (is (= ["cancelled" "I had to travel."] ((juxt :status :reason) item)) "the api has it cancelled, with her reason"))
+                (testing "and cancelling again is told as what it is"
+                  (is (= 409 (:status again)))
+                  (is (re-find #"That appointment is already cancelled" (:body again))))))
+            (testing "the request is cancelled too, in the words of a request, and nothing is coming then"
+              (let [request (first (filter #(= "Back pain" (:description %)) (:items (api-get "/api/appointments"))))
+                    question (browse jar :get (str web-url "/appointments/" (:id request) "/cancel"))
+                    cancelled (post! (str "/appointments/" (:id request) "/cancel") {})
+                    after (browse jar :get (str web-url (get-in cancelled [:headers "location"])))]
+                (is (re-find #"Cancel this request[?]" (:body question)))
+                (is (= 303 (:status cancelled)))
+                (is (re-find #"Request cancelled" (:body after)))
+                (is (re-find #"No appointment coming up" (:body after)))))
+            (testing "another patient's appointment is not hers to see or cancel: the portal cannot find it"
+              (is (= 404 (:status (browse jar :get (str web-url "/appointments/appt-liam-1/cancel")))))
+              (is (= 404 (:status (post! "/appointments/appt-liam-1/cancel" {})))))))
         (testing "the session is on the server, with her tokens, and the browser has a cookie and nothing else"
           (is (= #{"pulse-session"} (set (keys @jar))))
           (is (= "Ana García" (get-in session [:person :name])))

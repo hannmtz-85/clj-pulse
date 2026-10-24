@@ -5,9 +5,11 @@
   portal, the fake provider and the browser).
 
   Test code only: it is on the classpath of the `:test` alias and nowhere else."
-  (:require [jsonista.core :as json]
+  (:require [clojure.string :as str]
+            [jsonista.core :as json]
             [pulse.api.observations :as api-observations]
             [pulse.design.data :as data]
+            [pulse.fhir.appointment :as lifecycle]
             [pulse.fhir.measurement :as measurement]
             [pulse.platform.test.clock :as clock]
             [pulse.platform.test.idp :as idp]
@@ -18,7 +20,7 @@
             [pulse.web.session :as session]
             [pulse.web.test.harness :as h :refer [with-web]]
             [ring.middleware.session.store :as store])
-  (:import (java.time Duration Instant)))
+  (:import (java.time Duration Instant OffsetDateTime)))
 
 (defn as-the-api-records
   "What the api answers to the POST of `body-text` (JSON) for `patient-id`: a 201 with the reading as it stored it, or the 422 for a
@@ -40,26 +42,96 @@
         (h/json-answer 201 (assoc (api-observations/reading-view kind observation)
                                   :measurement (name kind) :by (str "Patient/" patient-id)))))))
 
+(defn- problem-answer
+  "The answer of the api with a problem of `status`: its `title`, `detail` and, for a refusal of a field, the `errors`."
+  ([status title detail] (problem-answer status title detail nil))
+  ([status title detail errors]
+   (h/json-answer status (cond-> {:type "about:blank" :title title :status status :detail detail}
+                           errors (assoc :errors errors)))))
+
+(defn as-the-api-lists
+  "What the api answers `GET /api/appointments` to a patient whose appointments are `items` (in the shapes of the api): the page that
+  the parameters of the query say, `params` being a map from the name of each to its text, as `pulse.design.data/appointment-page`
+  has it."
+  [items params]
+  (h/json-answer (data/appointment-page items (cond-> {}
+                                                (get params "status") (assoc :status (get params "status"))
+                                                (get params "sort") (assoc :sort (get params "sort"))
+                                                (get params "limit") (assoc :limit (parse-long (get params "limit")))
+                                                (get params "offset") (assoc :offset (parse-long (get params "offset")))))))
+
+(defn as-the-api-asks
+  "What the api answers the POST of `body-text` (JSON) that asks for a visit for the patient `patient-id` and is for `practitioner`, a
+  reference (nil for a patient with no doctor): a 201 with the appointment, `proposed`, which is added to `state`, an atom with the
+  appointments of the patient, or the 409 for no doctor, or the 422 for a request that cannot be one, as the lifecycle says at `now`."
+  [state patient-id practitioner body-text now]
+  (let [body (json/read-value body-text json/keyword-keys-object-mapper)
+        errors (lifecycle/request-errors body now)
+        instant (fn [text] (str (.toInstant (OffsetDateTime/parse text))))]
+    (cond
+      (nil? practitioner) (problem-answer 409 "Conflict" "You have no general practitioner to ask for an appointment." nil)
+      errors (problem-answer 422 "Unprocessable Content" "The appointment cannot be requested as sent." errors)
+      :else (let [item {:id (str "appt-new-" (inc (count @state))) :status "proposed" :description (:description body)
+                        :start nil :end nil
+                        :requestedStart (instant (:requestedStart body)) :requestedEnd (instant (:requestedEnd body))
+                        :practitioner practitioner :reason nil :patient (str "Patient/" patient-id)}]
+              (swap! state conj item)
+              (h/json-answer 201 item)))))
+
+(defn as-the-api-changes
+  "What the api answers the PATCH of `body-text` (JSON) that a patient makes to the appointment `id` among those of `state`, an atom
+  with the appointments of the patient: a 404 if there is none, and otherwise what the lifecycle says of the action at `now` for a
+  patient: a 200 with the appointment changed, which is changed in `state`, or the 403, 409 or 422."
+  [state id body-text now]
+  (let [body (json/read-value body-text json/keyword-keys-object-mapper)
+        item (some #(when (= id (:id %)) %) @state)]
+    (if-not item
+      (problem-answer 404 "Not Found" "No such resource." nil)
+      (let [command (cond-> {:action (keyword (:action body))}
+                      (some? (:reason body)) (assoc :reason (:reason body)))
+            {:keys [ok forbidden conflict errors]} (lifecycle/change (select-keys item [:status :start]) command now :patient)]
+        (cond
+          forbidden (problem-answer 403 "Forbidden" "You are not allowed to do this." nil)
+          conflict (problem-answer 409 "Conflict" conflict nil)
+          errors (problem-answer 422 "Unprocessable Content" "The appointment cannot be changed as asked." errors)
+          :else (let [changed (assoc item :status (:status ok) :reason (get-in ok [:cancelationReason :text]))]
+                  (swap! state (fn [items] (mapv #(if (= id (:id %)) changed %) items)))
+                  (h/json-answer changed)))))))
+
 (defn cohort-api
   "What the stand-in for the api answers: the cohort, as the mock-ups have it, for `patient-id`. `:me`, `:summary`, `:series` and
   `:record` are what to answer instead for that endpoint (`:record` is for the POST of a reading): a response, or a function of the
   request and of what it would have answered. `:now` is a function that gives the instant it is, as text, by which a reading that is
-  posted is judged (the moment of the mock-ups by default)."
-  [patient-id & {:keys [me summary series record now] :or {now (constantly data/now-text)}}]
-  (fn [{:keys [method path query body] :as request}]
-    (let [params (idp/form-of query)
-          answered (fn [override default] (cond (nil? override) default (map? override) override :else (override request default)))
-          observations (str "/api/patients/" patient-id "/observations")]
-      (cond
-        (= "/readyz" path) h/api-ready
-        (= "/api/me" path) (answered me (h/json-answer (data/me patient-id)))
-        (= (str "/api/patients/" patient-id "/summary") path) (answered summary (h/json-answer (data/summary patient-id)))
-        (and (= "GET" method) (= observations path))
-        (answered series (h/json-answer (data/series patient-id (keyword (get params "measurement"))
-                                                     {:from (get params "from") :limit (parse-long (get params "limit"))})))
-        (and (= "POST" method) (= observations path))
-        (answered record (as-the-api-records patient-id body (now)))
-        :else (h/json-answer 404 {:title "Not Found" :status 404})))))
+  posted is judged (the moment of the mock-ups by default).
+
+  The appointments are kept in `:state`, an atom of them in the shapes of the api (those of the cohort at first): the list shows them,
+  a request is added to them and a cancellation changes one, as the api does for a patient. `:appointments`, `:ask` and `:change` are what
+  to answer instead to the list, to the request and to the change: a response, or a function of the request alone."
+  [patient-id & {:keys [me summary series record now state appointments ask change]
+                 :or {now (constantly data/now-text)}}]
+  (let [state (or state (atom (:items (data/appointment-list patient-id {:limit 100}))))]
+    (fn [{:keys [method path query body] :as request}]
+      (let [params (idp/form-of query)
+            answered (fn [override default] (cond (nil? override) default (map? override) override :else (override request default)))
+            answered-by (fn [override make] (cond (nil? override) (make) (map? override) override :else (override request)))
+            observations (str "/api/patients/" patient-id "/observations")
+            practitioner (get-in (data/me patient-id) [:generalPractitioner :reference])]
+        (cond
+          (= "/readyz" path) h/api-ready
+          (= "/api/me" path) (answered me (h/json-answer (data/me patient-id)))
+          (= (str "/api/patients/" patient-id "/summary") path) (answered summary (h/json-answer (data/summary patient-id)))
+          (and (= "GET" method) (= observations path))
+          (answered series (h/json-answer (data/series patient-id (keyword (get params "measurement"))
+                                                       {:from (get params "from") :limit (parse-long (get params "limit"))})))
+          (and (= "POST" method) (= observations path))
+          (answered record (as-the-api-records patient-id body (now)))
+          (and (= "GET" method) (= "/api/appointments" path))
+          (answered-by appointments #(as-the-api-lists @state params))
+          (and (= "POST" method) (= "/api/appointments" path))
+          (answered-by ask #(as-the-api-asks state patient-id practitioner body (now)))
+          (and (= "PATCH" method) (str/starts-with? path "/api/appointments/"))
+          (answered-by change #(as-the-api-changes state (subs path (count "/api/appointments/")) body (now)))
+          :else (h/json-answer 404 {:title "Not Found" :status 404}))))))
 
 (defn at!
   "Sets the clock of the portal, and of the fake provider, to `instant`."

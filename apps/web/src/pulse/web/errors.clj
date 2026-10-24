@@ -41,6 +41,23 @@
                        reason (assoc :reason reason)
                        problem (assoc :problem problem))})))
 
+(defn attempt
+  "`{:done (f)}`, or `{:failed e}` when `f` fails in a way that a page can go on after (`pulse.web.api/degradable?`): the failure is
+  in the log. Another failure is thrown."
+  [f]
+  (try
+    {:done (f)}
+    (catch clojure.lang.ExceptionInfo e
+      (if (api/degradable? e)
+        (do (log-api-failure! e) {:failed e})
+        (throw e)))))
+
+(defn gateway-status
+  "The status of a page that answers a failure of the api that it can go on after: a gateway timeout when the api was too slow, a
+  bad gateway otherwise."
+  [e]
+  (if (api/timeout? e) 504 502))
+
 (defn api-failure
   "The page for `e`, a failure of a call to the api (`pulse.web.api/failure?`), or nil when it is not one. The api said that the
   person may not see it (403): `forbidden`. Any other failure is on our side, whoever's it is, and says so, with the status

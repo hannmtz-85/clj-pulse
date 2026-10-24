@@ -18,6 +18,7 @@
             [pulse.ui.test.html :as parsed]
             [pulse.web.html :as html]
             [pulse.web.session :as session]
+            [pulse.web.test.cohort :refer [cohort-api]]
             [pulse.web.test.harness :as h :refer [header with-web]]
             [ring.middleware.session.store :as store]))
 
@@ -25,21 +26,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The stand-in for the api, the cohort and the browser
-
-(defn- cohort-api
-  "What the stand-in for the api answers: the cohort, as the mock-ups have it, for `patient-id`. `:me`, `:summary` and `:series` are
-  what to answer instead for that endpoint: a response, or a function of the request and of what it would have answered."
-  [patient-id & {:keys [me summary series]}]
-  (fn [{:keys [path query] :as request}]
-    (let [params (idp/form-of query)
-          answered (fn [override default] (cond (nil? override) default (map? override) override :else (override request default)))]
-      (cond
-        (= "/readyz" path) h/api-ready
-        (= "/api/me" path) (answered me (h/json-answer (data/me patient-id)))
-        (= (str "/api/patients/" patient-id "/summary") path) (answered summary (h/json-answer (data/summary patient-id)))
-        (= (str "/api/patients/" patient-id "/observations") path)
-        (answered series (h/json-answer (data/series patient-id (keyword (get params "measurement")) (parse-long (get params "limit")))))
-        :else (h/json-answer 404 {:title "Not Found" :status 404})))))
 
 (defn- at!
   "Sets the clock of the portal, and of the fake provider, to `instant`."
@@ -169,15 +155,12 @@
 ;; What is served is what was reviewed
 
 (def ^:private not-yet
-  "The words of the buttons and links of the home that lead to pages the portal does not have yet: the mock-up has them."
-  ["Cancel appointment" "Cancel request" "Ask for a visit"])
-
-(def ^:private steps-not-yet
-  "The first steps of a new patient that lead to pages the portal does not have yet, as their words read in the section."
+  "The first steps of a new patient that lead to pages the portal does not have yet, as their words read in the section: the mock-up
+  has them. Every button of the home that leads to a page is there, since the appointments are."
   ["Look at your recordYour doctor sees what you see there."])
 
 (defn- without-buttons [text]
-  (reduce #(str/replace %1 %2 "") text (concat not-yet steps-not-yet)))
+  (reduce #(str/replace %1 %2 "") text not-yet))
 
 (deftest the-home-that-is-served-is-the-home-of-the-mock-up-but-for-the-pages-that-do-not-exist-yet
   (let [mock (read-back (portal/home context))
@@ -221,19 +204,43 @@
 (deftest nothing-on-the-page-leads-to-a-page-the-portal-does-not-have
   (with-cohort "pt-ana" {} {}
     (fn [web]
-      (let [{:keys [page]} (home web)
+      (let [{:keys [browser page]} (home web)
             links (disj (set (map (comp :href hx/attributes) (hx/by-tag page :a))) "#main")
             forms (map (comp (juxt :method :action) hx/attributes) (hx/by-tag page :form))]
-        (is (= #{"/" "/readings" "/readings/new"} links)
-            "the home, the readings and the form to record one, which are the pages there are (and the skip link, which goes to the page itself)")
-        (is (= [["post" "/sign-out"]] forms))))))
+        (is (= #{"/" "/readings" "/readings/new" "/appointments" "/appointments/appt-ana-1/cancel"} links)
+            "the home, the readings and the form to record one, the appointments and the question before the next one is cancelled, which are the pages there are (and the skip link, which goes to the page itself)")
+        (is (= [["post" "/sign-out"]] forms))
+        (testing "and every one of them is a page that answers"
+          (doseq [link links]
+            (is (= 200 (:status (h/visit! browser :get link))) link)))))))
 
-(deftest what-a-patient-may-cancel-is-not-offered-while-there-is-nowhere-to-do-it
-  (with-cohort "pt-ana" {} {}
+(deftest an-appointment-with-no-id-has-no-question-to-be-cancelled-at
+  (with-cohort "pt-ana" {:summary (h/json-answer (update (data/summary "pt-ana") :appointments (fn [appointments] (mapv #(assoc % :id nil) appointments))))}
+    {}
     (fn [web]
       (let [{:keys [page]} (home web)]
-        (is (not (str/includes? (hx/words page) "Cancel")) "the lifecycle allows it, and the page for it does not exist yet")
-        (is (not (str/includes? (hx/words page) "Ask for a visit")))))))
+        (is (str/includes? (get (sections page) "next") "Hypertension follow-up") "it is the next appointment all the same")
+        (is (not (str/includes? (hx/words (main-of page)) "Cancel appointment")))))))
+
+(deftest what-a-patient-may-cancel-is-offered-where-the-question-is
+  (with-cohort "pt-ana" {} {}
+    (fn [web]
+      (let [{:keys [page]} (home web)
+            button (first (filter #(= "Cancel appointment" (hx/words %)) (hx/by-tag (main-of page) :a)))]
+        (is (some? button) "the lifecycle allows it, and the page for it exists")
+        (is (= "/appointments/appt-ana-1/cancel" (:href (hx/attributes button))))
+        (is (not (str/includes? (hx/words page) "Cancel request")) "she has no request to cancel on the home: the next one is the confirmed appointment"))))
+  (testing "a patient with only a request waiting is offered to cancel it, and one with nothing coming up to ask for a visit"
+    (with-cohort "pt-noah" {} {}
+      (fn [web]
+        (let [{:keys [page]} (home web :person :noah :patient "pt-noah")
+              link (fn [text] (first (filter #(= text (hx/words %)) (hx/by-tag (main-of page) :a))))]
+          (is (= "/appointments/appt-noah-1/cancel" (:href (hx/attributes (link "Cancel request"))))))))
+    (with-cohort "pt-ana" {:summary (h/json-answer (assoc (data/summary "pt-ana") :appointments []))} {}
+      (fn [web]
+        (let [{:keys [page]} (home web)
+              ask (first (filter #(= "Ask for a visit" (hx/words %)) (hx/by-tag (main-of page) :a)))]
+          (is (= "/appointments#ask" (:href (hx/attributes ask)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A part that is lost

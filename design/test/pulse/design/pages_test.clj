@@ -37,7 +37,7 @@
   (is (= ["index.html" "palette.html" "type.html" "components.html" "charts.html" "contrast.html"
           "login.html" "login-states.html"
           "portal-home.html" "portal-readings.html" "portal-new-reading.html" "portal-appointments.html" "portal-cancel.html"
-          "portal-record.html" "portal-profile.html" "portal-new-patient.html" "portal-errors.html"
+          "portal-cancel-request.html" "portal-record.html" "portal-profile.html" "portal-new-patient.html" "portal-errors.html"
           "workspace-panel.html" "workspace-patient.html" "workspace-patient-sofia.html" "workspace-patient-liam.html"
           "workspace-patient-omar.html" "workspace-alerts.html" "workspace-appointments.html" "workspace-confirm.html"
           "workspace-jobs.html" "workspace-states.html"]
@@ -55,7 +55,7 @@
     (is (= 1 (count (filter some? [render frame]))) file)))
 
 (deftest a-mockup-says-what-it-shows-and-what-to-look-at-and-which-widths-it-is-for
-  (is (= 21 (count mockups)))
+  (is (= 22 (count mockups)))
   (doseq [{:keys [file summary notes devices listed?]} mockups]
     (is (not (str/blank? summary)) file)
     (is (seq devices) file)
@@ -141,7 +141,7 @@
         menus (hx/by-tag nav :details)]
     (is (= ["Overview"] (map hx/words (filter #(= :a (hx/tag %)) (hx/child-nodes nav)))) "a group of one page is a link")
     (is (= ["Style tile" "Sign-in" "Patient portal" "Clinical workspace"] (map #(hx/words (first (hx/by-tag % :summary))) menus)))
-    (is (= [5 2 9 7] (map #(count (hx/by-tag % :a)) menus)) "the pages that are not listed are not in it")))
+    (is (= [5 2 10 7] (map #(count (hx/by-tag % :a)) menus)) "the pages that are not listed are not in it")))
 
 (deftest the-overview-says-what-was-decided-and-lists-the-listed-pages-under-their-groups
   (let [page (document-of "index.html")
@@ -204,7 +204,8 @@
   "The file a link of a document leads to, or nil for a link to the same page or inside it. A query string is not part of the file's
   name: a page of the portal is asked for a measurement and a period, and the mock-up is one file whatever it is asked."
   [file href]
-  (let [href (first (str/split href #"[?]" 2))]
+  (let [href (first (str/split href #"[?#]" 2))
+        href (if (str/blank? href) (str "#" href) href)]
     (cond (str/starts-with? href "#") nil
           (str/starts-with? file "frames/") (str/replace href #"^\.\./" "")
           :else href)))
@@ -248,7 +249,8 @@
 (def ^:private current-item
   "The item of the navigation that is current on each page of an interface: what the page is a part of."
   {"portal-home.html" "Home" "portal-readings.html" "Readings" "portal-new-reading.html" "Readings"
-   "portal-appointments.html" "Appointments" "portal-cancel.html" "Appointments" "portal-record.html" "My record"
+   "portal-appointments.html" "Appointments" "portal-cancel.html" "Appointments" "portal-cancel-request.html" "Appointments"
+   "portal-record.html" "My record"
    "portal-profile.html" "Profile" "portal-new-patient.html" "Home" "portal-errors.html" "Home"
    "workspace-panel.html" "Panel" "workspace-patient.html" "Panel" "workspace-patient-sofia.html" "Panel"
    "workspace-patient-liam.html" "Panel" "workspace-patient-omar.html" "Panel" "workspace-alerts.html" "Alerts"

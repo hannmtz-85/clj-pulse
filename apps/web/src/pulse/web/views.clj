@@ -9,6 +9,7 @@
   (`pulse.api.appointments`). Other systems write to the same FHIR server, so a reading may lack a number or a time: a page
   never fails for it, it leaves out what it cannot say."
   (:require [clojure.string :as str]
+            [pulse.fhir.appointment :as lifecycle]
             [pulse.ui.component :as c]
             [pulse.web.format :as fmt]))
 
@@ -105,22 +106,72 @@
   "An appointment as a page shows it: `:id :status :description`, `:doctor` (the name, from `doctors`, a map from the
   reference of a practitioner to their name, nil when it is not there), and the time as the page writes it: `:month :day`
   and `:when` (`Wed 14 Oct, 10:00–10:30`) for one that has a time, or `:asked` (`Asked for a visit between Oct 14 and
-  Oct 20`) for a request. A cancelled one has the `:reason` that was given."
+  Oct 20`) for a request. A cancelled one has the `:reason` that was given. Other systems write to the same FHIR server, so a time
+  that cannot be read is no time: the row leaves out what it cannot say."
   [{:keys [id status description start end requestedStart requestedEnd practitioner reason]} doctors]
-  (cond-> {:id id
-           :status status
-           :description description
-           :doctor (get doctors practitioner)}
-    reason (assoc :reason reason)
-    start (assoc :month (fmt/month-abbreviation start)
-                 :day (fmt/day-of-month start)
-                 :when (str (fmt/weekday-date start) ", " (if (fmt/instant? end) (fmt/time-range start end) (fmt/clock start)))
-                 :start start)
-    (and (not start) requestedStart) (assoc :asked (str "Asked for a visit between "
-                                                        (if (fmt/instant? requestedEnd)
-                                                          (str/replace (fmt/date-range requestedStart requestedEnd) " to " " and ")
-                                                          (str (fmt/short-date requestedStart) " and later")))
-                                            :requested-start requestedStart)))
+  (let [timed? (fmt/instant? start)]
+    (cond-> {:id id
+             :status status
+             :description description
+             :doctor (get doctors practitioner)}
+      reason (assoc :reason reason)
+      timed? (assoc :month (fmt/month-abbreviation start)
+                    :day (fmt/day-of-month start)
+                    :when (str (fmt/weekday-date start) ", " (if (fmt/instant? end) (fmt/time-range start end) (fmt/clock start)))
+                    :start start)
+      (and (not timed?) (fmt/instant? requestedStart)) (assoc :asked (str "Asked for a visit between "
+                                                                          (if (fmt/instant? requestedEnd)
+                                                                            (str/replace (fmt/date-range requestedStart requestedEnd) " to " " and ")
+                                                                            (str (fmt/short-date requestedStart) " and later")))
+                                                              :requested-start requestedStart))))
+
+(defn doctors-of
+  "The practitioners that the appointments of a patient can be with, as a page looks a doctor up: a map from their reference to
+  their name, from what `GET /api/me` answered. The api names the general practitioner, whom every appointment of a patient is
+  with."
+  [me]
+  (let [{:keys [reference name]} (:generalPractitioner me)]
+    (if reference {reference name} {})))
+
+(defn- moment-ms
+  "When an appointment of the api is, or is asked to be, in epoch milliseconds: its start, or else the start of the window that was
+  asked for. Nil when it has neither, or neither can be read."
+  [{:keys [start requestedStart]}]
+  (some #(when (fmt/instant? %) (fmt/millis %)) [start requestedStart]))
+
+(defn- begun?
+  "Whether an appointment of the api has begun at `now`: it has a start that can be read and it is not ahead (the moment it begins is
+  the moment it has begun, as the lifecycle says)."
+  [{:keys [start]} now]
+  (boolean (and (fmt/instant? start) (<= (fmt/millis start) (fmt/millis now)))))
+
+(defn appointment-sections
+  "The `items` of the list of the api (`GET /api/appointments`, any order) as rows (`appointment-row`) in three sections, for a page that
+  shows them all and hides none: `:coming`, the ones that are booked and have not begun at `now` and the requests, soonest first;
+  `:earlier`, the ones that have begun, since the system does not know whether the visit took place, newest first; and
+  `:cancelled`, newest first. An appointment with no time that can be read comes last of its section. `doctors` is as in
+  `appointment-row`."
+  [items doctors now]
+  (let [soonest (fn [items] (sort-by (juxt #(or (moment-ms %) Long/MAX_VALUE) #(str (:id %))) items))
+        newest (fn [items] (reverse (sort-by (juxt #(or (moment-ms %) Long/MIN_VALUE) #(str (:id %))) items)))
+        section (fn [appointment] (cond (= "cancelled" (:status appointment)) :cancelled
+                                        (begun? appointment now) :earlier
+                                        :else :coming))
+        by-section (group-by section items)
+        rows (fn [items] (mapv #(appointment-row % doctors) items))]
+    {:coming (rows (soonest (:coming by-section)))
+     :earlier (rows (newest (:earlier by-section)))
+     :cancelled (rows (newest (:cancelled by-section)))}))
+
+(defn cancel-blocker
+  "Why a patient cannot cancel `appointment`, one of the api's (or a row, which has the same `:status` and `:start`), at `now`: nil when
+  they can, and otherwise `:already-cancelled`, `:begun` (a booked appointment that has begun, which only the clinic can cancel) or
+  `:not-cancellable` (the status is none a patient can cancel). The lifecycle says (`pulse.fhir.appointment/available-actions`, ADR-0027)."
+  [{:keys [status start] :as appointment} now]
+  (when-not (contains? (lifecycle/available-actions {:status status :start start} :patient now) :cancel)
+    (cond (= "cancelled" status) :already-cancelled
+          (and (= "booked" status) (begun? appointment now)) :begun
+          :else :not-cancellable)))
 
 (defn next-appointment
   "The appointment a patient looks at first, from the `appointments` the summary gave (any order): the soonest that is booked

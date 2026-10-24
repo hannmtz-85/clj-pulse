@@ -6,12 +6,12 @@
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
             [pulse.design.mockup :as mockup]
-            [pulse.design.views :as views]
             [pulse.fhir.measurement :as measurement]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
             [pulse.web.format :as fmt]
             [pulse.web.pages :as pages]
+            [pulse.web.pages.appointments :as appointments-page]
             [pulse.web.pages.home :as home-page]
             [pulse.web.pages.parts :as parts]
             [pulse.web.pages.reading-form :as reading-form]
@@ -48,12 +48,11 @@
   {:new-reading (link "portal-new-reading.html")
    :readings (link "portal-readings.html")
    :record (link "portal-record.html")
+   :appointments (link "portal-appointments.html")
    :request-visit (link "portal-appointments.html#ask")
    :retry (link "portal-home.html")
    :cancel-appointment (constantly (link "portal-cancel.html"))
-   :cancel-request (constantly (link "portal-appointments.html"))})
-
-(defn- appointment-item [row] (parts/appointment-item row links data/now-text))
+   :cancel-request (constantly (link "portal-cancel-request.html"))})
 
 ;; ---------------------------------------------------------------------------
 ;; Home
@@ -116,65 +115,41 @@
 ;; ---------------------------------------------------------------------------
 ;; Appointments
 
-(defn- request-form
-  "The patient's request: what it is about and the days that would suit, which go to their general practitioner."
-  []
-  (let [doctor (:name (data/practitioner (:practitioner (data/patient "pt-ana"))))]
-    (c/card {:title "Ask for a visit" :subtitle (str "Your request goes to " doctor ", who will confirm a time.")}
-            [:form {:class "flex max-w-xl flex-col gap-5" :action "#" :method "post"}
-             (c/textarea-field {:id "reason" :name "reason" :label "What is it about?" :rows 3
-                                :hint "A few words are enough, up to 200 characters."})
-             [:fieldset {:class "grid gap-4 sm:grid-cols-2"}
-              [:legend {:class "mb-1 text-sm font-medium sm:col-span-2"} "When would suit you?"]
-              (c/text-field {:id "from" :name "from" :label "From" :type "date" :value "2026-10-20"})
-              (c/text-field {:id "to" :name "to" :label "Until" :type "date" :value "2026-10-27"
-                             :hint "At most 30 days after the first day."})]
-             [:div (c/button {:type "submit" :size :lg :icon :send} "Send the request")]])))
-
-(defn- appointment-list [title rows]
-  (c/card {:flush? true} (c/list-group {:aria-label title} (map appointment-item rows))))
-
-(defn- appointments-content
-  "The page of appointments. `:form?` and `:cancelled?` leave out the request form and the cancelled ones."
-  [{:keys [form? cancelled?]}]
-  (let [rows (views/appointments-of "pt-ana")
-        coming (filter #(#{"booked" "proposed"} (:status %)) rows)
-        cancelled (filter #(= "cancelled" (:status %)) rows)]
-    [:div {:class "space-y-8"}
-     (c/page-header {:title "Appointments" :description "Visits with your care team."
-                     :actions (when form? (c/button {:size :lg :icon :calendar-plus :href "#ask"} "Ask for a visit"))})
-     [:section {:aria-labelledby "coming"}
-      [:div {:class "mb-3"} (parts/section-heading "coming" "Coming up")]
-      (appointment-list "Appointments that are coming" coming)]
-     (when cancelled?
-       [:section {:aria-labelledby "cancelled"}
-        [:div {:class "mb-3"} (parts/section-heading "cancelled" "Cancelled")]
-        (appointment-list "Cancelled appointments" cancelled)])
-     (when form?
-       [:section {:id "ask" :aria-label "Ask for a visit"} (request-form)])]))
+(defn appointments-model
+  "What the page of the appointments is a function of for `patient-id`: what the api answers, from the cohort, at the moment of the
+  mock-ups (the newest first, as the portal asks for them)."
+  [patient-id]
+  {:now data/now-text
+   :me (data/me patient-id)
+   :appointments (data/appointment-list patient-id {:sort "-start" :limit appointments-page/list-limit})
+   :csrf-token "the-token-of-the-session"})
 
 (defn appointments
-  "The appointments of a patient: the one that is confirmed, the request that has not been answered, the one that was
-  cancelled, and the form to ask for another."
+  "The appointments of a patient: the one that is confirmed, the request that has not been answered, the one that was cancelled, and the
+  form to ask for another. The page is the one the portal serves (`pulse.web.pages.appointments`), made from the cohort."
   [_context]
   (page {:title "Appointments" :current :appointments}
-        (appointments-content {:form? true :cancelled? true})))
+        (appointments-page/content (appointments-model "pt-ana") links)))
+
+(defn cancel-model
+  "What the question before an appointment is cancelled is a function of: the page of the appointments of `patient-id` and the first
+  of theirs in `status`, `booked` or `proposed`."
+  [patient-id status]
+  (let [model (appointments-model patient-id)]
+    (assoc model :target (first (filter #(= status (:status %)) (sort-by :id (get-in model [:appointments :items])))))))
 
 (defn cancel
-  "The appointments with the question before one is cancelled: what is cancelled, who is told, and a way back."
+  "The appointments with the question before one is cancelled: what is cancelled, who is told, and a way back. The page is the one the
+  portal serves (`pulse.web.pages.appointments`), made from the cohort."
   [_context]
-  (let [booked (first (filter #(= "booked" (:status %)) (views/appointments-of "pt-ana")))]
-    (page {:title "Cancel appointment" :current :appointments}
-          (appointments-content {})
-          (c/dialog {:id "cancel-appointment" :title "Cancel this appointment?" :open? true
-                     :actions (list (c/button {:variant :ghost :size :lg :href (link "portal-appointments.html")} "Keep it")
-                                    (c/button {:variant :danger :size :lg :icon :calendar-x :href (link "portal-appointments.html")} "Cancel the appointment"))}
-                    [:p {:class "text-base font-medium"} (:description booked)]
-                    [:p {:class "text-base text-muted"} (str (:when booked) " · " (:doctor booked))]
-                    [:p {:class "mt-3 text-base"} "Your care team will see it. You can ask for another visit at any time."]
-                    [:div {:class "mt-4"}
-                     (c/textarea-field {:id "why" :name "why" :label "Why? It helps your care team" :optional? true :rows 2
-                                        :hint "Up to 200 characters."})]))))
+  (page {:title "Cancel appointment" :current :appointments}
+        (appointments-page/cancel-content (cancel-model "pt-ana" "booked") links)))
+
+(defn cancel-request
+  "The same question for a request that the clinic has not answered."
+  [_context]
+  (page {:title "Cancel request" :current :appointments}
+        (appointments-page/cancel-content (cancel-model "pt-ana" "proposed") links)))
 
 ;; ---------------------------------------------------------------------------
 ;; The record and the profile

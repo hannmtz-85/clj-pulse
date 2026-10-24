@@ -213,7 +213,7 @@
     (is (= ["Cancel appointment" "Cancel request"]
            (map hx/words (filter #(#{"Cancel appointment" "Cancel request"} (hx/words %)) (buttons doc)))))
     (is (= "../portal-cancel.html" (href (button-named doc "Cancel appointment"))))
-    (is (= "../portal-appointments.html" (href (button-named doc "Cancel request"))))))
+    (is (= "../portal-cancel-request.html" (href (button-named doc "Cancel request"))))))
 
 (deftest a-row-of-appointments-puts-its-chip-and-buttons-under-the-text-on-a-phone
   (doseq [doc [(portal/appointments context) (portal/new-patient context) (portal/home context)]
@@ -230,7 +230,7 @@
     (is (= ["date" "date"] (map #(:type (hx/attributes (hx/by-id form %))) ["from" "to"])))
     (is (= "When would suit you?" (hx/words (first (hx/by-tag form :legend)))))
     (is (= "submit" (:type (hx/attributes (button-named form "Send the request")))))
-    (is (= "#ask" (href (button-named doc "Ask for a visit"))))
+    (is (= "../portal-appointments.html#ask" (href (button-named doc "Ask for a visit"))))
     (is (some? (hx/by-id doc "ask")) "and the button leads to the form")))
 
 (deftest the-question-before-cancelling-names-the-appointment-and-gives-a-way-back
@@ -249,9 +249,21 @@
     (is (hx/has-class? (button-named dialog "Keep it") "btn-ghost"))
     (is (str/includes? (hx/words (hx/by-id dialog "why-hint")) (str "Up to " (:text-length appointment/limits) " characters")))
     (is (str/includes? (hx/words dialog) "(optional)"))
-    (testing "behind it, the appointments that are coming, with no form"
+    (testing "behind it, the appointments that are coming, with no form to ask for a visit: the only form is the one of the question"
       (is (some? (list-named doc "Appointments that are coming")))
-      (is (empty? (hx/by-tag (first (hx/by-tag doc :main)) :form))))))
+      (is (= ["cancel-form"] (map (comp :id hx/attributes) (hx/by-tag (first (hx/by-tag doc :main)) :form))))
+      (is (nil? (hx/by-id doc "reason"))))
+    (testing "and the button that cancels it submits that form"
+      (is (= {:type "submit" :form "cancel-form"} (select-keys (hx/attributes (button-named dialog "Cancel the appointment")) [:type :form]))))))
+
+(deftest the-question-before-a-request-is-withdrawn-is-the-same-question
+  (let [doc (portal/cancel-request context)
+        dialog (first (hx/by-tag doc :dialog))]
+    (is (= "Cancel this request?" (hx/words (hx/by-id dialog "cancel-appointment-title"))))
+    (is (str/includes? (hx/words dialog) "Medication review"))
+    (is (str/includes? (hx/words dialog) "Asked for a visit between Oct 20 and Oct 27 · Dr. Elena Rivera"))
+    (is (= ["Cancel the request" "Keep it"] (sort-by {"Cancel the request" 0 "Keep it" 1} (map hx/words (buttons dialog)))))
+    (is (= "../portal-appointments.html" (href (button-named dialog "Keep it"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The record and the profile

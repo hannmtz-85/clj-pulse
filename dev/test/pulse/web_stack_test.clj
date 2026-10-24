@@ -19,6 +19,7 @@
             [pulse.dev :as dev]
             [pulse.platform.config :as config]
             [pulse.platform.token :as token]
+            [pulse.web.format :as fmt]
             [pulse.web.oidc :as oidc]
             [pulse.web.session :as session]
             [ring.middleware.session.store :as store])
@@ -294,6 +295,65 @@
         (testing "and a temperature, the sixth measurement, can be found again among her measurements"
           (is (= 303 (:status (post! {"measurement" "temperature" "value" "36.6"}))))
           (is (str/includes? (:body (request! (:portal browser) :get (str portal-url "/readings"))) "Temperature")))))))
+
+(deftest ^:integration a-patient-asks-for-a-visit-and-cancels-through-the-pages
+  ;; what the fake provider cannot show: that the roles and the audience of the realm let a patient's token ask for a visit and cancel
+  ;; their own appointment at the real api, as the portal sends it, and that the api knows whose they are
+  (with-portal
+    (fn [{:keys [system password]}]
+      (let [browser (new-browser)
+            post! (fn [path fields]
+                    (request! (:portal browser) :post (str portal-url path)
+                              :headers {"Origin" origin}
+                              :form (merge {"__anti-forgery-token" (:csrf (session-of system browser))} fields)))
+            get! (fn [path] (request! (:portal browser) :get (str portal-url path)))
+            today (java.time.LocalDate/now fmt/zone)]
+        (sign-in! browser password "ana.garcia@pulse.test")
+        (testing "her appointments are made of what the real api says of her: the one of the cohort, with her doctor, and nobody else's"
+          (let [page (get! "/appointments")
+                body (:body page)]
+            (is (= 200 (:status page)))
+            (is (str/includes? body "Hypertension follow-up"))
+            (is (str/includes? body "Dr. Elena Rivera"))
+            (is (not (re-find #"Diabetes review|COPD check-up|Heart failure review|New patient intake" body)) "and nobody else")
+            (is (str/includes? body "Ask for a visit"))))
+        (testing "a window that is too long is refused by the real api, in its words, and what she typed is kept"
+          (let [r (post! "/appointments" {"reason" "Back pain" "from" (str today) "to" (str (.plusDays today 60))})]
+            (is (= 422 (:status r)))
+            (is (re-find #"Must be at most 30 days after the start[.]" (:body r)))
+            (is (str/includes? (:body r) "Back pain"))))
+        (testing "one that is not is taken with her token, for her doctor, and her appointments say so, once"
+          (let [asked (post! "/appointments" {"reason" "Back pain" "from" (str today) "to" (str (.plusDays today 7))})
+                page (get! (location asked))]
+            (is (= 303 (:status asked)))
+            (is (= "/appointments" (location asked)))
+            (is (re-find #"Request sent" (:body page)))
+            (is (str/includes? (:body page) "Dr. Elena Rivera will confirm a time"))
+            (is (re-find #"Back pain" (:body page)))
+            (is (not (re-find #"Request sent" (:body (get! "/appointments")))) "once")))
+        (testing "she cancels the confirmed appointment, with a reason, and the real api accepts it as hers"
+          (let [question (get! "/appointments/appt-ana-1/cancel")
+                cancelled (post! "/appointments/appt-ana-1/cancel" {"why" "I had to travel."})
+                page (get! (location cancelled))]
+            (is (= 200 (:status question)))
+            (is (str/includes? (:body question) "Cancel this appointment?"))
+            (is (= 303 (:status cancelled)))
+            (is (re-find #"Appointment cancelled" (:body page)))
+            (is (str/includes? (:body page) "Reason: I had to travel."))
+            (testing "and again says what it is"
+              (let [again (post! "/appointments/appt-ana-1/cancel" {})]
+                (is (= 409 (:status again)))
+                (is (str/includes? (:body again) "That appointment is already cancelled"))))))
+        (testing "and she withdraws the request"
+          (let [page (:body (get! "/appointments"))
+                id (second (re-find #"/appointments/([^/\"]+)/cancel" page))
+                cancelled (post! (str "/appointments/" id "/cancel") {})]
+            (is (some? id))
+            (is (= 303 (:status cancelled)))
+            (is (re-find #"Request cancelled" (:body (get! (location cancelled)))))))
+        (testing "an appointment of somebody else is not found, and nothing of it is asked of the api to change"
+          (is (= 404 (:status (get! "/appointments/appt-liam-1/cancel"))))
+          (is (= 404 (:status (post! "/appointments/appt-liam-1/cancel" {})))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Somebody from the clinic

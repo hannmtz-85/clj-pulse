@@ -82,11 +82,27 @@
   "Where a patient records a reading."
   "/readings/new")
 
+(def appointments-path
+  "Where the appointments of a patient are, and where they ask for a visit."
+  "/appointments")
+
+(def request-visit-path
+  "Where the button to ask for a visit leads: the form, in the page of the appointments."
+  (str appointments-path "#ask"))
+
+(defn cancel-path
+  "Where the question before an appointment is cancelled is, and where the answer is posted: the appointment with the id `id`, which is
+  written as a segment of the address. An appointment with no id has no address of its own: nil, and so no button that leads to it."
+  [id]
+  (when-not (str/blank? (str id))
+    (str appointments-path "/" (str/replace (java.net.URLEncoder/encode (str id) "UTF-8") "+" "%20") "/cancel")))
+
 (def nav
   "The pages of the portal, in the order of the bar and the dock: `:id`, `:href`, `:label` and `:icon`. A page is here when it
   exists, so that nothing in the navigation leads nowhere: each step of Phase 7 adds its own."
   [{:id :home :href "/" :label "Home" :icon :house}
-   {:id :readings :href readings-path :label "Readings" :icon :activity}])
+   {:id :readings :href readings-path :label "Readings" :icon :activity}
+   {:id :appointments :href appointments-path :label "Appointments" :icon :calendar}])
 
 (defn page
   "A page of a patient who is signed in: the document, with the CSRF token of their session for htmx, and in it the bar, the

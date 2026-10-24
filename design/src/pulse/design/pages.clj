@@ -70,6 +70,10 @@
     :summary "The question before an appointment is cancelled: what is cancelled, who is told, and a way back."
     :notes ["The dialog is in the middle of the page here; in a browser it is in the middle of the window."
             "The reason is optional, and goes to the care team."]}
+   {:file "portal-cancel-request.html" :title "Cancel a request" :group "Patient portal" :devices phone-and-desk :frame portal/cancel-request
+    :summary "The same question for a request that the clinic has not answered yet."
+    :notes ["A request can be cancelled at any time; a confirmed appointment, until it begins."
+            "It is the page of the appointments with the question over it: it works with no script, and \"Keep it\" goes back."]}
    {:file "portal-record.html" :title "My record" :group "Patient portal" :devices phone-and-desk :frame portal/record
     :summary "The medication, the conditions and the allergies the clinic has on file, in words."
     :notes ["A section with nothing in it says so, and says what to do."]}

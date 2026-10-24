@@ -196,7 +196,7 @@
         row (first (hx/by-tag (section tree "next") :li))]
     (is (= ["New patient intake" "Asked for a visit between Oct 14 and Oct 20 · Dr. Chidi Okafor"] (map hx/words (hx/by-tag row :p))))
     (is (str/includes? (hx/words row) "Requested"))
-    (is (= "../portal-appointments.html" (href (link-named row "Cancel request"))))
+    (is (= "../portal-cancel-request.html" (href (link-named row "Cancel request"))))
     (is (nil? (link-named row "Cancel appointment")))))
 
 ;; ---------------------------------------------------------------------------

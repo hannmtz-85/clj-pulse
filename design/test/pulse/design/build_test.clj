@@ -64,12 +64,12 @@
     (is (= #{:tokens :pages :themes} (set (keys context))))
     (is (= [["pulse" "Teal, light"] ["pulse-dark" "Teal, dark"]] (:themes context)))
     (is (= pages/pages (:pages context)))
-    (is (= 27 (count (:pages context))))))
+    (is (= 28 (count (:pages context))))))
 
 (deftest a-page-is-one-document-and-a-mockup-is-two
   (let [documents (build/documents (build/context))
         files (map :file documents)]
-    (is (= (+ 27 21) (count documents)))
+    (is (= (+ 28 22) (count documents)))
     (is (= ["palette.html" "type.html"] (take 2 (rest files))) "in the order of the registry")
     (testing "the page of the review comes first and then its frame, in a folder of its own"
       (is (= ["login.html" "frames/login.html" "login-states.html" "frames/login-states.html"]

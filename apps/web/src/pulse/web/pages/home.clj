@@ -39,13 +39,6 @@
   (let [name (get-in me [:resource :name 0 :given 0])]
     (when-not (str/blank? name) name)))
 
-(defn- doctors
-  "The practitioners that the patient's appointments can be with, as the page looks a doctor up: a map from their reference to
-  their name. The api names the general practitioner, whom every appointment of a patient is with."
-  [me]
-  (let [{:keys [reference name]} (:generalPractitioner me)]
-    (if reference {reference name} {})))
-
 (defn- vitals-lost
   "Which of the latest readings of the summary could not be loaded: nil for none, `:some`, or `:all` (also when there is no
   summary). The summary names what it could not load, such as `vitals.glucose`."
@@ -91,7 +84,7 @@
      (if-let [appointment (views/next-appointment (:appointments summary) now)]
        (c/card {:flush? true}
                (c/list-group {:aria-label "Your next appointment"}
-                             (parts/appointment-item (views/appointment-row appointment (doctors me)) links now)))
+                             (parts/appointment-item (views/appointment-row appointment (views/doctors-of me)) links now)))
        (c/card (c/empty-state {:icon :calendar
                                :title "No appointment coming up"
                                :actions (when-let [href (:request-visit links)]

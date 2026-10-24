@@ -249,22 +249,37 @@
 
 (deftest the-navigation-is-the-pages-that-exist
   (is (= [{:id :home :href "/" :label "Home" :icon :house}
-          {:id :readings :href "/readings" :label "Readings" :icon :activity}]
+          {:id :readings :href "/readings" :label "Readings" :icon :activity}
+          {:id :appointments :href "/appointments" :label "Appointments" :icon :calendar}]
          pages/nav)
       "each step of Phase 7 adds its own: nothing leads to a page that is not there")
   (let [page (frame-page)
         bar (nav-named page "Main")
         dock (nav-named page "Main, on a phone")]
-    (is (= [["Home" "/"] ["Readings" "/readings"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
+    (is (= [["Home" "/"] ["Readings" "/readings"] ["Appointments" "/appointments"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
     (is (= (map (comp :href hx/attributes) (hx/by-tag bar :a)) (map (comp :href hx/attributes) (hx/by-tag dock :a)))
         "the dock is the same navigation")
     (testing "the page it is on is marked, for a screen reader too"
-      (is (= ["page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
-      (is (= ["page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a))))
-      (is (= [nil "page"] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :readings}) "Main") :a)))))
+      (is (= ["page" nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
+      (is (= ["page" nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a))))
+      (is (= [nil "page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :readings}) "Main") :a))))
+      (is (= [nil nil "page"] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :appointments}) "Main") :a)))))
     (testing "and one that is not in it marks none"
       (is (empty? (filter (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :elsewhere}) "Main") :a)))))
     (is (= "/" (:href (hx/attributes (first (hx/by-tag (first (hx/by-tag page :header)) :a))))) "the mark leads home")))
+
+(deftest the-addresses-of-the-appointments-are-where-the-routes-are
+  (is (= "/appointments" pages/appointments-path))
+  (is (= "/appointments#ask" pages/request-visit-path) "the form is in the page of the appointments")
+  (testing "the question before an appointment is cancelled is at the address of the appointment, which is written as a segment"
+    (is (= "/appointments/appt-ana-1/cancel" (pages/cancel-path "appt-ana-1")))
+    (is (= "/appointments/a%20b/cancel" (pages/cancel-path "a b")) "a space is not a plus")
+    (is (= "/appointments/a%2Fb%3Fc%23d/cancel" (pages/cancel-path "a/b?c#d")) "what could end a segment does not")
+    (is (= "/appointments/%E2%82%AC/cancel" (pages/cancel-path "€")))
+    (testing "an appointment with no id has no address of its own, so there is no button that leads to it"
+      (doseq [id [nil "" "  " "
+"]]
+        (is (nil? (pages/cancel-path id)) (pr-str id))))))
 
 (deftest a-person-signs-out-from-the-menu-with-a-form-that-carries-the-token
   (let [text (html/render (pages/page {:title "Home" :current :home :person {:name "Ana García"} :csrf-token "tok-en_1"} [:h1 "Hello"]))

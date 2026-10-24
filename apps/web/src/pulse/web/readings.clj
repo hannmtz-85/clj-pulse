@@ -78,7 +78,7 @@
                                                    {:measurement (name kind)
                                                     :from (str (.minus now (Duration/ofDays days)))
                                                     :limit readings/series-limit})))
-            saved (session/flash-of request)
+            saved (:reading (session/flash-of request))
             response (html/response
                       (framed request "Readings"
                               (readings/content {:now (str now) :kind kind :days days :summary summary :series series :saved saved}
@@ -111,49 +111,33 @@
                                 :errors {}
                                 :now now})))))
 
-(defn- attempt
-  "`{:done (f)}`, or `{:failed e}` when `f` fails in a way that a page can go on after (`pulse.web.api/degradable?`): the failure is
-  in the log. Another failure is thrown."
-  [f]
-  (try
-    {:done (f)}
-    (catch clojure.lang.ExceptionInfo e
-      (if (api/degradable? e)
-        (do (errors/log-api-failure! e) {:failed e})
-        (throw e)))))
-
 (defn- form-again
   "The form again, for `kind`, with what was typed in `form` and why the reading is not saved: `failure` is the kind of the page
   (see `pulse.web.pages.reading-form`) and `field-errors` the words beside the fields."
   [request status kind form now failure field-errors]
   (form-page request status {:kind kind :values (recording/typed kind form) :errors field-errors :failure failure :now now}))
 
-(defn- failed-with
-  "The status of the form that answers a failure of the api: a gateway timeout when it was too slow, a bad gateway otherwise."
-  [e]
-  (if (api/timeout? e) 504 502))
-
 (defn- saved
   "The answer to a reading that was saved: a 303 to the readings of its measurement, and the reading `created`, as the api stored it,
-  left in the session for that page to tell once."
+  left in the session for that page to tell once (as the `:reading`, since the appointments leave their own)."
   [request kind created]
   (-> {:status 303
        :headers {"Location" (str pages/readings-path "?measurement=" (name kind))}
        :body ""}
-      (session/with-flash request created)))
+      (session/with-flash request {:reading created})))
 
 (defn- post-reading
   "Asks the api who the person is and posts `body`, a reading of `kind`, to their record, and answers: the form again when the api
   failed (`:unsaved` if nothing was sent, `:unconfirmed` if the reading was on its way) or refused it, and `saved` when it took it."
   [api request kind form now body]
   (let [again (fn [status failure field-errors] (form-again request status kind form now failure field-errors))
-        me (attempt #(api/get-json api request "/api/me"))]
+        me (errors/attempt #(api/get-json api request "/api/me"))]
     (if-let [e (:failed me)]
-      (again (failed-with e) :unsaved {})
+      (again (errors/gateway-status e) :unsaved {})
       (let [id (api/patient-id (:done me))
-            sent (attempt #(api/post-json api request (http/path "api" "patients" id "observations") body))]
+            sent (errors/attempt #(api/post-json api request (http/path "api" "patients" id "observations") body))]
         (if-let [e (:failed sent)]
-          (again (failed-with e) :unconfirmed {})
+          (again (errors/gateway-status e) :unconfirmed {})
           (let [{:keys [created refused]} (:done sent)]
             (if refused
               (again 422 :refused (recording/refusal kind (:errors refused)))

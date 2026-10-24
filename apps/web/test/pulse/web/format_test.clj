@@ -93,6 +93,23 @@
   (is (= "23:30–00:15" (fmt/time-range "2026-10-14T21:30:00Z" "2026-10-14T22:15:00Z")))
   (is (= "Oct 14 to Oct 20" (fmt/date-range "2026-10-14T00:00:00Z" "2026-10-20T00:00:00Z"))))
 
+(deftest the-last-day-of-a-period-is-the-day-before-the-moment-it-ends-when-that-is-midnight
+  (testing "a period that ends when a day does covers that day and not the next: midnight of the clinic is 22:00 or 23:00 in UTC"
+    (is (= "Oct 20" (fmt/last-date "2026-10-20T22:00:00Z")) "midnight of the 21st, in summer time")
+    (is (= "Oct 27" (fmt/last-date "2026-10-27T23:00:00Z")) "midnight of the 28th, in winter time")
+    (is (= "Jan 20" (fmt/last-date "2026-01-20T23:00:00Z"))))
+  (testing "a period that ends in the middle of a day covers that day"
+    (is (= "Oct 27" (fmt/last-date "2026-10-27T00:00:00Z")) "01:00 of the 27th, in Madrid")
+    (is (= "Oct 27" (fmt/last-date "2026-10-27T10:00:00Z"))))
+  (testing "the moment the day ends is the end of it, and a moment after is part of the next one"
+    (is (= "Oct 27" (fmt/last-date "2026-10-27T23:00:00Z")))
+    (is (= "Oct 28" (fmt/last-date "2026-10-27T23:00:00.001Z")))
+    (is (= "Oct 28" (fmt/last-date "2026-10-27T23:00:01Z")))
+    (is (= "Oct 28" (fmt/last-date "2026-10-28T22:59:59Z"))))
+  (testing "and a range of days says the first day and the last day it covers"
+    (is (= "Oct 20 to Oct 27" (fmt/date-range "2026-10-19T22:00:00Z" "2026-10-27T23:00:00Z")) "from the 20th until the 27th, as the form says it")
+    (is (= "Oct 20 to Oct 20" (fmt/date-range "2026-10-19T22:00:00Z" "2026-10-20T22:00:00Z")) "one day")))
+
 (deftest a-month-is-written-with-its-year-from-an-instant-or-a-date
   (is (= "Nov 2025" (fmt/month-year "2025-11-04T09:00:00Z")))
   (is (= "May 2019" (fmt/month-year "2019-05-02")))

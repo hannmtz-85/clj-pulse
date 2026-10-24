@@ -245,3 +245,39 @@
       (is (= "blood-pressure" (:measurement (first items)))))
     (is (= {:items [] :truncated false} (data/series "pt-noah" :weight 5)))
     (is (false? (:truncated (data/series "pt-ana" :weight 500))))))
+
+(defn- appointments-of-api [id params]
+  (:body ((api-appointments/list-handler {:fhir @fhir})
+          {:identity {:subject (str "user-" id) :roles #{:patient} :fhir-user {:type "Patient" :id id}}
+           :scope :own
+           :parameters {:query (merge {:sort "start" :limit 50 :offset 0} params)}})))
+
+(deftest what-the-api-answers-the-appointments-of-a-patient-is-what-the-mock-ups-have
+  (let [by-the-hand (set (map :id data/other-appointments))
+        by-the-cohort (fn [page] (vec (remove #(contains? by-the-hand (:id %)) (:items page))))]
+    (doseq [{:keys [id]} (data/patients)
+            params [{} {:sort "-start" :limit 100} {:status "booked"} {:status "proposed"} {:status "cancelled"}]
+            :let [mine (data/appointment-list id params)
+                  theirs (appointments-of-api id params)]]
+      (testing (str id " " (pr-str params))
+        (is (m/validate api-appointments/list-schema mine) "the shape the api gives, the parts written by hand included")
+        (is (= (by-the-cohort theirs) (by-the-cohort mine)) "the appointments of the cohort, as the handler of the api lists them")
+        (is (= (:limit theirs) (:limit mine)))
+        (is (= (:offset theirs) (:offset mine))))))
+  (testing "what the cohort does not hold is written by hand: Ana has two more appointments"
+    (let [ana (data/appointment-list "pt-ana")]
+      (is (= ["appt-ana-0" "appt-ana-1" "appt-ana-2"] (map :id (:items ana))) "soonest first, a request by the days it asks for")
+      (is (= 3 (:total ana)))
+      (is (= ["appt-ana-2" "appt-ana-1" "appt-ana-0"] (map :id (:items (data/appointment-list "pt-ana" {:sort "-start"})))))))
+  (testing "a page of them, and how many there are in all"
+    (let [page (data/appointment-list "pt-ana" {:limit 1 :offset 1})]
+      (is (= ["appt-ana-1"] (map :id (:items page))))
+      (is (= 3 (:total page)))
+      (is (= {:offset 1 :limit 1} (select-keys page [:offset :limit]))))
+    (is (= [] (:items (data/appointment-list "pt-ana" {:offset 3})))))
+  (testing "by status"
+    (is (= ["appt-ana-2"] (map :id (:items (data/appointment-list "pt-ana" {:status "proposed"})))))
+    (is (= ["appt-ana-0"] (map :id (:items (data/appointment-list "pt-ana" {:status "cancelled"})))))
+    (is (= [] (:items (data/appointment-list "pt-omar"))) "a patient with none has none"))
+  (testing "an appointment is the patient's, and says so"
+    (is (every? #(= "Patient/pt-noah" (:patient %)) (:items (data/appointment-list "pt-noah"))))))

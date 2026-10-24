@@ -78,4 +78,7 @@
                      (home/content {:now now :me me :summary summary :recent recent}
                                    {:retry (return-to/of-request request)
                                     :readings pages/readings-path
-                                    :new-reading pages/new-reading-path})))))))
+                                    :new-reading pages/new-reading-path
+                                    :request-visit pages/request-visit-path
+                                    :cancel-appointment (comp pages/cancel-path :id)
+                                    :cancel-request (comp pages/cancel-path :id)})))))))

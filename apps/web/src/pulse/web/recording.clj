@@ -11,6 +11,7 @@
   (:require [clojure.string :as str]
             [pulse.fhir.measurement :as measurement]
             [pulse.web.format :as fmt]
+            [pulse.web.refusal :as refusal]
             [pulse.web.views :as views])
   (:import (java.time Duration Instant LocalDateTime ZonedDateTime)
            (java.time.format DateTimeParseException)
@@ -135,28 +136,11 @@
 ;; ---------------------------------------------------------------------------
 ;; What the api refused
 
-(def ^:private max-message-length 200)
-
-(defn- sentence
-  "A message of the api, written to follow the name of a field (`must be between 20 and 200 mmHg`), as a sentence of its own."
-  [message]
-  (let [message (str/trim message)
-        message (str/trimr (subs message 0 (min max-message-length (count message))))
-        message (str (str/upper-case (subs message 0 1)) (subs message 1))]
-    (if (re-find #"[.!?]$" message) message (str message "."))))
-
 (defn refusal
   "The words beside the fields for a reading of `kind` that the api refused (a 400 or a 422): `errors` is the `errors` of its problem,
   a map from a field of the api to its messages. A map from the fields of the form to a sentence, for those the form has (the `at`
   of the api is `:taken` here); what the api says of anything else, such as the unit, which the form never sends, is left out.
-  Empty when there is nothing to place."
+  Empty when there is nothing to place (see `pulse.web.refusal`)."
   [kind errors]
-  (let [known (into {:at :taken} (map (fn [{:keys [channel]}] [channel channel])) (fields kind))]
-    (if (map? errors)
-      (into {}
-            (keep (fn [[field messages]]
-                    (let [message (first (filter #(and (string? %) (not (str/blank? %))) (if (sequential? messages) messages [messages])))]
-                      (when (and message (contains? known field))
-                        [(get known field) (sentence message)]))))
-            errors)
-      {})))
+  (refusal/place (into {:at :taken} (map (fn [{:keys [channel]}] [channel channel])) (fields kind))
+                 errors))

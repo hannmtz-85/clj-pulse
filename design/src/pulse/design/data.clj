@@ -11,6 +11,7 @@
             [pulse.fhir.observation :as obs]
             [pulse.fhir.ranges :as ranges]
             [pulse.fhir.synthetic :as synthetic]
+            [pulse.fhir.time :as time]
             [pulse.web.views :as views])
   (:import (java.time Instant)))
 
@@ -214,6 +215,36 @@
    {:id "appt-ana-0" :status "cancelled" :description "Blood pressure check"
     :start "2026-09-29T07:00:00Z" :end "2026-09-29T07:30:00Z" :requestedStart nil :requestedEnd nil
     :practitioner "Practitioner/pr-rivera" :reason "I had to travel that week." :patient "Patient/pt-ana"}])
+
+(defn- moment-ms
+  "When an appointment is, or is asked to be, in epoch milliseconds, as the api orders them; one with no time at all comes last."
+  [appointment]
+  (or (some-> (:start appointment) time/->millis)
+      (some-> (:requestedStart appointment) time/->millis)
+      Long/MAX_VALUE))
+
+(defn appointment-page
+  "What `GET /api/appointments` answers for the `appointments` a caller may see (in the shapes of the api): they are ordered by the time
+  they are or are asked to be, `start` (the soonest first, by default) or `-start`, and the page of them that `limit` and `offset`
+  say is `{:total :offset :limit :items}`. `status` leaves only the appointments in it."
+  [appointments {:keys [status sort limit offset] :or {sort "start" limit 50 offset 0}}]
+  (let [wanted (cond->> appointments
+                 status (filter #(= status (:status %))))
+        ordered (cond-> (sort-by (juxt moment-ms :id) wanted)
+                  (= "-start" sort) reverse)]
+    {:total (count ordered)
+     :offset offset
+     :limit limit
+     :items (vec (take limit (drop offset ordered)))}))
+
+(defn appointment-list
+  "What `GET /api/appointments` answers the patient `patient-id`: their own appointments, those of the cohort and the two written by hand
+  (`other-appointments`), as `appointment-page` has them."
+  ([patient-id] (appointment-list patient-id nil))
+  ([patient-id params]
+   (appointment-page (concat (appointments-of patient-id)
+                             (filter #(= (str "Patient/" patient-id) (:patient %)) other-appointments))
+                     params)))
 
 ;; ---------------------------------------------------------------------------
 ;; Alerts

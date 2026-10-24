@@ -20,19 +20,12 @@
 
   and `links` says where it leads: `:new-reading` (this page, which the forms are addressed to; required) and `:readings` (the
   button to cancel, which goes back to the readings of the measurement that was being recorded)."
-  (:require [clojure.string :as str]
-            [pulse.ui.component :as c]
+  (:require [pulse.ui.component :as c]
             [pulse.web.format :as fmt]
             [pulse.web.pages :as pages]
             [pulse.web.recording :as recording]
+            [pulse.web.refusal :as refusal]
             [pulse.web.views :as views]))
-
-(defn- join-and
-  "`a`, `a and b`, `a, b and c`."
-  [items]
-  (if (= 1 (count items))
-    (first items)
-    (str (str/join ", " (butlast items)) " and " (last items))))
 
 (defn- alert-of
   "The message at the top of the form: what to check when the reading was refused, or that nobody knows whether it was saved."
@@ -51,7 +44,7 @@
                         (when (contains? errors :taken) [(str "the " recording/taken-name)]))]
       (c/alert {:tone :high :title "The reading was not saved" :role "alert"}
                (if (seq named)
-                 (str "Check " (join-and named) " and save it again.")
+                 (str "Check " (refusal/join-and named) " and save it again.")
                  "Check what you entered and save it again.")))))
 
 (defn- choose-form

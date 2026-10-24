@@ -8,7 +8,8 @@
   was too slow) or an `::http/failed` (it answered, and not with a success), or the `::token/unavailable` of the keeper, which
   is not a failure of the api and is for `pulse.web.authz` to answer. A page decides, by `degradable?`, whether it can go on
   without the part that failed; the rest becomes a page for the failure (`pulse.web.errors/api-failure`)."
-  (:require [pulse.fhir.reference :as ref]
+  (:require [clojure.string :as str]
+            [pulse.fhir.reference :as ref]
             [pulse.platform.http.client :as http]
             [pulse.web.session :as session]
             [taoensso.telemere :as t]))
@@ -34,33 +35,54 @@
     (if (> (count x) max-problem-text) (str (subs x 0 max-problem-text) "...") x)))
 
 (defn- failed
-  "The `::http/failed` for a `status` of `path` that the api answered with `body`, as `pulse.platform.http.client/call` makes it."
-  [status path body]
+  "The `::http/failed` for a `status` of `path` that the api answered a request of `method` with `body`, as
+  `pulse.platform.http.client/call` makes it."
+  [method status path body]
   (let [problem (when (map? body)
                   (cond-> {}
                     (short-text (:title body)) (assoc :title (short-text (:title body)))
                     (short-text (:detail body)) (assoc :detail (short-text (:detail body)))))]
-    (ex-info (str "POST " path " answered " status)
+    (ex-info (str method " " path " answered " status)
              (cond-> {:type ::http/failed :status status :path path}
                (seq problem) (assoc :problem problem)))))
+
+(defn- send-json
+  "The outcome of a request of `method` with `body`, as JSON, to `path` that the person of `request` makes through `api`: `{:done answer}`
+  for a success, or `{:refused {:status :errors}}` when the api answers with one of the `refusals`, statuses that say that it will not do
+  what was asked (the shape of it, what cannot be right, the state of what it is about), where `:errors` is what it said was wrong with
+  each field. Anything else throws as `get-json` does."
+  [api request method path body refusals]
+  (let [verb (str/upper-case (name method))
+        {:keys [status] answer :body} (http/request (assoc api :token (session/tokens-of request))
+                                                    {:method method :path path :body body :headers (headers-of request)})]
+    (cond
+      (and (<= 200 status 299) (= ::http/not-json answer))
+      (throw (ex-info (str verb " " path " answered " status " with a body that is not JSON")
+                      {:type ::http/failed :status status :path path :reason :bad-response}))
+
+      (<= 200 status 299) {:done answer}
+
+      (contains? refusals status) {:refused {:status status :errors (when (map? answer) (:errors answer))}}
+
+      :else (throw (failed verb status path (when-not (= ::http/not-json answer) answer))))))
 
 (defn post-json
   "The outcome of a POST of `body`, as JSON, to `path` that the person of `request` makes through `api`: `{:created answer}` for a
   success, or `{:refused {:status :errors}}` when the api says that it cannot take it (a 400, for the shape of it, or a 422, for
-  what cannot be a reading), where `:errors` is what it said was wrong with each field. Anything else throws as `get-json` does."
+  what cannot be right, and the other statuses in `refusals`, if some are given), where `:errors` is what it said was wrong with
+  each field. Anything else throws as `get-json` does."
+  ([api request path body] (post-json api request path body #{}))
+  ([api request path body refusals]
+   (let [{:keys [done refused]} (send-json api request :post path body (into #{400 422} refusals))]
+     (if refused {:refused refused} {:created done}))))
+
+(defn patch-json
+  "The outcome of a PATCH of `body`, as JSON, to `path` that the person of `request` makes through `api`: `{:changed answer}` for a
+  success, or `{:refused {:status :errors}}` when the api will not do it: a 400 or a 422 (`:errors` is what it said was wrong with
+  each field), a 404 (there is no such thing) or a 409 (its state does not allow it). Anything else throws as `get-json` does."
   [api request path body]
-  (let [{:keys [status] answer :body} (http/request (assoc api :token (session/tokens-of request))
-                                                    {:method :post :path path :body body :headers (headers-of request)})]
-    (cond
-      (and (<= 200 status 299) (= ::http/not-json answer))
-      (throw (ex-info (str "POST " path " answered " status " with a body that is not JSON")
-                      {:type ::http/failed :status status :path path :reason :bad-response}))
-
-      (<= 200 status 299) {:created answer}
-
-      (#{400 422} status) {:refused {:status status :errors (when (map? answer) (:errors answer))}}
-
-      :else (throw (failed status path (when-not (= ::http/not-json answer) answer))))))
+  (let [{:keys [done refused]} (send-json api request :patch path body #{400 404 409 422})]
+    (if refused {:refused refused} {:changed done})))
 
 (defn patient-id
   "The id of the patient's own record, from what `GET /api/me` answered, or a failure on our side: a patient with no record to show
