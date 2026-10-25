@@ -3,8 +3,7 @@
   for them, asked for with their own token. The stand-in for the api answers from the synthetic cohort of the mock-ups, at the
   moment of the mock-ups, so that what is served can be held to what the owner reviewed; and each way the api can fail is tried:
   a part that is lost leaves the rest of the page, and a failure that is not a part's is a page for it."
-  (:require [clojure.set :as set]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [pulse.design.build :as build]
             [pulse.design.data :as data]
@@ -154,15 +153,7 @@
 ;; ---------------------------------------------------------------------------
 ;; What is served is what was reviewed
 
-(def ^:private not-yet
-  "The first steps of a new patient that lead to pages the portal does not have yet, as their words read in the section: the mock-up
-  has them. Every button of the home that leads to a page is there, since the appointments are."
-  ["Look at your recordYour doctor sees what you see there."])
-
-(defn- without-buttons [text]
-  (reduce #(str/replace %1 %2 "") text not-yet))
-
-(deftest the-home-that-is-served-is-the-home-of-the-mock-up-but-for-the-pages-that-do-not-exist-yet
+(deftest the-home-that-is-served-is-the-home-of-the-mock-up
   (let [mock (read-back (portal/home context))
         mock-sections (sections mock)]
     (with-cohort "pt-ana" {} {}
@@ -170,15 +161,15 @@
         (let [{:keys [page]} (home web)]
           (is (= (set (keys mock-sections)) (set (keys (sections page)))) "the same sections")
           (doseq [[id words] (sections page)]
-            (is (= (without-buttons (get mock-sections id)) words) id))
+            (is (= (get mock-sections id) words) id))
           (testing "the same header"
-            (is (= (without-buttons (hx/words (first (hx/by-tag (main-of mock) :header)))) (hx/words (first (hx/by-tag (main-of page) :header))))))
+            (is (= (hx/words (first (hx/by-tag (main-of mock) :header))) (hx/words (first (hx/by-tag (main-of page) :header))))))
           (testing "the same notice, which the mock-up reviewed"
             (let [notice (fn [doc] (first (hx/select (main-of doc) #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-critical-soft")))))]
               (is (some? (notice page)))
-              (is (= (without-buttons (hx/words (notice mock))) (hx/words (notice page)))))))))))
+              (is (= (hx/words (notice mock)) (hx/words (notice page)))))))))))
 
-(deftest the-home-of-a-new-patient-is-the-home-of-the-mock-up-with-no-readings-but-for-the-pages-that-do-not-exist-yet
+(deftest the-home-of-a-new-patient-is-the-home-of-the-mock-up-with-no-readings
   (let [mock (read-back (portal/new-patient context))]
     (with-cohort "pt-noah" {} {}
       (fn [web]
@@ -186,12 +177,13 @@
               served (sections page)]
           (is (= ["Welcome, Noah"] (map hx/words (hx/by-tag page :h1))))
           (is (= (map hx/words (hx/by-tag mock :h1)) (map hx/words (hx/by-tag page :h1))))
-          (testing "the sections that the portal can have, as they were reviewed"
-            (is (= #{} (set/difference (set (keys (sections mock))) (set (keys served)))))
+          (testing "the sections are all there, as they were reviewed"
+            (is (= (set (keys (sections mock))) (set (keys served))))
             (doseq [[id words] served]
-              (is (= (without-buttons (get (sections mock) id)) words) id)))
-          (testing "the first steps are the ones whose pages there are: to record a reading, and not yet to look at the record"
-            (is (= "Your first stepsRecord your first readingBlood pressure, heart rate, oxygen, glucose, weight or temperature."
+              (is (= (get (sections mock) id) words) id)))
+          (testing "the first steps are to record a reading and to look at the record, whose pages there are"
+            (is (= (str "Your first stepsRecord your first readingBlood pressure, heart rate, oxygen, glucose, weight or temperature."
+                        "Look at your recordYour doctor sees what you see there.")
                    (get served "first"))))
           (is (str/includes? (hx/words (main-of page)) "No readings yet"))
           (is (empty? (hx/select page #(hx/has-class? % "text-4xl"))) "no tile of a reading")
@@ -207,8 +199,8 @@
       (let [{:keys [browser page]} (home web)
             links (disj (set (map (comp :href hx/attributes) (hx/by-tag page :a))) "#main")
             forms (map (comp (juxt :method :action) hx/attributes) (hx/by-tag page :form))]
-        (is (= #{"/" "/readings" "/readings/new" "/appointments" "/appointments/appt-ana-1/cancel"} links)
-            "the home, the readings and the form to record one, the appointments and the question before the next one is cancelled, which are the pages there are (and the skip link, which goes to the page itself)")
+        (is (= #{"/" "/readings" "/readings/new" "/appointments" "/appointments/appt-ana-1/cancel" "/record" "/profile"} links)
+            "the home, the readings and the form to record one, the appointments and the question before the next one is cancelled, the record and the profile, which are the pages there are (and the skip link, which goes to the page itself)")
         (is (= [["post" "/sign-out"]] forms))
         (testing "and every one of them is a page that answers"
           (doseq [link links]

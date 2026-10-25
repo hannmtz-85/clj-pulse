@@ -42,7 +42,7 @@
           (is (= 2 (count (hx/by-tag main :figure))) "the chart for a phone and the one for a desk"))
         (testing "her name is in the menu, and Readings is the page she is on"
           (is (= ["Account menu of Ana García"] (keep #(:aria-label (hx/attributes %)) (hx/by-tag page :summary))))
-          (is (= [["Home" nil] ["Readings" "page"] ["Appointments" nil]]
+          (is (= [["Home" nil] ["Readings" "page"] ["Appointments" nil] ["My record" nil] ["Profile" nil]]
                  (map (juxt hx/words (comp :aria-current hx/attributes))
                       (hx/by-tag (first (hx/select page #(and (= :nav (hx/tag %)) (= "Main" (:aria-label (hx/attributes %)))))) :a)))))
         (is (= [] (a11y/problems page {:page? true})))))))

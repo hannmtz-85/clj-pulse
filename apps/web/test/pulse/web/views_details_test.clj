@@ -21,3 +21,10 @@
           :weight :scale
           :temperature :thermometer}
          (update-vals views/kind-info :icon))))
+
+(deftest text-is-text-with-something-in-it
+  (is (= "a" (views/text-of "a")))
+  (is (= " a " (views/text-of " a ")) "as it was written: nothing is trimmed")
+  (is (= "García" (views/text-of "García")))
+  (doseq [odd [nil "" " " "\n\t" 5 :a [] {} ["a"] true]]
+    (is (nil? (views/text-of odd)) (pr-str odd))))

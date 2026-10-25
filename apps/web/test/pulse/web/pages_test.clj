@@ -250,20 +250,25 @@
 (deftest the-navigation-is-the-pages-that-exist
   (is (= [{:id :home :href "/" :label "Home" :icon :house}
           {:id :readings :href "/readings" :label "Readings" :icon :activity}
-          {:id :appointments :href "/appointments" :label "Appointments" :icon :calendar}]
+          {:id :appointments :href "/appointments" :label "Appointments" :icon :calendar}
+          {:id :record :href "/record" :label "My record" :icon :clipboard-list}
+          {:id :profile :href "/profile" :label "Profile" :icon :user}]
          pages/nav)
-      "each step of Phase 7 adds its own: nothing leads to a page that is not there")
+      "the five pages of the mock-up, each added by its step of Phase 7: nothing leads to a page that is not there")
   (let [page (frame-page)
         bar (nav-named page "Main")
         dock (nav-named page "Main, on a phone")]
-    (is (= [["Home" "/"] ["Readings" "/readings"] ["Appointments" "/appointments"]] (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
+    (is (= [["Home" "/"] ["Readings" "/readings"] ["Appointments" "/appointments"] ["My record" "/record"] ["Profile" "/profile"]]
+           (map (juxt hx/words (comp :href hx/attributes)) (hx/by-tag bar :a))))
     (is (= (map (comp :href hx/attributes) (hx/by-tag bar :a)) (map (comp :href hx/attributes) (hx/by-tag dock :a)))
         "the dock is the same navigation")
     (testing "the page it is on is marked, for a screen reader too"
-      (is (= ["page" nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
-      (is (= ["page" nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a))))
-      (is (= [nil "page" nil] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :readings}) "Main") :a))))
-      (is (= [nil nil "page"] (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :appointments}) "Main") :a)))))
+      (is (= ["page" nil nil nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag bar :a))))
+      (is (= ["page" nil nil nil nil] (map (comp :aria-current hx/attributes) (hx/by-tag dock :a))))
+      (doseq [[current index] {:readings 1 :appointments 2 :record 3 :profile 4}]
+        (is (= (assoc [nil nil nil nil nil] index "page")
+               (map (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current current}) "Main") :a)))
+            (name current))))
     (testing "and one that is not in it marks none"
       (is (empty? (filter (comp :aria-current hx/attributes) (hx/by-tag (nav-named (frame-page {:current :elsewhere}) "Main") :a)))))
     (is (= "/" (:href (hx/attributes (first (hx/by-tag (first (hx/by-tag page :header)) :a))))) "the mark leads home")))
@@ -288,7 +293,8 @@
         form (first (hx/by-tag page :form))
         button (first (hx/by-tag menu :button))]
     (is (= "Account menu of Ana García" (:aria-label (hx/attributes (first (hx/by-tag menu :summary))))))
-    (is (= ["Sign out"] (map hx/words (hx/by-tag menu :li))) "the menu has the way out and nothing that leads nowhere")
+    (is (= ["Profile" "Sign out"] (map hx/words (hx/by-tag menu :li))) "the menu has the profile and the way out, and nothing that leads nowhere")
+    (is (= ["/profile"] (map (comp :href hx/attributes) (hx/by-tag menu :a))) "the profile is a link and signing out is not")
     (is (= "Sign out" (hx/words button)))
     (testing "a button of a POST, since a link would let any page sign a person out"
       (is (= {:type "submit" :form "account-sign-out"} (hx/attributes button)))

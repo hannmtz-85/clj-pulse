@@ -95,7 +95,7 @@
                  (map lines (rows page "Cancelled appointments"))))
           (is (some? (hx/by-id page "reason"))))
         (testing "the bar says where she is"
-          (is (= [["Home" nil] ["Readings" nil] ["Appointments" "page"]]
+          (is (= [["Home" nil] ["Readings" nil] ["Appointments" "page"] ["My record" nil] ["Profile" nil]]
                  (map (juxt hx/words (comp :aria-current hx/attributes))
                       (hx/by-tag (first (hx/select page #(and (= :nav (hx/tag %)) (= "Main" (:aria-label (hx/attributes %)))))) :a)))))
         (testing "who she is, and then the newest of her appointments, as many as the api gives: with her own token and the id of the request"

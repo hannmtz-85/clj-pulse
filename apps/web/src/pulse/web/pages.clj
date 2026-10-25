@@ -97,12 +97,22 @@
   (when-not (str/blank? (str id))
     (str appointments-path "/" (str/replace (java.net.URLEncoder/encode (str id) "UTF-8") "+" "%20") "/cancel")))
 
+(def record-path
+  "Where the record of a patient is: their medication, their conditions and their allergies."
+  "/record")
+
+(def profile-path
+  "Where the profile of a patient is: who they are to the clinic, their doctor and the way out."
+  "/profile")
+
 (def nav
   "The pages of the portal, in the order of the bar and the dock: `:id`, `:href`, `:label` and `:icon`. A page is here when it
-  exists, so that nothing in the navigation leads nowhere: each step of Phase 7 adds its own."
+  exists, so that nothing in the navigation leads nowhere: each step of Phase 7 added its own."
   [{:id :home :href "/" :label "Home" :icon :house}
    {:id :readings :href readings-path :label "Readings" :icon :activity}
-   {:id :appointments :href appointments-path :label "Appointments" :icon :calendar}])
+   {:id :appointments :href appointments-path :label "Appointments" :icon :calendar}
+   {:id :record :href record-path :label "My record" :icon :clipboard-list}
+   {:id :profile :href profile-path :label "Profile" :icon :user}])
 
 (defn page
   "A page of a patient who is signed in: the document, with the CSRF token of their session for htmx, and in it the bar, the
@@ -116,7 +126,8 @@
                     :nav nav
                     :theme-button? false
                     :user {:name (:name person)
-                           :items [{:id "sign-out" :label "Sign out" :icon :log-out :action "/sign-out"
+                           :items [{:href profile-path :label "Profile" :icon :user}
+                                   {:id "sign-out" :label "Sign out" :icon :log-out :action "/sign-out"
                                     :fields {csrf-field-name csrf-token}}]}}
                    content)))
 
@@ -238,8 +249,9 @@
 
 (defn sign-out-form
   "The form that signs a person out: a POST with the CSRF token of their session, since a link would let any page sign them out
-  (ADR-0028)."
-  [csrf-token]
-  [:form {:method "post" :action "/sign-out"}
-   (csrf-field csrf-token)
-   (c/button {:type "submit" :variant :outline :size :lg :icon :log-out} "Sign out")])
+  (ADR-0028). It posts to `/sign-out`, or to the `action` given (the review of the mock-ups leads it to the page of signing in)."
+  ([csrf-token] (sign-out-form csrf-token "/sign-out"))
+  ([csrf-token action]
+   [:form {:method "post" :action action}
+    (csrf-field csrf-token)
+    (c/button {:type "submit" :variant :outline :size :lg :icon :log-out} "Sign out")]))

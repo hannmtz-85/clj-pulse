@@ -14,6 +14,15 @@
             [pulse.web.format :as fmt]))
 
 ;; ---------------------------------------------------------------------------
+;; Text
+
+(defn text-of
+  "`x` when it is text with something in it, else nil: other systems write to the same FHIR server, so what a page shows of a name or a
+  detail is checked first, and what is not text is left out."
+  [x]
+  (when (and (string? x) (not (str/blank? x))) x))
+
+;; ---------------------------------------------------------------------------
 ;; Readings
 
 (def kinds

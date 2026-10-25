@@ -557,6 +557,21 @@
             (testing "another patient's appointment is not hers to see or cancel: the portal cannot find it"
               (is (= 404 (:status (browse jar :get (str web-url "/appointments/appt-liam-1/cancel")))))
               (is (= 404 (:status (post! "/appointments/appt-liam-1/cancel" {})))))))
+        (testing "her record and her profile are what the real api says of her, and the bar leads to them"
+          (let [record (browse jar :get (str web-url "/record"))
+                profile (browse jar :get (str web-url "/profile"))]
+            (is (= 200 (:status record)))
+            (is (re-find #"Lisinopril" (:body record)))
+            (is (re-find #"Amlodipine" (:body record)))
+            (is (re-find #"Essential [(]primary[)] hypertension" (:body record)))
+            (is (re-find #"No allergies are recorded" (:body record)))
+            (is (= 200 (:status profile)))
+            (is (re-find #"ana[.]garcia@pulse[.]test" (:body profile)))
+            (is (re-find #"PULSE-0001" (:body profile)))
+            (is (re-find #"Dr[.] Elena Rivera" (:body profile)))
+            (is (re-find #"href=\"/record\"" (:body profile)))
+            (is (re-find #"href=\"/profile\"" (:body record)))
+            (is (not (re-find #"Sofía|Liam|Maya|Omar|Noah|metformin|tiotropium" (str (:body record) (:body profile)))) "only her own")))
         (testing "the session is on the server, with her tokens, and the browser has a cookie and nothing else"
           (is (= #{"pulse-session"} (set (keys @jar))))
           (is (= "Ana García" (get-in session [:person :name])))

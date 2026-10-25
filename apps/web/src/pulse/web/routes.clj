@@ -1,13 +1,15 @@
 (ns pulse.web.routes
   "The portal's routes, as data: path, method, who may see it (`:authz`, see `pulse.web.authz`) and the handler
   (ADR-0028). What there is is what any service has, the files the portal serves itself, the sign-in and the sign-out
-  (`pulse.web.signin`), and the pages of a patient, which come with the steps that make them: the home, the readings and the appointments so far."
+  (`pulse.web.signin`), and the pages of a patient: the home, the readings, the appointments, the record and the profile."
   (:require [pulse.web.appointments :as appointments]
             [pulse.web.assets :as assets]
             [pulse.web.health :as health]
             [pulse.web.home :as home]
             [pulse.web.pages :as pages]
+            [pulse.web.profile :as profile]
             [pulse.web.readings :as readings]
+            [pulse.web.record :as record]
             [pulse.web.signin :as signin]
             [ring.middleware.not-modified :as not-modified]))
 
@@ -33,6 +35,10 @@
                                                        :handler (appointments/cancel-question deps)}
                                                  :post {:authz :patient
                                                         :handler (appointments/cancel deps)}}]
+   [pages/record-path {:get {:authz :patient
+                             :handler (record/handler deps)}}]
+   [pages/profile-path {:get {:authz :patient
+                              :handler (profile/handler deps)}}]
    ["/sign-in" {:get {:authz :public
                       :handler (signin/sign-in deps)}}]
    ["/oauth2/callback" {:get {:authz :public

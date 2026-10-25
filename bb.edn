@@ -133,4 +133,7 @@
   web {:doc "Run the patient portal alone on 127.0.0.1:3300: bb web [dev | test]. It gets its client secret from .env and asks Keycloak and the api (bb up; bb dev runs the api)"
        :requires ([env])
        :task (apply shell {:extra-env (env/vars ["WEB_CLIENT_SECRET"])}
-                    "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}}}
+                    "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}
+
+  web:journey {:doc "The acceptance of the patient portal in headless Chrome or Edge with the real Keycloak: bb web:journey [--portal url] [--keycloak url] [--shots dir]. Needs bb up and the portal on 3300 (bb dev lite leaves nothing behind)"
+               :task (apply shell "node" "apps/web/journey.mjs" *command-line-args*)}}}

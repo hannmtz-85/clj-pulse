@@ -271,7 +271,8 @@
 (deftest the-record-has-the-medication-the-conditions-and-the-allergies-in-words
   (let [doc (portal/record context)
         text (words-of-main doc)]
-    (is (= [["Lisinopril" "10 mg once daily"] ["Amlodipine" "5 mg once daily"]] (map lines (rows (list-named doc "Medication")))))
+    (is (= [["Amlodipine" "5 mg once daily"] ["Lisinopril" "10 mg once daily"]] (map lines (rows (list-named doc "Medication"))))
+        "by name, as the summary of the api gives them")
     (is (= [["Essential (primary) hypertension" "Active"]] (map lines (rows (list-named doc "Conditions")))))
     (is (= ["Since Nov 2025" "Since Nov 2025"] (map #(last (map hx/words (hx/by-tag % :span))) (rows (list-named doc "Medication")))))
     (is (str/includes? (hx/words (first (rows (list-named doc "Conditions")))) "Since May 2019"))
@@ -287,8 +288,11 @@
     (is (str/includes? text "Patient numberPULSE-0001"))
     (is (str/includes? text "CityValencia"))
     (is (str/includes? text "Dr. Elena RiveraInternal medicine"))
-    (is (empty? (hx/by-tag doc :input)) "it is read, not written")
-    (is (= "../login.html" (href (button-named doc "Sign out"))))))
+    (is (= [{:type "hidden" :name "__anti-forgery-token" :value "the-token-of-the-session"}] (map hx/attributes (hx/by-tag doc :input)))
+        "it is read, not written: the only field is the token of the form that signs out")
+    (testing "the way out is a form that posts, as in the portal; in the review it leads to the page of signing in"
+      (is (= ["../login.html"] (map (comp :action hx/attributes) (hx/by-tag doc :form))))
+      (is (some? (button-named doc "Sign out"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A new patient, and what goes wrong

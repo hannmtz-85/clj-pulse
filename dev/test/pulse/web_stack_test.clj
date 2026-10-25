@@ -355,6 +355,48 @@
           (is (= 404 (:status (get! "/appointments/appt-liam-1/cancel"))))
           (is (= 404 (:status (post! "/appointments/appt-liam-1/cancel" {})))))))))
 
+(deftest ^:integration a-patient-sees-their-record-and-their-profile-and-the-data-of-nobody-else
+  ;; the acceptance of Phase 7, "sees only their own data", against the real Keycloak: the pages are made of what the real api says of the
+  ;; person the token is for, no address of the portal names a patient, and the same token is refused another patient's data by the api
+  (with-portal
+    (fn [{:keys [system api password]}]
+      (let [browser (new-browser)
+            get! (fn [path] (request! (:portal browser) :get (str portal-url path)))
+            others #"Liam|Sofía|Maya|Omar|Noah|metformin|empagliflozin|tiotropium|albuterol|Penicillin|furosemide|carvedilol|Okafor|PULSE-000[2-6]"]
+        (sign-in! browser password "ana.garcia@pulse.test")
+        (testing "her record: her medication and her condition, and that she has no allergies"
+          (let [page (get! "/record")
+                body (:body page)]
+            (is (= 200 (:status page)))
+            (is (str/includes? body "My record"))
+            (is (re-find #"Lisinopril" body))
+            (is (re-find #"Amlodipine" body))
+            (is (str/includes? body "Essential (primary) hypertension"))
+            (is (str/includes? body "No allergies are recorded."))
+            (is (not (re-find #"I10|29046" body)) "a code is for the clinic")
+            (is (not (re-find others body)) "and nobody else's")))
+        (testing "her profile: who she is to the clinic and her doctor, with a way out that posts"
+          (let [page (get! "/profile")
+                body (:body page)]
+            (is (= 200 (:status page)))
+            (is (str/includes? body "Ana García"))
+            (is (str/includes? body "ana.garcia@pulse.test"))
+            (is (str/includes? body "14 March 1968"))
+            (is (str/includes? body "PULSE-0001"))
+            (is (str/includes? body "Valencia"))
+            (is (str/includes? body "Dr. Elena Rivera"))
+            (is (re-find #"<form[^>]*action=\"/sign-out\"" body))
+            (is (not (re-find others body)))))
+        (testing "no address of the portal names a patient: asking for another one's changes nothing"
+          (is (= (:body (get! "/record")) (:body (get! "/record?patient=pt-liam&id=Patient/pt-liam"))))
+          (is (= (:body (get! "/profile")) (:body (get! "/profile?patient=pt-liam")))))
+        (testing "and the token she holds is refused another patient's data by the real api, which is what keeps it so"
+          (let [bearer (token/access-token (:tokens (session-of system browser)))
+                ask (fn [path] (http/get (str api path) {:throw false :headers {"Authorization" (str "Bearer " bearer) "Accept" "application/json"}}))]
+            (is (= 200 (:status (ask "/api/patients/pt-ana/summary"))))
+            (is (= 403 (:status (ask "/api/patients/pt-liam/summary"))))
+            (is (= 403 (:status (ask "/api/patients/pt-liam"))))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Somebody from the clinic
 

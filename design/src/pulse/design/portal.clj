@@ -3,8 +3,7 @@
   a phone and at a desk. The patient is Ana García, who has hypertension and whose last readings are very high; Noah
   Kim, who has no readings yet, is the one of the empty state. Each page is a function from the context of the build
   to the document of its frame."
-  (:require [clojure.string :as str]
-            [pulse.design.data :as data]
+  (:require [pulse.design.data :as data]
             [pulse.design.mockup :as mockup]
             [pulse.fhir.measurement :as measurement]
             [pulse.ui.component :as c]
@@ -14,8 +13,10 @@
             [pulse.web.pages.appointments :as appointments-page]
             [pulse.web.pages.home :as home-page]
             [pulse.web.pages.parts :as parts]
+            [pulse.web.pages.profile :as profile-page]
             [pulse.web.pages.reading-form :as reading-form]
             [pulse.web.pages.readings :as readings-page]
+            [pulse.web.pages.record :as record-page]
             [pulse.web.recording :as recording]
             [pulse.web.views :as web-views])
   (:import (java.time Duration)))
@@ -154,58 +155,30 @@
 ;; ---------------------------------------------------------------------------
 ;; The record and the profile
 
-(defn- record-card [title rows empty-text]
-  (c/card {:title title :flush? true}
-          (if (seq rows)
-            (c/list-group {:aria-label title} rows)
-            [:p {:class "px-5 pb-5 text-base text-muted"} empty-text])))
+(defn record-model
+  "What the page of the record is a function of for `patient-id`: what the api answers, from the cohort."
+  [patient-id]
+  {:summary (data/summary patient-id)})
 
 (defn record
-  "What the clinic has on file about a patient: their medication, their conditions and their allergies."
+  "What the clinic has on file about a patient: their medication, their conditions and their allergies. The page is the one the
+  portal serves (`pulse.web.pages.record`), made from the cohort."
   [_context]
   (page {:title "My record" :current :record}
-        [:div {:class "space-y-6"}
-         (c/page-header {:title "My record" :description "What your clinic has on file. Tell them if something is wrong."})
-         (record-card "Medication"
-                      (for [{:keys [display dosage authoredOn]} (data/medications "pt-ana")]
-                        (c/list-row {:leading (c/icon-disc {:icon :pill})
-                                     :trailing (c/badge {:variant :outline} (str "Since " (fmt/month-year authoredOn)))}
-                                    [:p {:class "font-medium"} (str/capitalize display)]
-                                    [:p {:class "text-sm text-muted"} dosage]))
-                      "No medication is prescribed.")
-         (record-card "Conditions"
-                      (for [{:keys [display onset]} (data/conditions "pt-ana")]
-                        (c/list-row {:leading (c/icon-disc {:icon :stethoscope})
-                                     :trailing (c/badge {:variant :outline} (str "Since " (fmt/month-year onset)))}
-                                    [:p {:class "font-medium"} display]
-                                    [:p {:class "text-sm text-muted"} "Active"]))
-                      "No conditions are recorded.")
-         (record-card "Allergies"
-                      (for [{:keys [display reaction]} (data/allergies "pt-ana")]
-                        (c/list-row {:leading (c/icon-disc {:icon :triangle-alert})}
-                                    [:p {:class "font-medium"} display]
-                                    [:p {:class "text-sm text-muted"} reaction]))
-                      "No allergies are recorded. If you have one, tell your clinic.")]))
+        (record-page/content (record-model "pt-ana") links)))
+
+(defn profile-model
+  "What the page of the profile is a function of for `patient-id`: what the api answers, from the cohort."
+  [patient-id]
+  {:me (data/me patient-id)
+   :csrf-token "the-token-of-the-session"})
 
 (defn profile
-  "The profile of a patient: who they are to the clinic, their doctor, and the way out."
+  "The profile of a patient: who they are to the clinic, their doctor, and the way out. The page is the one the portal serves
+  (`pulse.web.pages.profile`), made from the cohort; in the review, the way out leads to the page of signing in."
   [_context]
-  (let [ana (data/patient "pt-ana")
-        doctor (data/practitioner (:practitioner ana))]
-    (page {:title "Profile" :current :profile}
-          [:div {:class "space-y-6"}
-           (c/page-header {:title "Profile" :description "What the clinic knows about you. To change it, tell them."})
-           (c/card {:title "Who you are"}
-                   [:div {:class "mb-5 flex items-center gap-4"}
-                    (c/avatar {:name (:name ana) :size :lg})
-                    [:div [:p {:class "text-lg font-semibold"} (:name ana)] [:p {:class "text-muted"} (:email ana)]]]
-                   (c/facts [["Date of birth" (fmt/birth-date (:birthDate ana))]
-                             ["Patient number" (:identifier ana)]
-                             ["City" (:city ana)]]))
-           (c/card {:title "Your care team"}
-                   (c/person {:name (:name doctor) :detail (:specialty doctor) :size :lg})
-                   [:p {:class "mt-4 text-sm text-muted"} "Pulse Demo Clinic. Requests for a visit go to your doctor."])
-           [:div (c/button {:variant :outline :size :lg :icon :log-out :href (link "login.html")} "Sign out")]])))
+  (page {:title "Profile" :current :profile}
+        (profile-page/content (profile-model "pt-ana") (assoc links :sign-out (link "login.html")))))
 
 ;; ---------------------------------------------------------------------------
 ;; A new patient, and what goes wrong
