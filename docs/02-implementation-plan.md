@@ -314,13 +314,26 @@ Decisions of the owner for the phase: the portal is a server-side client of the 
 
 ### Phase 8 · `spa`: clinical workspace (L)
 
-- [ ] **Spike (≤ 1 h):** shadow-cljs 3 + Reagent 2 + React 19 + re-frame 1.4.7 + keycloak-js 26.0.8 + Tailwind 4. Plan B: Reagent 1.x with React 18.
-- [ ] `shadow-cljs.edn` with `:deps true`, npm only, real scripts and re-frame-10x in development.
-- [ ] keycloak-js wrapper as an effect/interceptor; the token stays in memory (never in the console or `localStorage`).
+**Order, validated by the owner on 2026-10-25** (one commit for each step, asked for first):
+
+1. [x] **Spike (≤ 1 h):** shadow-cljs 3.5.7 + Reagent 2.0.1 + React 19.3.1 + re-frame 1.4.7 + keycloak-js 26.0.8 + reitit-frontend 0.11.0, in a scratch project, against the real Keycloak and the api of `bb dev lite`, in headless Chrome 155. Done on 2026-10-25: the primary stack works and Plan B (Reagent 1.x with React 18) is not needed. The sign-in with PKCE, the renewal of the token and a call to the api work, and the token is in no storage and no console message; `libs/ui` and the `.cljc` of `libs/fhir` compile in ClojureScript as they are and answer what they answer on the JVM; the seven workspace pages render from the real hiccup of the mock-ups, with a 40-line adapter that gives each sequence of children a `:key` and renames `:tabindex` taking the React warnings (18 to 172 a page) to none. Findings that the ADR records: an optimized build renames the claims of the token (`preferred_username`, `realm_access`) unless they are read as data; shadow-cljs with `:deps true` needs itself in `deps.edn` and, on Windows, `powershell` on the `PATH`; re-frame-10x has no preload for React 19. The scratch project is not in the repository.
+2. [x] [ADR-0029](adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md), the design of the workspace (a public client with PKCE through keycloak-js, the token never in the state, re-frame in layers, an `:http` effect over `fetch`, reitit-frontend in history mode with `:roles` per route, the pages of the mock-ups as `.cljc` shared with `design`, the panel as a fan-out from the browser, the shared SVG chart, a release served by a small Ring server with a strict CSP, the tests), validated point by point by the owner on 2026-10-25 (accepted).
+3. [ ] The skeleton: `apps/spa` (`deps.edn`, `shadow-cljs.edn`, `package.json` with exact versions), the build that fails on a warning, `bb spa`, `bb spa:build`, `bb design:spa`, the server of the release with its policy (`bb spa:serve`), the adapter `->reagent`, the suite `:spa`, and a page that says who is signed in.
+4. [ ] Signing in, the renewal, the role gate and signing out (keycloak-js as an effect; the `:http` effect; a practitioner and the administrator in, a patient told the workspace is not for them).
+5. [ ] The panel: the patients, the fan-out with a limit, the order of urgency, the filters and the search; `format` ported to `.cljc` and moved to `libs/view`.
+6. [ ] The chart of a patient: the alert, the latest readings, a month of the measurement with its thresholds, the appointments, the medication and the allergies.
+7. [ ] The inbox of alerts and the acknowledgement (the count in the navigation, read again every 30 seconds).
+8. [ ] The appointments, confirming, moving and cancelling, with the lifecycle's buttons and the api's own words beside the fields; the jobs for the administrator.
+9. [ ] The empty and error states, accessibility, and the acceptance in a real browser, `bb spa:journey`.
+
+Decisions of the owner for the phase: the workspace is a public client with the authorization-code flow and PKCE (the four applications show four flows); only a `practitioner` or a `clinic-admin` may use it; the charts are the shared SVG chart and not Chart.js; the panel is a fan-out from the browser and the panel in one request (X-79) stays in the backlog; the release is served by a small server of ours, so that its policy is tested now; the new dependencies are shadow-cljs 3.5.7, react and react-dom 19.3.1, keycloak-js 26.0.8 (npm, exact), reagent 2.0.1, re-frame 1.4.7, reitit-frontend and reitit-malli 0.11.0 and, in development, re-frame-10x 1.12.3 (optional) and `day8.re-frame/test` 0.1.7.
+
+- [ ] `shadow-cljs.edn` with `:deps true`, npm only, real scripts and, optionally, re-frame-10x in development.
+- [ ] keycloak-js wrapper as an effect; the token stays inside the keycloak-js object (never in the state, the console or a storage).
 - [ ] In-house `:http` effect over `fetch` + `AbortController`.
 - [ ] Routing with reitit-frontend and controllers: data loading leaves the render function.
-- [ ] Views: panel, patient chart (vitals with Chart.js, problems, medication, appointments), alert inbox with acknowledge, schedule and job status.
-- [ ] Forms validated with the shared `.cljc` malli schemas.
+- [ ] Views: panel, patient chart (vitals with the shared SVG chart, problems, medication, appointments), alert inbox with acknowledge, schedule and job status.
+- [ ] Forms checked with the shared `.cljc` lifecycle (`pulse.fhir.appointment`), the api's words beside the fields.
 - [ ] Tests: events and subscriptions with `day8.re-frame/test`; `.cljc` logic tested on the JVM and on Node.
 
 *Acceptance:* a clinician signs in through SSO, filters their panel, opens a chart with graphs, acknowledges an alert and confirms an appointment.
