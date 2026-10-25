@@ -1,0 +1,3 @@
+;; Lets the tests of other projects that compile to JavaScript (the clinical workspace, on Node) take the helpers of the tests
+;; of this library as a dependency, since a path outside a project is deprecated. The JVM suites have them on their path.
+{:paths ["."]}

@@ -1,4 +1,4 @@
-{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "apps/web/src" "design/src"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "apps/web/src" "apps/spa/src" "design/src"]
  :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])
@@ -23,8 +23,8 @@
   fmt:check {:doc "Fail if any source is not formatted (used by CI)"
              :task (shell "clojure" "-M:fmt" "check")}
 
-  check {:doc "Everything CI runs: format check, lint, realm and design checks, and tests"
-         :task (do (run 'fmt:check) (run 'lint) (run 'realm:check) (run 'design:check) (run 'test))}
+  check {:doc "Everything CI runs: format check, lint, realm and design checks, the tests on the JVM and the tests of the clinical workspace on Node"
+         :task (do (run 'fmt:check) (run 'lint) (run 'realm:check) (run 'design:check) (run 'test) (run 'spa:test))}
 
   ;; --- the design system (ADR-0026) ---------------------------------------
   design:theme {:doc "Write design/theme.css from design/tokens.edn"
@@ -62,6 +62,12 @@
               :requires ([pulse.design.web :as web])
               :task (do (web/write!)
                         (shell {:dir "design"} "npm" "run" "css:web"))}
+
+  design:spa {:doc "Write the static files of the clinical workspace into apps/spa/public (the page, the font and the icon) and compile its stylesheet (needs `npm ci` in design/)"
+              :depends [design:theme]
+              :requires ([pulse.design.spa :as spa])
+              :task (do (spa/write!)
+                        (shell {:dir "design"} "npm" "run" "css:spa"))}
 
   design:build {:doc "Make the mock-ups in design/dist from the components and the synthetic cohort (then open design/dist/index.html)"
                 :depends [design:css]
@@ -136,4 +142,19 @@
                     "clojure" "-M:dev" "-m" "pulse.web.main" *command-line-args*)}
 
   web:journey {:doc "The acceptance of the patient portal in headless Chrome or Edge with the real Keycloak: bb web:journey [--portal url] [--keycloak url] [--shots dir]. Needs bb up and the portal on 3300 (bb dev lite leaves nothing behind)"
-               :task (apply shell "node" "apps/web/journey.mjs" *command-line-args*)}}}
+               :task (apply shell "node" "apps/web/journey.mjs" *command-line-args*)}
+
+  spa {:doc "Watch and serve the clinical workspace on localhost:3000 with hot reload (shadow-cljs; needs `npm ci` in apps/spa, and the stack and `bb dev` for the sign-in and the api)"
+       :requires ([spa])
+       :task (spa/dev!)}
+
+  spa:build {:doc "Make the release of the clinical workspace in apps/spa/target/release (optimized, with the hash of the script in its name); a build with any warning fails"
+             :requires ([spa])
+             :task (spa/release!)}
+
+  spa:serve {:doc "Serve the release of the clinical workspace on 127.0.0.1:3000 with its Content-Security-Policy: bb spa:serve [dev | test] (run bb spa:build first)"
+             :task (apply shell "clojure" "-M:dev" "-m" "pulse.spa.main" *command-line-args*)}
+
+  spa:test {:doc "Run the tests of the clinical workspace on Node (shadow-cljs :node-test); a build with any warning fails"
+            :requires ([spa])
+            :task (spa/test!)}}}

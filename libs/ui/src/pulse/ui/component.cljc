@@ -554,8 +554,8 @@
   beside the list, since a form in an item would take the place of the item. `:name-class` is added to the name, which a screen
   that shows the person elsewhere hides (`\"lg:hidden\"`)."
   [{:keys [name items name-class] :as attributes}]
-  (doseq [{:keys [id action] text :label} items
-          :when (and action (str/blank? id))]
+  ;; not a `doseq` with a `throw` in it: the loop's own step is then code that cannot be reached, and Closure says so
+  (when-let [{text :label} (first (filter (fn [{:keys [id action]}] (and action (str/blank? id))) items))]
     (throw (ex-info (str "A menu item that posts needs an :id: " (pr-str text)) {:item text})))
   (into [:details (-> attributes
                       (attrs/owned :name :items :name-class)

@@ -1,0 +1,19 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        ;; What the pages are made of, and what they know of the clinic's own rules: both are `.cljc`, and they are
+        ;; compiled to JavaScript for the browser (ADR-0029)
+        pulse/fhir {:local/root "../../libs/fhir"}
+        pulse/ui {:local/root "../../libs/ui"}}
+ :aliases
+ {;; The browser build. shadow-cljs reads it through `:deps {:aliases [:cljs]}` in shadow-cljs.edn, and needs itself here
+  ;; as well as in package.json (the two versions are the same). The server of the release (`pulse.spa.*` in `.clj`) is
+  ;; started from the root `:dev` alias, which has the platform, and none of it is a dependency of the compiler. The
+  ;; routing (reitit-frontend, reitit-malli) and `day8.re-frame/test` are added by the steps that first use them.
+  ;; `test` and the helpers of the tests of `libs/ui` are on the path so that the tests of the workspace run on Node
+  ;; (`bb spa:test`), the same `.cljc` that Kaocha runs on the JVM.
+  :cljs {:extra-paths ["test"]
+         :extra-deps {pulse/ui-test-support {:local/root "../../libs/ui/test-support"}
+                      thheller/shadow-cljs {:mvn/version "3.5.7"}
+                      reagent/reagent {:mvn/version "2.0.1"}
+                      re-frame/re-frame {:mvn/version "1.4.7"}
+                      org.clojure/test.check {:mvn/version "1.1.3"}}}}}

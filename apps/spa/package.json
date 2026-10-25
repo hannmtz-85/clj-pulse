@@ -1,0 +1,13 @@
+{
+  "name": "pulse-spa",
+  "private": true,
+  "description": "The clinical workspace of Pulse (ADR-0029). The npm packages the ClojureScript build bundles: React, keycloak-js (the same line as the Keycloak server) and shadow-cljs. Every version is exact, and `npm ci` installs what the lock says.",
+  "dependencies": {
+    "keycloak-js": "26.0.8",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.5.7"
+  }
+}

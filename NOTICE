@@ -89,3 +89,15 @@ of the npm package htmx.org at the version that design/package.json pins, copied
   DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
   AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
   OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+The script of the clinical workspace
+The release of the clinical workspace (`bb spa:build`) is one script, compiled from ClojureScript, that
+carries the code of the libraries below, each under its own license, which asks that its notice is kept:
+React and react-dom (https://react.dev), copyright (c) Meta Platforms, Inc. and affiliates, under the MIT
+license (the text above, with that copyright line); Reagent (https://reagent-project.github.io) and
+re-frame (https://github.com/day8/re-frame), under the MIT license too; keycloak-js (https://www.keycloak.org),
+of the Keycloak project, under the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0), as is the
+Google Closure Library; ClojureScript and its standard library, under the Eclipse Public License 1.0
+(https://opensource.org/licenses/eclipse-1.0.php); and malli (https://github.com/metosin/malli), under the
+Eclipse Public License 2.0 (https://www.eclipse.org/legal/epl-2.0/). The workspace serves the script from
+its own server and from no other.

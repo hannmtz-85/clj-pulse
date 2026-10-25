@@ -78,8 +78,10 @@
   a header with a search box and the menu of the person. `:current` is the `:id` of the item of the page, `:nav` is
   groups of items, `[{:heading :items [{:id :href :label :icon :count :count-label} ...]} ...]`, `:search` the
   arguments of `search-field`, `:user` those of `user-menu`, and `:user-detail` the line under the name in the
-  sidebar. The children are the page, in `main`. Its text is of 14 px: it is for a desk."
-  [{:keys [current nav search user user-detail]} & content]
+  sidebar. The children are the page, in `main`. Its text is of 14 px: it is for a desk. The mock-ups have a button for the menu of a
+  narrow screen and one for the theme, which do nothing by themselves; an application that has no script behind them leaves them out
+  with `:menu-button? false` and `:theme-button? false`."
+  [{:keys [current nav search user user-detail theme-button? menu-button?] :or {theme-button? true menu-button? true}} & content]
   [:div {:class "flex min-h-screen bg-base-200 text-sm"}
    (skip-link "main")
    [:aside {:class "sticky top-0 hidden h-screen w-16 shrink-0 flex-col border-r border-base-300 bg-base-100 md:flex lg:w-60"}
@@ -113,10 +115,10 @@
      [:div {:class "flex justify-center lg:hidden"} (c/avatar {:name (:name user)})]]]
    [:div {:class "flex min-w-0 flex-1 flex-col"}
     [:header {:class "sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-base-300 bg-base-100 px-4 lg:px-6"}
-     [:div {:class "md:hidden"} (c/icon-button {:icon :menu :label "Open the menu" :variant :ghost})]
+     (when menu-button? [:div {:class "md:hidden"} (c/icon-button {:icon :menu :label "Open the menu" :variant :ghost})])
      (when search [:div {:class "hidden w-full max-w-md sm:block"} (c/search-field search)])
      [:div {:class "ml-auto flex items-center gap-1"}
-      (c/icon-button {:icon :moon :label "Dark theme" :variant :ghost})
+      (when theme-button? (c/icon-button {:icon :moon :label "Dark theme" :variant :ghost}))
       (c/user-menu (assoc user :name-class "lg:hidden"))]]
     (into [:main {:id "main" :class "min-w-0 flex-1 p-4 lg:p-6"}] content)]])
 

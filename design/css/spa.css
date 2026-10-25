@@ -1,0 +1,10 @@
+/* The stylesheet of the clinical workspace (ADR-0026, ADR-0029): the same tokens, the same base rules and the same
+   components as every interface. `bb design:spa` compiles this into apps/spa/public/pulse.css, which the build
+   of the workspace and its server take from there. */
+@import "tailwindcss" source(none);
+@import "./base.css";
+@import "../theme.css";
+
+/* Tailwind finds the classes by reading the sources that write them: the components, and the pages of the workspace. */
+@source "../../libs/ui/src";
+@source "../../apps/spa/src";

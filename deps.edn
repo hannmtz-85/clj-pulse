@@ -10,6 +10,7 @@
                      pulse/api {:local/root "apps/api"}
                      pulse/scheduler {:local/root "apps/scheduler"}
                      pulse/web {:local/root "apps/web"}
+                     pulse/spa {:local/root "apps/spa"}
                      integrant/repl {:mvn/version "0.5.1"}
                      nrepl/nrepl {:mvn/version "1.8.0"}
                      cider/cider-nrepl {:mvn/version "0.63.1"}}}
@@ -24,6 +25,7 @@
                       pulse/api {:local/root "apps/api"}
                       pulse/scheduler {:local/root "apps/scheduler"}
                       pulse/web {:local/root "apps/web"}
+                      pulse/spa {:local/root "apps/spa"}
                       hiccup/hiccup {:mvn/version "2.0.0"}
                       ;; the templating engine of Keycloak (26.0.0 ships 2.3.32): the tests of the login theme parse and render it
                       org.freemarker/freemarker {:mvn/version "2.3.32"}

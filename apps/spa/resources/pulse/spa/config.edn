@@ -1,0 +1,31 @@
+;; The server of the workspace's release as an Integrant system (ADR-0029, point 9): the files that `bb spa:build` made, served with
+;; the policy of the real thing. Read by pulse.platform.config (Aero) and checked by the schema in pulse.spa.config before
+;; anything starts.
+;;
+;; Profile, chosen with SPA_PROFILE (default dev); where a profile is not listed #profile falls back to :default:
+;;   dev   serves apps/spa/target/release on port 3000, the address the realm registers for the client `pulse-spa`
+;;   test  what the tests use
+;;
+;; There is no secret: the workspace is a public client, and what it holds it holds in the browser.
+{:pulse.spa/logging
+ {:level #profile {:default #keyword #or [#env LOG_LEVEL "info"]
+                   :test :warn}
+  :format #keyword #or [#env LOG_FORMAT "text"]
+  :ns-levels {"org.eclipse.jetty.*" :warn}}
+
+ :pulse.spa/handler
+ {:logging #ig/ref :pulse.spa/logging ; only to start logging before everything else
+  :root #or [#env SPA_ROOT "apps/spa/target/release"]
+  ;; The address the workspace is served at: an https one makes the headers those of https (HSTS)
+  :base-url #or [#env SPA_BASE_URL "http://localhost:3000"]
+  ;; The two servers that the page may call besides this one, as a browser reaches them: the policy names their origins, and
+  ;; the build of the page has the same two (pulse.spa.settings)
+  :api-base-url #or [#env API_BASE_URL "http://localhost:4000"]
+  :issuer #or [#env KEYCLOAK_ISSUER "http://localhost:8080/realms/pulse"]
+  :quiet-paths #{"/healthz"}}
+
+ :pulse.spa/server
+ {:handler #ig/ref :pulse.spa/handler
+  :host #or [#env SPA_HOST "127.0.0.1"]
+  :port #profile {:default #long #or [#env SPA_PORT 3000]
+                  :test 0}}}

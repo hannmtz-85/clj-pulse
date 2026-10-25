@@ -159,6 +159,27 @@
   (let [shell (layout/workspace-shell {:current :panel :nav workspace-nav :user user} [:h1 "T"])]
     (is (empty? (hx/by-tag shell :input)))))
 
+(deftest the-buttons-for-the-menu-and-the-theme-are-the-mock-ups-and-an-application-leaves-them-out
+  (let [labelled (fn [shell label]
+                   (hx/select shell #(and (= :button (hx/tag %)) (= label (:aria-label (hx/attributes %))))))
+        shell (fn [options] (layout/workspace-shell (merge {:current :panel :nav workspace-nav :user user} options) [:h1 "T"]))]
+    (testing "by default, as the mock-ups have them"
+      (is (= 1 (count (labelled (shell {}) "Open the menu"))))
+      (is (= 1 (count (labelled (shell {}) "Dark theme")))))
+    (testing "asked for"
+      (is (= 1 (count (labelled (shell {:menu-button? true :theme-button? true}) "Open the menu"))))
+      (is (= 1 (count (labelled (shell {:menu-button? true :theme-button? true}) "Dark theme")))))
+    (testing "each is left out on its own, and the rest of the header stays"
+      (let [no-menu (shell {:menu-button? false})
+            no-theme (shell {:theme-button? false})]
+        (is (empty? (labelled no-menu "Open the menu")))
+        (is (= 1 (count (labelled no-menu "Dark theme"))))
+        (is (= 1 (count (labelled no-theme "Open the menu"))))
+        (is (empty? (labelled no-theme "Dark theme")))
+        (is (= 1 (count (hx/select no-theme #(= "Account menu of Ana García" (:aria-label (hx/attributes %))))))
+            "the menu of the person is still there")))
+    (is (= [] (a11y/problems (layout/document {:title "T"} (shell {:menu-button? false :theme-button? false})) {:page? true})))))
+
 (deftest the-workspace-passes-the-checks-of-accessibility
   (is (= [] (a11y/problems (layout/document {:title "Alerts"} workspace) {:page? true})))
   (testing "a nav with no groups and a first item with no icon count"
