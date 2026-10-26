@@ -2,11 +2,48 @@
 
 Remote patient monitoring and appointment coordination on **FHIR R4**, written in **Clojure** and **ClojureScript**, with single sign-on through **Keycloak**.
 
-A portfolio project: four applications of different kinds share one identity provider and one FHIR server.
+A portfolio project: four applications of different kinds share one identity provider and one FHIR server. All the data is synthetic.
 
-> **Status: early development.** Done: the workstation, repository foundations, the local infrastructure (PostgreSQL, Keycloak 26.0.0 with the `pulse` realm and demo users, HAPI FHIR R4), the FHIR core library with a deterministic synthetic cohort, and the `api` (token verification, authorization by role and patient compartment, the clinical endpoints, OpenAPI with Swagger UI, CORS and security headers). The `scheduler` is done: it knows when a job is due and runs it, has a protected interface for its status that the clinic administrator reads through the api (which asks it with a service account of its own), and its jobs are the rules engine, which reads the readings through the api and raises each alert once in FHIR, a simulator of devices that sends readings, some of them abnormal, so that alerts appear while the apps run, and the appointment reminders, which leave one `Communication` in FHIR, once, for each confirmed appointment that is about to begin. The design system is done: the tokens (with the contrast of every pair of colours measured by a test), the components shared by the interfaces, a style tile with teal as its palette, and the mock-ups of the sign-in, the patient portal and the clinical workspace, each as a phone, a tablet or a desk shows it, in light and dark (`bb design:build`, then open `design/dist/index.html`). The sign-in of Keycloak already has that look: its login theme is generated from the same components and checked against FreeMarker and against the real Keycloak (open <http://localhost:4000/docs/> and Authorize). The patient portal (`web`) is done: it runs beside the api, serves its own files, and a patient signs in through Keycloak with a flow of its own (PKCE, a session kept on the server, a keeper that renews the five-minute token, CSRF), sees their home, made from what the api says of them (the next appointment and the latest readings, and what could not be loaded said as such), looks at the trend of each measurement over 7, 14 or 30 days, records a reading through a form that works with and without a script and that writes the api's own words beside what it refuses, looks at their appointments, asks for a visit and cancels an appointment, or withdraws a request, through a question that also works with no script, looks at their record (medication, conditions and allergies) and their profile, and signs out (`bb web`, then open <http://localhost:3300>; `bb web:journey` walks a patient through all of it in a real browser, against the real Keycloak, and checks that nothing of anyone else is in it); the clinical workspace (`spa`) is under way: a spike showed that shadow-cljs, Reagent 2 on React 19, re-frame and keycloak-js 26 work together with the components and the shared code of the project, [ADR-0029](docs/adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md) decides how it is built, and its skeleton is done (`bb spa` serves it with hot reload, `bb spa:build` makes the release, which fails on any warning, and `bb spa:serve` serves that release with its Content-Security-Policy; for now it signs a person in through Keycloak and says who they are, and the panel, the charts, the alerts and the appointments are the next steps). Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
->
-> Try it (needs Docker, Babashka and the Clojure CLI): `bb doctor`, `bb up`, `bb realm:smoke`, `bb seed`, then `bb dev` and open <http://localhost:4000/docs/>: Authorize signs you in as a demo user and the same request is answered differently for a patient, a practitioner and the administrator. Within a minute the alerts of the simulated devices are in `GET /api/alerts` for Dr. Rivera, and the reminder of the appointment that Ana has tomorrow is in FHIR (<http://localhost:8090/fhir/Communication>). Signed in as the administrator, `GET /api/admin/jobs` shows what the scheduler is doing.
+<p align="center">
+  <img src="docs/img/portal-home.png" alt="The patient portal: next appointment, latest readings and recent readings" width="720">
+</p>
+
+| | |
+|---|---|
+| <img src="docs/img/portal-readings.png" alt="The trend of a blood-pressure series with its thresholds" width="420"> | <img src="docs/img/portal-home-mobile-dark.png" alt="The patient portal on a phone, dark scheme" width="170"> <img src="docs/img/login-mobile.png" alt="The Keycloak sign-in in the Pulse theme" width="170"> |
+
+*The patient portal (server-rendered, works with and without JavaScript) and the Keycloak sign-in, both made from the same design system. Screenshots come from `bb web:journey --shots`.*
+
+## Status
+
+**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 2,200 tests, 29 architecture decision records, and an acceptance journey in a real browser against the real Keycloak (62 checks).
+
+| Part | State |
+|---|---|
+| Local infrastructure: PostgreSQL, Keycloak 26.0.0 with the `pulse` realm, HAPI FHIR R4 | Done |
+| FHIR core library and a deterministic synthetic cohort | Done |
+| `api`: token verification, authorization by role and patient compartment, clinical endpoints, OpenAPI with Swagger UI, CORS and security headers | Done |
+| `scheduler`: jobs as data, a rules engine that raises each alert once, a device simulator and appointment reminders | Done |
+| Design system: tokens with measured contrast, shared components, mock-ups and the Keycloak login theme | Done |
+| `web`, the patient portal: its own PKCE sign-in, server-side sessions, readings, appointments, record and profile | Done |
+| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Skeleton done; panel, charts, alerts and appointments next |
+
+Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
+
+## Try it
+
+Needs Docker, Babashka and the Clojure CLI.
+
+```
+bb doctor
+bb up
+bb seed
+bb dev
+```
+
+Open <http://localhost:4000/docs/> (Swagger UI): Authorize signs you in as a demo user, and the same request is answered differently for a patient, a practitioner and the administrator. Open <http://localhost:3300> for the patient portal and sign in as `ana.garcia@pulse.test`; the password is `DEMO_USER_PASSWORD` in the `.env` that `bb up` creates. Within a minute the simulated devices raise alerts, which Dr. Rivera finds in `GET /api/alerts`.
+
+Other useful tasks: `bb check` (format, lint and tests, what CI runs), `bb web:journey` (a patient's journey in a real browser) and `bb design:build` (the mock-ups, then open `design/dist/index.html`).
 
 ## The four apps
 
@@ -17,15 +54,17 @@ A portfolio project: four applications of different kinds share one identity pro
 | `spa` | Single-page app (ClojureScript) | Clinicians | Patient panel, charts, alert inbox, schedule |
 | `scheduler` | Background worker | Service account | Clinical rules, reminders and a device simulator |
 
-## Planned stack
+## Stack
 
 Clojure 1.12 · Ring, Reitit, malli, Integrant · Hiccup + htmx · ClojureScript, shadow-cljs, Reagent 2, re-frame · Keycloak 26.0.0 · HAPI FHIR (R4) on PostgreSQL · Babashka tasks · Tailwind CSS 4 + daisyUI 5 · GitHub Actions.
 
 ## Documentation
 
+- [Architecture decision records](docs/adr/): why each important choice was made.
 - [Stack review](docs/01-stack-review.md): what was kept, upgraded, replaced and why.
 - [Implementation plan](docs/02-implementation-plan.md): concept, architecture and phases 0-10.
 - [Extras backlog](docs/03-extras-backlog.md): everything deliberately left for later.
+- [CLAUDE.md](CLAUDE.md): working notes for the AI assistant (Claude Code) that helps build this project. They describe each part of the code in detail and show how the project is worked on.
 
 ## Disclaimer
 
