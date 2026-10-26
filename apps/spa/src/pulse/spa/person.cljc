@@ -8,7 +8,12 @@
   provider's own (`default-roles-pulse`, `offline_access`...). A test holds this set to the api's, which holds it to the realm."
   #{:patient :practitioner :clinic-admin :rules-engine :api-service})
 
-(defn- text-of
+(def workspace-roles
+  "The roles that may use the workspace: the clinic's own people. The patient has the portal, and the two service accounts of the
+  realm (`rules-engine` and `api-service`) are not people who sign in."
+  #{:practitioner :clinic-admin})
+
+(defn text-of
   "`x` when it is text with something in it, else nil."
   [x]
   (when (and (string? x) (not (re-find #"^\s*$" x))) x))
@@ -27,6 +32,12 @@
                     (comp (filter string?) (map keyword) (filter roles))
                     (let [granted (get-in claims ["realm_access" "roles"])]
                       (when (sequential? granted) granted)))})))
+
+(defn allowed?
+  "Whether the person may use the workspace: they are a practitioner or the clinic's administrator. It is for the person's sake,
+  who is told so and not shown a workspace that would answer them with refusals; the api decides all the same (ADR-0012)."
+  [person]
+  (boolean (some workspace-roles (:roles person))))
 
 (defn admin?
   "Whether the person is the clinic's administrator, who sees every patient and the jobs of the scheduler."

@@ -42,7 +42,7 @@
 
 (deftest the-sidebar-names-the-first-role-and-the-card-names-them-all
   (let [person {:id "x" :username "u" :name "Someone" :roles #{:patient :practitioner :clinic-admin}}
-        page (start/signed-in person links)
+        page (start/signed-in person {:links links})
         sidebar (hx/words (first (hx/by-tag page :aside)))]
     (is (str/includes? sidebar "Someone"))
     (is (str/includes? sidebar "Clinic administrator") "the first of the roles, in the order of the card")

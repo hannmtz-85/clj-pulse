@@ -39,7 +39,13 @@
 (def ^:private pages
   {"the wait" (start/starting)
    "the failure" (start/failed {:retry (fn [])})
-   "the person who is signed in" (start/signed-in rivera links)
+   "the person who is signed in" (start/signed-in rivera {:links links})
+   "the person who is signed in, with the menu that signs out and what the api said" (start/signed-in rivera {:links links
+                                                                                                              :handlers {:sign-out (fn [])}
+                                                                                                              :me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})
+   "a person the workspace is not for" (start/refused {:links {:portal "http://localhost:3300"} :handlers {:sign-out (fn [])}})
+   "someone who has signed out" (start/signed-out {:links {:sign-in "/"}})
+   "a sign-in that the api did not accept" (start/unauthorized {:links {:sign-in "/"}})
    "a chart and its table" [:div a-chart]
    "a table that scrolls" (c/data-table {:caption "Patients" :columns [{:key :name :label "Name"}] :rows [{:name "Ana"} {:name "Liam"}]})})
 
@@ -66,7 +72,7 @@
       (is (not (str/includes? made "[object Object]"))))))
 
 (deftest the-person-who-is-signed-in-is-on-the-page
-  (let [{:keys [html]} (rendered (hiccup/->reagent (start/signed-in rivera links)))]
+  (let [{:keys [html]} (rendered (hiccup/->reagent (start/signed-in rivera {:links links})))]
     (is (str/includes? html "Elena Rivera"))
     (is (str/includes? html "dr.rivera@pulse.test"))
     (is (str/includes? html "Practitioner"))
@@ -74,7 +80,7 @@
 
 (deftest what-a-person-typed-or-a-provider-sent-is-text-and-never-markup
   (let [hostile {:id "h1" :username "<script>alert(1)</script>" :name "<img src=x onerror=alert(1)> \"quoted\" & co" :roles #{:practitioner}}
-        {:keys [html messages]} (rendered (hiccup/->reagent (start/signed-in hostile links)))]
+        {:keys [html messages]} (rendered (hiccup/->reagent (start/signed-in hostile {:links links})))]
     (is (= [] messages))
     (is (str/includes? html "&lt;script&gt;alert(1)&lt;/script&gt;"))
     (is (str/includes? html "&lt;img src=x onerror=alert(1)&gt;"))

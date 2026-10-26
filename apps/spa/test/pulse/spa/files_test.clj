@@ -7,7 +7,8 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [pulse.spa.files :as files])
+            [pulse.spa.files :as files]
+            [pulse.spa.route :as route])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 
@@ -51,6 +52,13 @@
       (is (= 200 (:status response)) uri)
       (is (= "<!DOCTYPE html><title>Pulse</title>" (body response)) uri)
       (is (= "text/html; charset=utf-8" (header response "Content-Type")) uri)
+      (is (= "no-cache" (header response "Cache-Control")) uri))))
+
+(deftest the-page-of-someone-who-signed-out-is-the-page-of-the-workspace
+  (doseq [uri [route/signed-out-path (str route/signed-out-path "/")]]
+    (let [response (get! uri)]
+      (is (= 200 (:status response)) uri)
+      (is (= "<!DOCTYPE html><title>Pulse</title>" (body response)) "the workspace answers, and the script there decides it is not to sign anyone in")
       (is (= "no-cache" (header response "Cache-Control")) uri))))
 
 (deftest a-file-is-served-as-what-it-is

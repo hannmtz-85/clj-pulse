@@ -5,8 +5,11 @@
 
   The tokens stay inside the `Keycloak` object of this namespace. Nothing here puts one in the state of the application, in an
   event, in the console or in a storage; what leaves is the claims of the access token, as data, which is what `pulse.spa.person`
-  reads."
+  reads, and the access token itself, **only** to `pulse.spa.fetch`, as a promise, at the moment of a call. Nothing runs by itself:
+  the token is renewed when a call needs it (there is no timer, which a module that starts one when it loads makes a nuisance of
+  every test and every reload)."
   (:require ["keycloak-js" :default Keycloak]
+            [pulse.spa.route :as route]
             [pulse.spa.settings :as settings]
             [re-frame.core :as rf]))
 
@@ -22,6 +25,26 @@
   []
   (some-> (.-tokenParsed keycloak) (js->clj)))
 
+(defn token!
+  "A promise of an access token that is good for at least another 30 seconds: the one the library has, or a new one, got with the
+  refresh token, when it is about to expire. It is rejected when there is no way to have one, which is the sign-in having ended
+  (the session of the identity provider is over, or the person was signed out elsewhere)."
+  []
+  (.then (.updateToken keycloak 30) (fn [_] (.-token keycloak))))
+
+(defn renew!
+  "A promise of a new access token, whether or not the one the library has is still good: for when the api has said it does not
+  accept it (the clock of the browser and the api's can differ by more than the 30 seconds that `token!` allows for). Rejected as
+  `token!` is."
+  []
+  (.then (.updateToken keycloak 99999) (fn [_] (.-token keycloak))))
+
+(defn login!
+  "Sends the browser to the sign-in page of the identity provider, which brings it back to this page: for when `token!` cannot
+  give a token, and the person has to sign in again."
+  []
+  (.login keycloak))
+
 (rf/reg-fx
  ::init
  (fn [{:keys [on-success on-failure]}]
@@ -32,3 +55,10 @@
        (.then (fn [authenticated]
                 (rf/dispatch (conj on-success (when authenticated (claims))))))
        (.catch (fn [_] (rf/dispatch on-failure))))))
+
+(rf/reg-fx
+ ::logout
+ (fn [_]
+   ;; Keycloak ends the session, with the id token as the hint so that it does not ask, and sends the browser back to the page
+   ;; of someone who has signed out, which does not sign them in again. The address is registered in the realm.
+   (.logout keycloak #js {:redirectUri (str (.-origin js/location) route/signed-out-path)})))

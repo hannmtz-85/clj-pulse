@@ -11,3 +11,7 @@
 (goog-define keycloak-client-id "pulse-spa")
 
 (goog-define api-base-url "http://localhost:4000")
+
+;; Where the patient portal is: the page for a person the workspace is not for leads there. It is a link, not a call, so the
+;; policy of the page does not name it.
+(goog-define portal-url "http://localhost:3300")

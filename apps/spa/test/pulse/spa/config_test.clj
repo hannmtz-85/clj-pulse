@@ -31,6 +31,10 @@
   (with-open [rdr (io/reader (io/file "infra/keycloak/realm/pulse-realm.json"))]
     (first (filter #(= "pulse-spa" (:clientId %)) (:clients (json/read rdr :key-fn keyword))))))
 
+(defn- web-client []
+  (with-open [rdr (io/reader (io/file "infra/keycloak/realm/pulse-realm.json"))]
+    (first (filter #(= "pulse-web" (:clientId %)) (:clients (json/read rdr :key-fn keyword))))))
+
 (defn- default-of
   "What the browser's build has for a setting, read from the source that defines it (`goog-define`)."
   [setting]
@@ -76,6 +80,13 @@
     (is (= [base-url] (:webOrigins client)))
     (is (= "pulse-spa" (default-of :keycloak-client-id)))
     (is (= (headers/origin-of (get-in (load-config) [:pulse.spa/handler :issuer])) (default-of :keycloak-url)))))
+
+(deftest the-page-for-a-person-it-is-not-for-leads-to-the-portal-where-the-realm-has-it
+  (let [client (web-client)]
+    (is (some? client))
+    (is (= [(default-of :portal-url)] (:webOrigins client))
+        "the patient portal is at the address the workspace sends a patient to")
+    (is (= (str (default-of :portal-url) "/oauth2/callback") (first (:redirectUris client))))))
 
 (deftest the-environment-changes-where-it-listens-and-what-it-names
   (let [cfg (load-config :dev {"SPA_PORT" "3100" "SPA_HOST" "0.0.0.0" "SPA_ROOT" "/srv/spa"

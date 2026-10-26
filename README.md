@@ -16,7 +16,7 @@ A portfolio project: four applications of different kinds share one identity pro
 
 ## Status
 
-**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 2,200 tests, 29 architecture decision records, and an acceptance journey in a real browser against the real Keycloak (62 checks).
+**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 2,370 tests (2,250 on the JVM and 120 on Node), 29 architecture decision records, and an acceptance journey in a real browser against the real Keycloak (62 checks).
 
 | Part | State |
 |---|---|
@@ -26,7 +26,7 @@ A portfolio project: four applications of different kinds share one identity pro
 | `scheduler`: jobs as data, a rules engine that raises each alert once, a device simulator and appointment reminders | Done |
 | Design system: tokens with measured contrast, shared components, mock-ups and the Keycloak login theme | Done |
 | `web`, the patient portal: its own PKCE sign-in, server-side sessions, readings, appointments, record and profile | Done |
-| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Skeleton done; panel, charts, alerts and appointments next |
+| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Sign-in with PKCE, a token that renews when a call needs it, a role gate and sign-out done; panel, charts, alerts and appointments next |
 
 Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
 

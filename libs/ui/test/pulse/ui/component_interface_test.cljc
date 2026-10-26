@@ -213,6 +213,32 @@
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"needs an :id"
                         (c/user-menu {:name "A B" :items [{:id "" :label "Sign out" :action "/sign-out"}]}))))
 
+(deftest an-item-of-the-menu-can-be-a-button-that-calls-a-function
+  (let [sign-out (fn [])
+        m (c/user-menu {:name "Elena Rivera" :items [{:href "/profile" :label "Profile" :icon :user}
+                                                     {:label "Sign out" :icon :log-out :on-click sign-out}]})
+        [profile out] (hx/by-tag (first (hx/by-tag m :ul)) :li)
+        button (first (hx/by-tag out :button))]
+    (testing "it is an item of the list, as a link is, with its icon and its words"
+      (is (= 2 (count (hx/by-tag (first (hx/by-tag m :ul)) :li))))
+      (is (= :a (hx/tag (first (hx/child-nodes profile)))))
+      (is (= :button (hx/tag (first (hx/child-nodes out)))))
+      (is (= "Sign out" (hx/words button)))
+      (is (= 1 (count (hx/by-tag button :svg)))))
+    (testing "it is a button of its own, which submits no form, and it is the function it is given"
+      (is (= {:type "button" :on-click sign-out} (hx/attributes button))))
+    (testing "no address leads to it, and no form is made for it"
+      (is (= ["/profile"] (map #(:href (hx/attributes %)) (hx/by-tag m :a))))
+      (is (empty? (hx/by-tag m :form))))
+    (is (empty? (a11y/problems m)))))
+
+(deftest an-item-of-the-menu-is-a-link-a-form-or-a-button-never-two
+  (doseq [item [{:label "Out" :href "/out" :on-click (fn [])}
+                {:id "out" :label "Out" :action "/out" :on-click (fn [])}]]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"a link, a form or a button, not two of them: \"Out\""
+                          (c/user-menu {:name "A B" :items [{:href "/profile" :label "Profile"} item]}))
+        (pr-str (keys item)))))
+
 (deftest a-screen-that-shows-the-person-elsewhere-hides-the-name-of-the-menu
   (let [name-of (fn [m] (first (hx/select m #(hx/has-class? % "sm:inline"))))]
     (is (not (hx/has-class? (name-of (c/user-menu {:name "A B" :items []})) "lg:hidden")))

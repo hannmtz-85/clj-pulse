@@ -93,15 +93,119 @@
       "roles are said in one order, whatever the order of the set"))
 
 (deftest the-administrators-sidebar-has-the-jobs-only-when-there-is-a-page-for-them
-  (is (says? (start/signed-in sam links) "Jobs"))
-  (is (not (says? (start/signed-in rivera links) "Jobs")))
+  (is (says? (start/signed-in sam {:links links}) "Jobs"))
+  (is (not (says? (start/signed-in rivera {:links links}) "Jobs")))
   (is (not (says? (start/signed-in sam {}) "Jobs"))))
+
+;; ---------------------------------------------------------------------------
+;; Signing out, and the people the workspace is not for
+
+(defn- button-named
+  "The button of `page` whose words are `text`, or nil."
+  [page text]
+  (first (filter #(= text (hx/words %)) (hx/by-tag page :button))))
+
+(defn- link-named
+  "The link of `page` whose words are `text`, or nil."
+  [page text]
+  (first (filter #(= text (hx/words %)) (hx/by-tag page :a))))
+
+(defn- links-of
+  "The links of `page` that lead somewhere: not the one that skips to the content, which every page has."
+  [page]
+  (remove #(= "#main" (:href (hx/attributes %))) (hx/by-tag page :a)))
+
+(deftest the-menu-of-the-person-signs-them-out-with-the-function-it-is-given
+  (let [sign-out (fn [])
+        page (start/signed-in rivera {:handlers {:sign-out sign-out}})
+        button (button-named page "Sign out")]
+    (is (some? button))
+    (is (= sign-out (:on-click (hx/attributes button))))
+    (is (= "button" (:type (hx/attributes button))) "it submits nothing")
+    (is (empty? (hx/by-tag page :form)) "and there is no form, and no address that signs a person out")
+    (is (not-any? #(str/includes? (str (:href (hx/attributes %))) "sign") (hx/by-tag page :a))))
+  (testing "a menu with nothing to call has no Sign out"
+    (is (nil? (button-named (start/signed-in rivera {}) "Sign out")))
+    (is (not (says? (start/signed-in rivera {:handlers {}}) "Sign out")))))
+
+(deftest the-person-the-workspace-is-not-for-is-told-so-and-led-away
+  (let [sign-out (fn [])
+        page (start/refused {:links {:portal "http://localhost:3300"} :handlers {:sign-out sign-out}})]
+    (is (= ["This workspace is for the clinic"] (map hx/words (hx/by-tag page :h1))))
+    (is (says? page "The workspace is for the people who work at the clinic. If you are a patient, your readings and appointments are in the patient portal."))
+    (testing "to the patient portal, which is a link"
+      (is (= "http://localhost:3300" (:href (hx/attributes (link-named page "Go to the patient portal"))))))
+    (testing "and out, which is a button that calls the function it is given"
+      (is (= sign-out (:on-click (hx/attributes (button-named page "Sign out"))))))
+    (testing "it is not the workspace: no sidebar, no menu, nothing of the clinic"
+      (is (empty? (hx/by-tag page :aside)))
+      (is (empty? (hx/by-tag page :details)))
+      (is (empty? (hx/by-tag page :input))))))
+
+(deftest a-control-that-has-nothing-to-lead-to-is-not-there
+  (let [bare (start/refused {})]
+    (is (empty? (links-of bare)))
+    (is (empty? (hx/by-tag bare :button)))
+    (is (says? bare "This workspace is for the clinic")))
+  (is (nil? (link-named (start/refused {:handlers {:sign-out (fn [])}}) "Go to the patient portal")))
+  (is (nil? (button-named (start/refused {:links {:portal "http://localhost:3300"}}) "Sign out")))
+  (is (empty? (links-of (start/signed-out {}))))
+  (is (empty? (links-of (start/unauthorized {})))))
+
+(deftest the-person-who-signed-out-is-told-so-and-can-sign-in-again
+  (let [page (start/signed-out {:links {:sign-in "/"}})]
+    (is (= ["You have signed out"] (map hx/words (hx/by-tag page :h1))))
+    (is (says? page "To open the workspace again, sign in."))
+    (is (= "/" (:href (hx/attributes (link-named page "Sign in")))) "a link, so that opening the page asks the identity provider")
+    (is (empty? (hx/by-tag page :button)))
+    (is (empty? (hx/by-tag page :aside)) "there is no workspace to show them")))
+
+(deftest a-sign-in-the-api-did-not-accept-is-said-and-left-to-the-person
+  (let [page (start/unauthorized {:links {:sign-in "/"}})]
+    (is (= ["Your sign-in was not accepted"] (map hx/words (hx/by-tag page :h1))))
+    (is (says? page "The service that holds the clinic's data did not accept your sign-in. Sign in again."))
+    (is (= "/" (:href (hx/attributes (link-named page "Sign in again")))))
+    (is (empty? (hx/by-tag page :aside)))))
+
+;; ---------------------------------------------------------------------------
+;; What the api says of the person
+
+(deftest the-card-says-what-the-api-knows-of-the-persons-record
+  (let [said (fn [me] (hx/words (start/content rivera me)))]
+    (testing "the row is there whatever the state, with its words"
+      (doseq [me [nil {:state :loading} {:state :loaded :data {}} {:state :failed :kind :timeout}]]
+        (is (str/includes? (said me) "Your record") (pr-str me))))
+    (testing "while it is on its way, or has not been asked"
+      (is (str/includes? (said nil) "Your recordLoading"))
+      (is (str/includes? (said {:state :loading}) "Your recordLoading")))
+    (testing "the record that is them"
+      (is (str/includes? (said {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}) "Your recordPractitioner/pr-rivera")))
+    (testing "none for who has none, such as the administrator"
+      (doseq [data [{:fhirUser nil} {} {:fhirUser ""} {:fhirUser "  "} {:fhirUser 7} nil]]
+        (is (str/includes? (said {:state :loaded :data data}) "Your recordNone") (pr-str data))))
+    (testing "and what could not be had is said and is not shown as none"
+      (doseq [kind [:unreachable :timeout :server :forbidden :unexpected nil]]
+        (is (str/includes? (said {:state :failed :kind kind}) "Your recordNot available") (pr-str kind))))))
+
+(deftest the-page-of-a-person-who-is-signed-in-shows-what-the-api-said
+  (let [page (start/signed-in rivera {:me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})]
+    (is (says? page "Practitioner/pr-rivera"))
+    (is (not (says? (start/signed-in rivera {:me {:state :failed :kind :server}}) "Practitioner/pr-rivera")))
+    (is (not (says? (start/signed-in rivera {}) "Practitioner/pr-rivera")))))
 
 (deftest every-page-passes-the-checks-of-accessibility
   (doseq [[label page] {"starting" (start/starting)
                         "failed" (start/failed {:retry (fn [])})
                         "failed, with no button" (start/failed {})
-                        "a practitioner" (start/signed-in rivera links)
-                        "the administrator" (start/signed-in sam links)
-                        "a person with no pages to go to" (start/signed-in ana {})}]
+                        "a practitioner" (start/signed-in rivera {:links links})
+                        "the administrator" (start/signed-in sam {:links links})
+                        "a person with no pages to go to" (start/signed-in ana {})
+                        "a practitioner, with a menu to sign out" (start/signed-in rivera {:links links :handlers {:sign-out (fn [])}})
+                        "a practitioner, with what the api said" (start/signed-in rivera {:me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})
+                        "a patient, who is not for the workspace" (start/refused {:links {:portal "http://localhost:3300"} :handlers {:sign-out (fn [])}})
+                        "a patient, with nowhere to go" (start/refused {})
+                        "signed out" (start/signed-out {:links {:sign-in "/"}})
+                        "signed out, with nowhere to go" (start/signed-out {})
+                        "a sign-in that was not accepted" (start/unauthorized {:links {:sign-in "/"}})
+                        "a sign-in that was not accepted, with nowhere to go" (start/unauthorized {})}]
     (is (= [] (a11y/problems (layout/document {:title "Pulse"} [:div {:id "app"} page]) {:page? true})) label)))

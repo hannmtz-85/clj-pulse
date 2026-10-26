@@ -1,6 +1,8 @@
 (ns pulse.spa.core
-  "The entry of the browser build: mounts the workspace and asks for the sign-in (ADR-0029)."
+  "The entry of the browser build: mounts the workspace and asks for the sign-in (ADR-0029), unless the page is the one of a person
+  who has just signed out, which must not send them straight back to sign in."
   (:require [pulse.spa.events :as events]
+            [pulse.spa.route :as route]
             [pulse.spa.views :as views]
             [re-frame.core :as rf]
             [reagent.dom.client :as rdc]))
@@ -21,5 +23,7 @@
 (defn init
   "Where the page begins."
   []
-  (rf/dispatch-sync [::events/start])
+  (rf/dispatch-sync (if (route/signed-out? (.-pathname js/location))
+                      [::events/signed-out]
+                      [::events/start]))
   (mount))

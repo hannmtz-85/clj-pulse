@@ -530,13 +530,14 @@
                (attrs/with-classes "grow"))]])
 
 (defn- menu-item
-  "An item of the menu of a person: a link, or, for one that has an `:action`, a button that submits the form of that action
-  (see `user-menu`)."
-  [{:keys [href icon id action] text :label}]
+  "An item of the menu of a person: a link, or, for one that has an `:action`, a button that submits the form of that action,
+  or, for one that has an `:on-click`, a button that is a function of the page (see `user-menu`)."
+  [{:keys [href icon id action on-click] text :label}]
   (let [content (list (when icon (i/icon icon {:size :md})) text)]
-    [:li (if action
-           [:button {:type "submit" :form (str "account-" id)} content]
-           [:a {:href href} content])]))
+    [:li (cond
+           action [:button {:type "submit" :form (str "account-" id)} content]
+           on-click [:button {:type "button" :on-click on-click} content]
+           :else [:a {:href href} content])]))
 
 (defn- menu-form
   "The form that an item with an `:action` submits: a POST with the hidden `:fields` of the item."
@@ -551,12 +552,16 @@
   such as signing out, is not a link, which any page could send a person to: it has an `:action`, the address a form posts
   to, an `:id` (a word, which ties the button to its form) and its hidden `:fields`, a map from name to value, such as the
   token of the session that the check of the request needs. Its button is of the list and looks as the links do; the form is
-  beside the list, since a form in an item would take the place of the item. `:name-class` is added to the name, which a screen
-  that shows the person elsewhere hides (`\"lg:hidden\"`)."
+  beside the list, since a form in an item would take the place of the item. An application that has a script, such as the
+  clinical workspace, gives an item an `:on-click` instead: a button that calls that function, and not a link, which would be
+  an address that any page could send a person to; it is a link, a form or a button, never two. `:name-class` is added to the
+  name, which a screen that shows the person elsewhere hides (`\"lg:hidden\"`)."
   [{:keys [name items name-class] :as attributes}]
   ;; not a `doseq` with a `throw` in it: the loop's own step is then code that cannot be reached, and Closure says so
   (when-let [{text :label} (first (filter (fn [{:keys [id action]}] (and action (str/blank? id))) items))]
     (throw (ex-info (str "A menu item that posts needs an :id: " (pr-str text)) {:item text})))
+  (when-let [{text :label} (first (filter (fn [{:keys [href action on-click]}] (and on-click (or href action))) items))]
+    (throw (ex-info (str "A menu item is a link, a form or a button, not two of them: " (pr-str text)) {:item text})))
   (into [:details (-> attributes
                       (attrs/owned :name :items :name-class)
                       (attrs/with-classes "dropdown dropdown-end"))

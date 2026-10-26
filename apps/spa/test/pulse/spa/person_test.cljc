@@ -49,6 +49,40 @@
   (is (false? (person/admin? {:roles #{}})))
   (is (false? (person/admin? nil))))
 
+(def ^:private subsets
+  "Every set of the roles of the realm: 32 of them."
+  (reduce (fn [sets role] (into sets (map #(conj % role) sets))) #{#{}} person/roles))
+
+(deftest the-workspace-is-for-the-people-of-the-clinic
+  (is (= #{:practitioner :clinic-admin} person/workspace-roles))
+  (is (= 32 (count subsets)) "every combination is tried")
+  (doseq [roles subsets]
+    (is (= (or (contains? roles :practitioner) (contains? roles :clinic-admin))
+           (person/allowed? {:roles roles}))
+        (pr-str roles)))
+  (testing "a patient is not one of them, and neither is a service account"
+    (is (false? (person/allowed? {:roles #{:patient}})))
+    (is (false? (person/allowed? {:roles #{:rules-engine :api-service}}))))
+  (testing "a person who is both is let in"
+    (is (true? (person/allowed? {:roles #{:patient :practitioner}}))))
+  (testing "nobody, and nobody with roles, is not let in"
+    (is (false? (person/allowed? nil)))
+    (is (false? (person/allowed? {})))
+    (is (false? (person/allowed? {:roles nil})))
+    (is (false? (person/allowed? {:roles #{}})))))
+
+(deftest the-person-of-a-token-is-let-in-by-the-roles-of-the-token
+  (is (true? (person/allowed? (person/from-claims rivera))))
+  (is (false? (person/allowed? (person/from-claims (assoc rivera "realm_access" {"roles" ["default-roles-pulse" "patient"]})))))
+  (is (false? (person/allowed? (person/from-claims (assoc rivera "realm_access" {"roles" ["default-roles-pulse"]})))))
+  (is (true? (person/allowed? (person/from-claims (assoc rivera "realm_access" {"roles" ["clinic-admin"]}))))))
+
+(deftest text-is-what-has-something-in-it
+  (is (= "x" (person/text-of "x")))
+  (is (= " x " (person/text-of " x ")))
+  (doseq [x [nil "" " " "\n\t" 7 :x [] {}]]
+    (is (nil? (person/text-of x)) (pr-str x))))
+
 (def ^:private any-claims
   "Claims of any shape, such as a provider that is not ours, or a bug, could give, not too large: a structure of a thousand parts
   proves no more than one of ten, and takes minutes to make on Node."
