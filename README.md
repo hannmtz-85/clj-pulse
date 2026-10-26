@@ -33,4 +33,4 @@ All data is synthetic. This is not a medical device, the clinical thresholds are
 
 ## License
 
-To be confirmed before the first public release (MIT is the current proposal).
+[MIT](LICENSE). Third-party material (LOINC, UCUM, Inter, Lucide, htmx and others) keeps its own terms; see [NOTICE](NOTICE).
