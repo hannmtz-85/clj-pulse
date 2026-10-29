@@ -19,7 +19,7 @@
             [pulse.dev :as dev]
             [pulse.platform.config :as config]
             [pulse.platform.token :as token]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.oidc :as oidc]
             [pulse.web.session :as session]
             [ring.middleware.session.store :as store])

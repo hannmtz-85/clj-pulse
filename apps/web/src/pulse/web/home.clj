@@ -18,7 +18,7 @@
             [pulse.web.pages.home :as home]
             [pulse.web.return-to :as return-to]
             [pulse.web.session :as session]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Clock Instant)))
 
 (def default-series-timeout-ms

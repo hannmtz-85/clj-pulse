@@ -9,7 +9,7 @@
             [pulse.fhir.measurement :as measurement]
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (def ^:private now "2026-10-13T12:00:00Z")
 

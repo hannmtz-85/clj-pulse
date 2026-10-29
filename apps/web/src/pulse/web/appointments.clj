@@ -22,7 +22,7 @@
             [pulse.web.pages.appointments :as page]
             [pulse.web.return-to :as return-to]
             [pulse.web.session :as session]
-            [pulse.web.views :as views]
+            [pulse.view.views :as views]
             [pulse.web.visits :as visits])
   (:import (java.time Clock Instant)
            (java.time.temporal ChronoUnit)))
@@ -77,7 +77,7 @@
 ;; The appointments
 
 (defn list-page
-  "The handler of `GET /appointments`: the appointments of the patient, in the sections of `pulse.web.views/appointment-sections`, and the
+  "The handler of `GET /appointments`: the appointments of the patient, in the sections of `pulse.view.views/appointment-sections`, and the
   form to ask for a visit; with what has just been done, if something has, told once. Who the patient is cannot be done without; the
   list can, and says when it could not be had. `deps` has the `:api`, the portal's client of the api, and the `:clock` (a
   `java.time.Clock`, the system's by default)."

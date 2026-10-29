@@ -1,8 +1,9 @@
 (ns pulse.spa.pages-test
-  "The pages of the workspace (ADR-0029): the frame, the wait for the sign-in, its failure and the page of the person who is
-  signed in. Pure hiccup, so these run on the JVM and on Node."
+  "The pages of the workspace (ADR-0029): the frame, the wait for the sign-in, its failure, the pages for a person the workspace is not
+  for and for a page that is not there. Pure hiccup, so these run on the JVM and on Node. The panel has its own tests."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.pages.start :as start]
             [pulse.ui.layout :as layout]
@@ -21,6 +22,11 @@
   "Whether the text that `tree` shows has `text` in it."
   [tree text]
   (str/includes? (hx/words tree) text))
+
+(defn- frame
+  "The workspace around a title, for `person` with `options` (`:links`, `:handlers`, `:me`)."
+  [person options]
+  (shell/frame (merge {:current :panel :person person} options) [:h1 "Panel"]))
 
 (deftest a-page-that-is-not-there-has-no-item
   (testing "every page that exists is an item of the sidebar"
@@ -47,21 +53,53 @@
     (is (= {:id :alerts :href "/alerts" :label "Alerts" :icon :bell} (alerts {})))
     (is (= {:id :alerts :href "/alerts" :label "Alerts" :icon :bell} (alerts {:active-alerts nil})))))
 
-(deftest the-frame-has-the-person-and-no-button-that-does-nothing
-  (let [frame (shell/shell {:current :panel :person {:name "Elena Rivera" :detail "Practitioner"} :nav (shell/nav {} links)} [:h1 "Panel"])
-        labels (set (map (comp :aria-label hx/attributes) (hx/by-tag frame :button)))]
-    (is (some #(= "Account menu of Elena Rivera" (:aria-label (hx/attributes %))) (hx/select frame #(= :summary (hx/tag %)))))
-    (is (says? frame "Elena Rivera"))
-    (is (says? frame "Practitioner"))
+(deftest the-shell-has-the-person-and-no-button-that-does-nothing
+  (let [shell-page (shell/shell {:current :panel :person {:name "Elena Rivera" :detail "Practitioner"} :nav (shell/nav {} links)} [:h1 "Panel"])
+        labels (set (map (comp :aria-label hx/attributes) (hx/by-tag shell-page :button)))]
+    (is (some #(= "Account menu of Elena Rivera" (:aria-label (hx/attributes %))) (hx/select shell-page #(= :summary (hx/tag %)))))
+    (is (says? shell-page "Elena Rivera"))
+    (is (says? shell-page "Practitioner"))
     (is (not (contains? labels "Dark theme")) "no button for the theme: nothing is behind it")
     (is (not (contains? labels "Open the menu")) "no button for the menu of a narrow screen: nothing is behind it")
     (testing "the menu of the person has what it is given"
       (let [menu (shell/shell {:person {:name "Elena Rivera"} :menu [{:href "/profile" :label "Profile" :icon :user}]} [:h1 "T"])]
         (is (says? menu "Profile"))
-        (is (not (says? frame "Profile")))))
+        (is (not (says? shell-page "Profile")))))
     (testing "the search box is there when it is asked for"
-      (is (empty? (hx/by-tag frame :input)))
+      (is (empty? (hx/by-tag shell-page :input)))
       (is (seq (hx/by-tag (shell/shell {:person {:name "E"} :search {:id "search" :name "q" :label "Search patients"}} [:h1 "T"]) :input))))))
+
+(deftest the-frame-says-who-is-signed-in-and-how-the-role-is-said
+  (doseq [[person role] [[rivera "Practitioner"] [sam "Clinic administrator"] [ana "Patient"]]
+          :let [page (frame person {})]]
+    (is (says? page (:name person)))
+    (is (says? page role) (str role " is said"))))
+
+(deftest the-frame-says-what-the-clinic-writes-of-the-practitioner-once-the-api-has-said
+  (let [me {:state :loaded :data {:resource {:name [{:prefix ["Dr."] :given ["Elena"] :family "Rivera"}]
+                                             :qualification [{:code {:text "Internal medicine"}}]}}}
+        page (frame rivera {:me me})]
+    (is (says? page "Dr. Elena Rivera"))
+    (is (says? page "Internal medicine"))
+    (is (not (says? page "Practitioner")) "what they are qualified in says more than the role")
+    (testing "until then, or if it could not, the name the identity provider has and the role"
+      (doseq [me [nil {:state :loading} {:state :failed :kind :server}]]
+        (is (says? (frame rivera {:me me}) "Elena Rivera"))
+        (is (says? (frame rivera {:me me}) "Practitioner"))
+        (is (not (says? (frame rivera {:me me}) "Dr. Elena")))))))
+
+(deftest the-search-box-has-a-name-an-id-and-the-text-it-is-given-or-none
+  (let [input (fn [options] (first (hx/by-tag (frame rivera (merge {:handlers {:search (fn [_])}} options)) :input)))]
+    (is (= {:id "search" :name "q" :value "" :type "search" :autocomplete "off" :placeholder "Search patients" :aria-label "Search patients"}
+           (select-keys (hx/attributes (input {})) [:id :name :value :type :autocomplete :placeholder :aria-label]))
+        "with no text, the box is empty and not 'nil' or anything else")
+    (is (= "ana" (:value (hx/attributes (input {:search-value "ana"})))))
+    (is (= "" (:value (hx/attributes (input {:search-value ""})))))))
+
+(deftest the-administrators-sidebar-has-the-jobs-only-when-there-is-a-page-for-them
+  (is (says? (frame sam {:links links}) "Jobs"))
+  (is (not (says? (frame rivera {:links links}) "Jobs")))
+  (is (not (says? (frame sam {}) "Jobs"))))
 
 (deftest the-wait-and-the-failure-are-pages
   (let [waiting (start/starting)
@@ -75,27 +113,6 @@
     (testing "the button is the function it is given"
       (let [retry (fn [])]
         (is (= retry (:on-click (hx/attributes (first (hx/by-tag (start/failed {:retry retry}) :button))))))))))
-
-(deftest the-page-says-who-is-signed-in
-  (doseq [[person role] [[rivera "Practitioner"] [sam "Clinic administrator"] [ana "Patient"]]
-          :let [page (start/signed-in person {})
-                words (hx/words page)]]
-    (is (str/includes? words (:name person)))
-    (is (str/includes? words (:username person)))
-    (is (str/includes? words role) (str role " is said"))
-    (is (str/includes? words "You are signed in"))))
-
-(deftest the-person-with-no-username-or-role-is-told-so
-  (let [words (hx/words (start/content {:id "x" :name "Someone" :roles #{}}))]
-    (is (str/includes? words "Not given"))
-    (is (str/includes? words "None")))
-  (is (says? (start/content {:id "x" :name "Someone" :roles #{:patient :practitioner}}) "Practitioner, Patient")
-      "roles are said in one order, whatever the order of the set"))
-
-(deftest the-administrators-sidebar-has-the-jobs-only-when-there-is-a-page-for-them
-  (is (says? (start/signed-in sam {:links links}) "Jobs"))
-  (is (not (says? (start/signed-in rivera {:links links}) "Jobs")))
-  (is (not (says? (start/signed-in sam {}) "Jobs"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Signing out, and the people the workspace is not for
@@ -117,7 +134,7 @@
 
 (deftest the-menu-of-the-person-signs-them-out-with-the-function-it-is-given
   (let [sign-out (fn [])
-        page (start/signed-in rivera {:handlers {:sign-out sign-out}})
+        page (frame rivera {:handlers {:sign-out sign-out}})
         button (button-named page "Sign out")]
     (is (some? button))
     (is (= sign-out (:on-click (hx/attributes button))))
@@ -125,8 +142,8 @@
     (is (empty? (hx/by-tag page :form)) "and there is no form, and no address that signs a person out")
     (is (not-any? #(str/includes? (str (:href (hx/attributes %))) "sign") (hx/by-tag page :a))))
   (testing "a menu with nothing to call has no Sign out"
-    (is (nil? (button-named (start/signed-in rivera {}) "Sign out")))
-    (is (not (says? (start/signed-in rivera {:handlers {}}) "Sign out")))))
+    (is (nil? (button-named (frame rivera {}) "Sign out")))
+    (is (not (says? (frame rivera {:handlers {}}) "Sign out")))))
 
 (deftest the-person-the-workspace-is-not-for-is-told-so-and-led-away
   (let [sign-out (fn [])
@@ -168,44 +185,45 @@
     (is (empty? (hx/by-tag page :aside)))))
 
 ;; ---------------------------------------------------------------------------
-;; What the api says of the person
+;; An address that is no page, and a page that is not for the person
 
-(deftest the-card-says-what-the-api-knows-of-the-persons-record
-  (let [said (fn [me] (hx/words (start/content rivera me)))]
-    (testing "the row is there whatever the state, with its words"
-      (doseq [me [nil {:state :loading} {:state :loaded :data {}} {:state :failed :kind :timeout}]]
-        (is (str/includes? (said me) "Your record") (pr-str me))))
-    (testing "while it is on its way, or has not been asked"
-      (is (str/includes? (said nil) "Your recordLoading"))
-      (is (str/includes? (said {:state :loading}) "Your recordLoading")))
-    (testing "the record that is them"
-      (is (str/includes? (said {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}) "Your recordPractitioner/pr-rivera")))
-    (testing "none for who has none, such as the administrator"
-      (doseq [data [{:fhirUser nil} {} {:fhirUser ""} {:fhirUser "  "} {:fhirUser 7} nil]]
-        (is (str/includes? (said {:state :loaded :data data}) "Your recordNone") (pr-str data))))
-    (testing "and what could not be had is said and is not shown as none"
-      (doseq [kind [:unreachable :timeout :server :forbidden :unexpected nil]]
-        (is (str/includes? (said {:state :failed :kind kind}) "Your recordNot available") (pr-str kind))))))
+(deftest an-address-that-is-no-page-is-said-inside-the-workspace-and-leads-to-the-panel
+  (let [page (start/not-found {:person rivera :links {:panel "/"} :handlers {:sign-out (fn [])}})]
+    (is (= ["We cannot find that page"] (map hx/words (hx/by-tag page :h1))))
+    (is (says? page "Check the address, or go to the panel."))
+    (is (= "/" (:href (hx/attributes (link-named page "Go to the panel")))))
+    (is (seq (hx/by-tag page :aside)) "it is the workspace: the sidebar is there")
+    (is (nil? (link-named (start/not-found {:person rivera}) "Go to the panel")) "no panel to go to, no link")))
 
-(deftest the-page-of-a-person-who-is-signed-in-shows-what-the-api-said
-  (let [page (start/signed-in rivera {:me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})]
-    (is (says? page "Practitioner/pr-rivera"))
-    (is (not (says? (start/signed-in rivera {:me {:state :failed :kind :server}}) "Practitioner/pr-rivera")))
-    (is (not (says? (start/signed-in rivera {}) "Practitioner/pr-rivera")))))
+(deftest a-page-the-role-does-not-open-is-said-inside-the-workspace-and-leads-to-the-panel
+  (let [page (start/not-allowed {:person rivera :links {:panel "/"}})]
+    (is (= ["You cannot open that page"] (map hx/words (hx/by-tag page :h1))))
+    (is (says? page "That page is for people with another role in the clinic."))
+    (is (= "/" (:href (hx/attributes (link-named page "Go to the panel")))))
+    (is (nil? (link-named (start/not-allowed {:person rivera}) "Go to the panel")))))
 
 (deftest every-page-passes-the-checks-of-accessibility
   (doseq [[label page] {"starting" (start/starting)
                         "failed" (start/failed {:retry (fn [])})
                         "failed, with no button" (start/failed {})
-                        "a practitioner" (start/signed-in rivera {:links links})
-                        "the administrator" (start/signed-in sam {:links links})
-                        "a person with no pages to go to" (start/signed-in ana {})
-                        "a practitioner, with a menu to sign out" (start/signed-in rivera {:links links :handlers {:sign-out (fn [])}})
-                        "a practitioner, with what the api said" (start/signed-in rivera {:me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})
+                        "a practitioner" (frame rivera {:links links})
+                        "the administrator" (frame sam {:links links})
+                        "a person with no pages to go to" (frame ana {})
+                        "a practitioner, with a menu to sign out" (frame rivera {:links links :handlers {:sign-out (fn [])}})
+                        "a practitioner, with the search box" (frame rivera {:links links :handlers {:search (fn [_])}})
+                        "a practitioner, as the clinic writes them" (frame rivera {:me {:state :loaded :data {:resource {:name [{:prefix ["Dr."] :given ["Elena"] :family "Rivera"}]}}}})
                         "a patient, who is not for the workspace" (start/refused {:links {:portal "http://localhost:3300"} :handlers {:sign-out (fn [])}})
                         "a patient, with nowhere to go" (start/refused {})
                         "signed out" (start/signed-out {:links {:sign-in "/"}})
                         "signed out, with nowhere to go" (start/signed-out {})
                         "a sign-in that was not accepted" (start/unauthorized {:links {:sign-in "/"}})
-                        "a sign-in that was not accepted, with nowhere to go" (start/unauthorized {})}]
+                        "a sign-in that was not accepted, with nowhere to go" (start/unauthorized {})
+                        "no such page" (start/not-found {:person rivera :links {:panel "/"} :handlers {:sign-out (fn [])}})
+                        "no such page, with nowhere to go" (start/not-found {:person rivera})
+                        "a page that is not for them" (start/not-allowed {:person rivera :links {:panel "/"} :handlers {:sign-out (fn [])}})}]
     (is (= [] (a11y/problems (layout/document {:title "Pulse"} [:div {:id "app"} page]) {:page? true})) label)))
+
+(deftest the-panel-is-among-the-pages-that-pass
+  (is (= [] (a11y/problems (layout/document {:title "Pulse"} [:div {:id "app"} (panel-page/page nil {:show :all :q ""} {:person rivera :links links})])
+                           {:page? true}))
+      "the panel before it has begun, which is the wait"))

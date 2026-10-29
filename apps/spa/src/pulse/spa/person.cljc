@@ -1,7 +1,8 @@
 (ns pulse.spa.person
   "Who is signed in, as the workspace knows them: made from the claims of the access token that the identity provider gave
   (ADR-0029, point 1). The claims are data (a map with string keys), never a JavaScript object: an optimized build renames the
-  properties of an object that it does not know, and the name and the roles of the person came out `nil` that way. Pure.")
+  properties of an object that it does not know, and the name and the roles of the person came out `nil` that way. Pure."
+  (:require [clojure.string :as str]))
 
 (def roles
   "The application roles of the `pulse` realm (see `tools/realm.clj`), which a token carries in `realm_access.roles` next to the
@@ -43,3 +44,27 @@
   "Whether the person is the clinic's administrator, who sees every patient and the jobs of the scheduler."
   [person]
   (contains? (:roles person) :clinic-admin))
+
+(defn role-words
+  "How the roles of the person are said, the first being the one that says most: `Clinic administrator`, `Practitioner` or
+  `Patient`."
+  [{:keys [roles]}]
+  (->> [[:clinic-admin "Clinic administrator"] [:practitioner "Practitioner"] [:patient "Patient"]]
+       (keep (fn [[role words]] (when (contains? roles role) words)))))
+
+(defn display
+  "How the workspace writes who is signed in, `{:name :detail}`, for the sidebar and the menu: the name the identity provider has
+  for them and their first role, or, once the api has said who they are (`me`, a part: `{:state :loaded :data ...}`) and they are a
+  practitioner, the name as the clinic writes it (`Dr. Elena Rivera`) and what they are qualified in. What the api gave that is
+  not text is left out."
+  [person me]
+  (let [resource (when (= :loaded (:state me)) (get-in me [:data :resource]))
+        written (first (when (sequential? (:name resource)) (:name resource)))
+        pieces (when (map? written)
+                 (concat (when (sequential? (:prefix written)) (:prefix written))
+                         (when (sequential? (:given written)) (:given written))
+                         [(:family written)]))
+        full-name (when-let [words (seq (keep text-of pieces))] (str/join " " words))
+        qualification (first (when (sequential? (:qualification resource)) (:qualification resource)))]
+    {:name (or full-name (:name person))
+     :detail (or (text-of (get-in qualification [:code :text])) (first (role-words person)))}))

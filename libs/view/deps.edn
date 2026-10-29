@@ -1,0 +1,9 @@
+;; What the interfaces say of what the api answers: the way times, numbers and units are written and the words of a reading and
+;; an appointment (ADR-0028, ADR-0029). `.cljc`, so that the patient portal (on the JVM), the clinical workspace (in the browser)
+;; and the mock-ups of the review (under Babashka) write the same text.
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        ;; what an appointment allows a person is the lifecycle of the clinic
+        pulse/fhir {:local/root "../fhir"}
+        ;; the chips and tiles that a reading and an appointment are shown with
+        pulse/ui {:local/root "../ui"}}}

@@ -15,9 +15,9 @@
   a date that cannot be read is no date, and the row leaves it out, since other systems write to the same FHIR server."
   (:require [clojure.string :as str]
             [pulse.ui.component :as c]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.pages.parts :as parts]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time.format DateTimeParseException)))
 
 ;; ---------------------------------------------------------------------------

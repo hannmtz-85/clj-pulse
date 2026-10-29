@@ -9,9 +9,9 @@
             [clojure.test.check.properties :as prop]
             [pulse.api.observations :as api-observations]
             [pulse.fhir.measurement :as measurement]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.recording :as recording]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Duration Instant)))
 
 ;; ---------------------------------------------------------------------------

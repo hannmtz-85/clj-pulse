@@ -6,10 +6,16 @@
   provider), `:signed-in`, `:refused` (signed in, and the workspace is not for them), `:unauthorized` (the api did not accept the
   sign-in), `:signed-out` (the page of someone who has signed out) or `:failed` (the sign-in could not be made). Each thing that is
   loaded is a part of its own, `{:state :loading|:loaded|:failed ...}`, so that what could not be loaded is said and is never shown
-  as empty."
+  as empty.
+
+  Where the workspace is, is its `:route` (`{:name :params}`, see `pulse.spa.route`), which the history of the browser tells
+  `::navigated` every time it changes: that is what starts the panel when the person comes to it and stops it when they leave, and
+  what the title of the tab and the focus follow."
   (:require [pulse.spa.auth :as auth]
             [pulse.spa.fetch :as fetch]
             [pulse.spa.person :as person]
+            [pulse.spa.route :as route]
+            [pulse.spa.router :as router]
             [re-frame.core :as rf]))
 
 (rf/reg-event-fx
@@ -24,7 +30,8 @@
    (if-let [who (person/from-claims claims)]
      (if (person/allowed? who)
        {:db (assoc db :status :signed-in :person who)
-        :dispatch [::load-me]}
+        :fx [[:dispatch [::load-me]]
+             [::router/start nil]]}
        ;; the workspace is not for them: nothing is asked of the api, which would refuse everything
        {:db (assoc db :status :refused :person who)})
      {:db (assoc db :status :failed)})))
@@ -43,6 +50,18 @@
  ::sign-out
  (fn [_ _]
    {::auth/logout nil}))
+
+(rf/reg-event-fx
+ ::navigated
+ (fn [{:keys [db]} [_ here]]
+   (let [{:keys [page-change? stop start]} (route/transition (:route db) here (:person db))]
+     {:db (assoc db :route here)
+      :fx (-> []
+              (into (map (fn [event] [:dispatch event])) stop)
+              (into (map (fn [event] [:dispatch event])) start)
+              (cond-> page-change? (conj [::router/arrived {:title (route/title (:name here))
+                                                            ;; the first page is not one the person came to: nothing is moved for it
+                                                            :focus? (some? (:route db))}])))})))
 
 (rf/reg-event-db
  ::unauthorized

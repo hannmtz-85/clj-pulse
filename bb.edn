@@ -1,4 +1,4 @@
-{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "apps/web/src" "apps/spa/src" "design/src"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "libs/view/src" "apps/web/src" "apps/spa/src" "design/src"]
  :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])

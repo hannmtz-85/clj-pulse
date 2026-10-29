@@ -9,6 +9,7 @@
             [pulse.spa.auth :as auth]
             [pulse.spa.events :as events]
             [pulse.spa.fetch :as fetch]
+            [pulse.spa.router :as router]
             [pulse.spa.subs :as subs]
             [pulse.spa.test.stand-in :as stand-in]
             [re-frame.core :as rf]
@@ -31,11 +32,16 @@
   (atom []))
 
 (defn- note-the-effects!
-  "Replaces the effects that reach out of the page by ones that write down what they were asked."
+  "Replaces the effects that reach out of the page by ones that write down what they were asked: the identity provider, the api, the
+  history of the browser and the clock."
   []
   (reset! asked [])
-  (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel]]
+  (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived :dispatch-later]]
     (replace-effect! effect (fn [value] (swap! asked conj [effect value])))))
+
+(def ^:private router-started
+  "What the router is asked when the person has been let in."
+  [::router/start nil])
 
 (defn- state [] @db/app-db)
 
@@ -80,7 +86,8 @@
    (is (= {:id "6f2c-rivera" :username "dr.rivera@pulse.test" :name "Elena Rivera" :roles #{:practitioner}}
           (subs/person (state) nil)))
    (is (= {:state :loading} (subs/me (state) nil)))
-   (is (= [who-is-asked] @asked) "one call, and nothing else")))
+   (is (= #{who-is-asked router-started} (set @asked)) "who they are is asked of the api, the history begins, and nothing else")
+   (is (= 2 (count @asked)))))
 
 (deftest the-administrator-is-let-in-too
   (rf-test/run-test-sync
@@ -88,7 +95,7 @@
    (rf/dispatch [::events/signed-in (claims-with-roles "clinic-admin")])
    (is (= :signed-in (subs/status (state) nil)))
    (is (= #{:clinic-admin} (:roles (subs/person (state) nil))))
-   (is (= [who-is-asked] @asked))))
+   (is (= #{who-is-asked router-started} (set @asked)))))
 
 (deftest a-person-who-is-not-of-the-clinic-is-refused-and-nothing-is-asked-of-the-api
   (doseq [[label roles] {"a patient" ["patient"]
@@ -110,7 +117,7 @@
    (note-the-effects!)
    (rf/dispatch [::events/signed-in (claims-with-roles "patient" "practitioner")])
    (is (= :signed-in (subs/status (state) nil)))
-   (is (= [who-is-asked] @asked))))
+   (is (= #{who-is-asked router-started} (set @asked)))))
 
 (deftest what-the-state-holds-of-the-person-is-who-they-are-and-no-token
   (rf-test/run-test-sync
@@ -221,6 +228,8 @@
                       :inflight (atom {})
                       :on-unauthorized #(rf/dispatch [::events/unauthorized])}]
              (replace-effect! ::fetch/request (fn [spec] (fetch/request! env spec)))
+             (doseq [effect [::router/start ::router/replace ::router/arrived]]
+               (replace-effect! effect (fn [_] nil)))
              (f server seen)))))
 
 (deftest the-api-is-asked-who-the-person-is-and-the-state-keeps-what-it-says

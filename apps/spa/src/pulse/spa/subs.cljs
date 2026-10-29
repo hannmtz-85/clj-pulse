@@ -18,8 +18,22 @@
   [db _]
   (:me db))
 
+(defn route
+  "Where the workspace is, `{:name :params}` (see `pulse.spa.route`), or nil before the history of the browser has said."
+  [db _]
+  (:route db))
+
+(defn panel
+  "The state of the panel (see `pulse.spa.panel`), or nil when the person is not on it."
+  [db _]
+  (:panel db))
+
 (rf/reg-sub ::status status)
 
 (rf/reg-sub ::person person)
 
 (rf/reg-sub ::me me)
+
+(rf/reg-sub ::route route)
+
+(rf/reg-sub ::panel panel)

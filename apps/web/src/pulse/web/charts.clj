@@ -6,8 +6,8 @@
   served."
   (:require [pulse.fhir.ranges :as ranges]
             [pulse.ui.chart :as chart]
-            [pulse.web.format :as fmt]
-            [pulse.web.views :as views])
+            [pulse.view.format :as fmt]
+            [pulse.view.views :as views])
   (:import (java.time Instant)))
 
 ;; ---------------------------------------------------------------------------

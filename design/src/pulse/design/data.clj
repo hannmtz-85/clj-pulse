@@ -12,7 +12,7 @@
             [pulse.fhir.ranges :as ranges]
             [pulse.fhir.synthetic :as synthetic]
             [pulse.fhir.time :as time]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Instant)))
 
 (def now-text "2026-10-13T12:00:00Z")
@@ -81,6 +81,19 @@
   [practitioner-id]
   (filterv #(= practitioner-id (:practitioner %)) (patients)))
 
+(defn patient-list
+  "What `GET /api/patients` answers a caller, `{:total :offset :limit :items}`: the patients of the panel of the practitioner
+  `practitioner-id`, or every patient for nil (the administrator), by family name, the page of them that `limit` (20 by default) and
+  `offset` say, each as a row of the panel (`:id :name :family :given :birthDate :gender :identifier`)."
+  ([practitioner-id] (patient-list practitioner-id nil))
+  ([practitioner-id {:keys [limit offset] :or {limit 20 offset 0}}]
+   (let [found (if practitioner-id (panel-of practitioner-id) (patients))]
+     {:total (count found)
+      :offset offset
+      :limit limit
+      :items (vec (for [patient (take limit (drop offset found))]
+                    (select-keys patient [:id :name :family :given :birthDate :gender :identifier])))})))
+
 ;; ---------------------------------------------------------------------------
 ;; Readings
 
@@ -122,7 +135,7 @@
   (peek (readings patient-id kind)))
 
 (def kinds
-  "The measurements the interfaces show, in the order they are shown (those of `pulse.web.views`)."
+  "The measurements the interfaces show, in the order they are shown (those of `pulse.view.views`)."
   views/kinds)
 
 (defn vitals
@@ -261,6 +274,22 @@
     :since "2026-10-12T08:30:00Z" :until nil}
    {:id "flag-pt-liam-R3" :patient "Patient/pt-liam" :text "Glucose out of range" :status "inactive"
     :since "2026-10-11T20:30:00Z" :until "2026-10-13T07:40:00Z"}])
+
+(defn alert-page
+  "What `GET /api/alerts` answers a caller: the alerts of their scope in `status` (`active` by default, or `inactive`), ordered by when
+  they were raised (`-since`, the newest first, by default, or `since`) with ties by id, and the page of them that `limit` and
+  `offset` say, `{:total :offset :limit :items}`. `practitioner-id` is the practitioner whose panel it is, or nil for the administrator,
+  who sees every patient's."
+  ([practitioner-id] (alert-page practitioner-id nil))
+  ([practitioner-id {:keys [status sort limit offset] :or {status "active" sort "-since" limit 50 offset 0}}]
+   (let [panel (when practitioner-id (set (map #(str "Patient/" (:id %)) (panel-of practitioner-id))))
+         wanted (filter #(and (= status (:status %)) (or (nil? panel) (contains? panel (:patient %)))) alerts)
+         ordered (cond-> (sort-by (juxt :since :id) wanted)
+                   (= "-since" sort) reverse)]
+     {:total (count ordered)
+      :offset offset
+      :limit limit
+      :items (vec (take limit (drop offset ordered)))})))
 
 ;; ---------------------------------------------------------------------------
 ;; The jobs of the scheduler

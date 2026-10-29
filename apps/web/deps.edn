@@ -7,6 +7,8 @@
         pulse/fhir {:local/root "../../libs/fhir"}
         ;; The components of the interface, which the pages are made of
         pulse/ui {:local/root "../../libs/ui"}
+        ;; How a time, a number and a reading are written, which the portal and the clinical workspace write alike (ADR-0029)
+        pulse/view {:local/root "../../libs/view"}
         ;; The pages are hiccup, written as HTML by Hiccup 2 (the review of the mock-ups does the same)
         hiccup/hiccup {:mvn/version "2.0.0"}
         ;; The check of the CSRF token of a request that changes something (ADR-0028, point 6)

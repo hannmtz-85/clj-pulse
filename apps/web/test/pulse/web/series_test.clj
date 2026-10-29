@@ -5,7 +5,7 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (defn- r [id at value] {:id id :at at :value value})
 

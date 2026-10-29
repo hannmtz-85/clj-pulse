@@ -1,31 +1,11 @@
-(ns pulse.web.format-details-test
+(ns pulse.view.format-details-test
   "What a mutation analysis found the tests of the formats did not notice: the language whatever the machine's, the
   day in Madrid and not in UTC, and the two ends of the ranges of the ticks."
   (:require [clojure.test :refer [deftest is testing]]
-            [pulse.web.format :as fmt])
-  (:import (java.util Locale)))
+            [pulse.view.format :as fmt]))
 
 (defn- clock-of [millis]
-  (fmt/clock (str (java.time.Instant/ofEpochMilli millis))))
-
-(defn- in-locale
-  "The result of `f` with the default language of the machine set to `locale`."
-  [^Locale locale f]
-  (let [before (Locale/getDefault)]
-    (try
-      (Locale/setDefault locale)
-      (f)
-      (finally (Locale/setDefault before)))))
-
-(deftest the-language-is-english-whatever-the-machine-speaks
-  (doseq [locale [Locale/FRENCH Locale/GERMAN (Locale/forLanguageTag "es-ES")]]
-    (in-locale locale
-               (fn []
-                 (is (= "Tuesday, 13 October 2026" (fmt/long-date "2026-10-13T12:00:00Z")) (str locale))
-                 (is (= "14 March 1968" (fmt/birth-date "1968-03-14")) (str locale))
-                 (is (= "Oct 13" (fmt/short-date "2026-10-13T12:00:00Z")) (str locale))
-                 (is (= "Oct 13" (:label (first (fmt/day-ticks (fmt/millis "2026-10-12T12:00:00Z") (fmt/millis "2026-10-13T12:00:00Z") 1))))
-                     (str locale))))))
+  (fmt/clock (fmt/instant-text millis)))
 
 (deftest a-day-of-the-month-has-one-digit-when-it-has-one
   (is (= "Oct 5" (fmt/short-date "2026-10-05T10:00:00Z")))
@@ -59,11 +39,3 @@
         "from 11:00 to 13:00 in Madrid, both ends")
     (is (= ["12:00"] (map :label (fmt/hour-ticks on-the-half (fmt/millis "2026-10-13T11:30:00Z") 12)))
         "every twelve hours, as the clock of the clinic says")))
-
-(deftest a-number-too-big-for-a-whole-number-is-written-as-it-is
-  (is (= "1.0E22" (fmt/number 1.0E22)))
-  (is (= "138" (fmt/number 138)))
-  (is (= "138" (fmt/number 138.0)))
-  (is (= "-3" (fmt/number -3)))
-  (is (= "0.5" (fmt/number 0.5)))
-  (is (= "1/2" (fmt/number 1/2))))

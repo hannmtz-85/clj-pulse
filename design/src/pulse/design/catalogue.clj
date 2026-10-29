@@ -6,7 +6,7 @@
             [pulse.design.specimen :as specimen]
             [pulse.design.tile :as tile]
             [pulse.ui.component :as c]
-            [pulse.web.format :as fmt]))
+            [pulse.view.format :as fmt]))
 
 (defn- frame [{:keys [pages themes]} file title & content]
   (apply chrome/page {:title title :pages pages :file file :themes themes} content))

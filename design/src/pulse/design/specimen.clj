@@ -6,8 +6,8 @@
   (:require [pulse.design.data :as data]
             [pulse.ui.chart :as chart]
             [pulse.web.charts :as charts]
-            [pulse.web.format :as fmt]
-            [pulse.web.views :as web-views])
+            [pulse.view.format :as fmt]
+            [pulse.view.views :as web-views])
   (:import (java.time Instant)))
 
 (defn vital-tile

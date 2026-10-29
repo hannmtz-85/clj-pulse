@@ -1,8 +1,8 @@
-(ns pulse.web.views
-  "What the pages of the portal show of what the api answers (ADR-0028): the words of a reading and of an appointment, made from
+(ns pulse.view.views
+  "What the pages of the interfaces show of what the api answers (ADR-0028, ADR-0029): the words of a reading and of an appointment, made from
   the data in the shapes of the api. It is the layer between those shapes and the components of `libs/ui`: pure, free of Ring,
   and loaded by Babashka for the mock-ups of the review, which give it the synthetic cohort, so that what is reviewed is what
-  is served.
+  is served. The clinical workspace, in the browser, uses them too.
 
   A reading is `{:id :at :unit :band}` and its numbers, `:value` or `:systolic` and `:diastolic` (`pulse.api.observations`); an
   appointment is `{:id :status :description :start :end :requestedStart :requestedEnd :practitioner :reason}`
@@ -11,7 +11,7 @@
   (:require [clojure.string :as str]
             [pulse.fhir.appointment :as lifecycle]
             [pulse.ui.component :as c]
-            [pulse.web.format :as fmt]))
+            [pulse.view.format :as fmt]))
 
 ;; ---------------------------------------------------------------------------
 ;; Text
@@ -142,6 +142,14 @@
   (let [{:keys [reference name]} (:generalPractitioner me)]
     (if reference {reference name} {})))
 
+(def ^:private latest-ms
+  "Later than any moment an appointment can be at, for what has no time that can be read."
+  #?(:clj Long/MAX_VALUE :cljs js/Number.MAX_SAFE_INTEGER))
+
+(def ^:private earliest-ms
+  "Earlier than any moment an appointment can be at."
+  #?(:clj Long/MIN_VALUE :cljs js/Number.MIN_SAFE_INTEGER))
+
 (defn- moment-ms
   "When an appointment of the api is, or is asked to be, in epoch milliseconds: its start, or else the start of the window that was
   asked for. Nil when it has neither, or neither can be read."
@@ -161,8 +169,8 @@
   `:cancelled`, newest first. An appointment with no time that can be read comes last of its section. `doctors` is as in
   `appointment-row`."
   [items doctors now]
-  (let [soonest (fn [items] (sort-by (juxt #(or (moment-ms %) Long/MAX_VALUE) #(str (:id %))) items))
-        newest (fn [items] (reverse (sort-by (juxt #(or (moment-ms %) Long/MIN_VALUE) #(str (:id %))) items)))
+  (let [soonest (fn [items] (sort-by (juxt #(or (moment-ms %) latest-ms) #(str (:id %))) items))
+        newest (fn [items] (reverse (sort-by (juxt #(or (moment-ms %) earliest-ms) #(str (:id %))) items)))
         section (fn [appointment] (cond (= "cancelled" (:status appointment)) :cancelled
                                         (begun? appointment now) :earlier
                                         :else :coming))

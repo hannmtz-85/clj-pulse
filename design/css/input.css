@@ -8,4 +8,5 @@
    sources that write classes are listed here. */
 @source "../../libs/ui/src";
 @source "../../apps/web/src";
+@source "../../apps/spa/src";
 @source "../src";

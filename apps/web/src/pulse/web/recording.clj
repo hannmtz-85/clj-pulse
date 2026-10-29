@@ -10,9 +10,9 @@
   are what the person reads."
   (:require [clojure.string :as str]
             [pulse.fhir.measurement :as measurement]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.refusal :as refusal]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Duration Instant LocalDateTime ZonedDateTime)
            (java.time.format DateTimeParseException)
            (java.time.temporal ChronoUnit)))

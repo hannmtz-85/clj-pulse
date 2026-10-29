@@ -10,7 +10,7 @@
             [malli.core :as m]
             [pulse.api.appointments :as api-appointments]
             [pulse.fhir.appointment :as lifecycle]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.visits :as visits])
   (:import (java.time Duration Instant LocalDate ZonedDateTime)
            (java.time.format DateTimeFormatter)

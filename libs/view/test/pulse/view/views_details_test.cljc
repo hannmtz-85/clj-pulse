@@ -1,8 +1,8 @@
-(ns pulse.web.views-details-test
+(ns pulse.view.views-details-test
   "What a mutation analysis found that the tests of the words of a reading did not notice: the name and the icon of each
   measurement, as the owner approved them in the mock-ups."
   (:require [clojure.test :refer [deftest is]]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (deftest each-measurement-is-named-as-the-mock-ups-name-it
   (is (= {:blood-pressure "Blood pressure"

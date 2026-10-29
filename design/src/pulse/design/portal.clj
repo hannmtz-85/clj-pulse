@@ -8,7 +8,7 @@
             [pulse.fhir.measurement :as measurement]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.pages :as pages]
             [pulse.web.pages.appointments :as appointments-page]
             [pulse.web.pages.home :as home-page]
@@ -18,7 +18,7 @@
             [pulse.web.pages.readings :as readings-page]
             [pulse.web.pages.record :as record-page]
             [pulse.web.recording :as recording]
-            [pulse.web.views :as web-views])
+            [pulse.view.views :as web-views])
   (:import (java.time Duration)))
 
 (defn- link [file] (mockup/href file))

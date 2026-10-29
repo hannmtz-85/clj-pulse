@@ -1,8 +1,8 @@
-(ns pulse.web.views-appointments-test
+(ns pulse.view.views-appointments-test
   "Details of the list of appointments that a mutation analysis found nobody was holding (ADR-0028): which time an appointment is ordered by
   when it has two, and where what has no time that can be read comes in each list."
   (:require [clojure.test :refer [deftest is testing]]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (def ^:private now "2026-10-13T12:00:00Z")
 

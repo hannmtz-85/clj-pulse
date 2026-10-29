@@ -31,7 +31,7 @@
             [pulse.web.pages :as pages]
             [pulse.web.pages.parts :as parts]
             [pulse.web.refusal :as refusal]
-            [pulse.web.views :as views]
+            [pulse.view.views :as views]
             [pulse.web.visits :as visits]))
 
 (def list-limit

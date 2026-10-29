@@ -5,7 +5,8 @@
 
   Where each page is comes in `links` (`:panel`, `:alerts`, `:appointments`, `:jobs`): **a link that is not in `links` is a page
   that the workspace does not have yet, and the item that would lead there is not there**, as in the portal."
-  (:require [pulse.ui.layout :as layout]))
+  (:require [pulse.spa.person :as person]
+            [pulse.ui.layout :as layout]))
 
 (defn nav
   "The groups of the sidebar, from the pages that exist (`links`, the address of each). The administrator has one more group,
@@ -39,4 +40,22 @@
           :user-detail (:detail person)
           :menu-button? false
           :theme-button? false}
+         content))
+
+(defn frame
+  "The workspace around a page of the person who is signed in: the shell with the sidebar of the pages there are, the header and the
+  menu of the person. `options` are `:current` (the id of the item of this page), `:person` (who is signed in), `:me` (what the api
+  said of them: see `pulse.spa.person/display`), `:links` (where the pages are: see `nav`), `:handlers` (`:sign-out`, which puts
+  \"Sign out\" in the menu of the person, and `:search`, a function of the text typed in the box, which puts the box in the header) and
+  `:search-value` (what the box holds). The children are the page."
+  [{:keys [current person me links handlers search-value]} & content]
+  (apply shell
+         {:current current
+          :person (person/display person me)
+          :nav (nav {:admin? (person/admin? person)} links)
+          :search (when-let [on-search (:search handlers)]
+                    {:id "search" :name "q" :label "Search patients" :placeholder "Search patients"
+                     :value (or search-value "") :on-change on-search :autocomplete "off"})
+          :menu (when-let [sign-out (:sign-out handlers)]
+                  [{:label "Sign out" :icon :log-out :on-click sign-out}])}
          content))

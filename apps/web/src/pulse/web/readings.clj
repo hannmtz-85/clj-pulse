@@ -15,7 +15,7 @@
             [pulse.web.api :as api]
             [pulse.web.authz :as authz]
             [pulse.web.errors :as errors]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.html :as html]
             [pulse.web.pages :as pages]
             [pulse.web.pages.reading-form :as reading-form]
@@ -23,7 +23,7 @@
             [pulse.web.recording :as recording]
             [pulse.web.return-to :as return-to]
             [pulse.web.session :as session]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Clock Duration Instant)
            (java.time.temporal ChronoUnit)))
 

@@ -9,8 +9,8 @@
   (:require [clojure.string :as str]
             [pulse.fhir.appointment :as appointment]
             [pulse.ui.component :as c]
-            [pulse.web.format :as fmt]
-            [pulse.web.views :as views]))
+            [pulse.view.format :as fmt]
+            [pulse.view.views :as views]))
 
 (defn section-heading
   "The heading of a section of a page, with the `id` that the section names itself by (`aria-labelledby`)."
@@ -34,7 +34,7 @@
 (defn appointment-item
   "A row of a list of appointments of a patient: the day, or a clock for a request, what it is, with whom and when (or the
   days that were asked for), its status, and what the patient may do, which is the lifecycle's to say (ADR-0027): cancel a
-  confirmed appointment, until it begins, or withdraw a request. `row` is `pulse.web.views/appointment-row`, `now` the
+  confirmed appointment, until it begins, or withdraw a request. `row` is `pulse.view.views/appointment-row`, `now` the
   instant it is."
   [{:keys [status description doctor month day reason asked] when-text :when :as row} links now]
   (c/list-row
@@ -48,7 +48,7 @@
 
 (defn readings-grid
   "The tiles of the latest readings: one for each measurement that has a usable one in `vitals`, a map from the measurement to
-  its latest reading (nil for none), in the order of `pulse.web.views/kinds`."
+  its latest reading (nil for none), in the order of `pulse.view.views/kinds`."
   [vitals now]
   (into [:div {:class "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"}]
         (for [kind views/kinds

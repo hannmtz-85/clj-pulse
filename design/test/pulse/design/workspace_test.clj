@@ -48,12 +48,13 @@
 
 (deftest the-panel-says-how-many-patients-and-what-needs-a-look
   (let [doc (workspace/panel context)]
+    (is (= ["Panel · Pulse"] (map hx/words (hx/by-tag doc :title))) "the title of the page of the review")
     (is (= ["Your panel"] (map hx/words (hx/by-tag doc :h1))))
     (is (str/includes? (words-of-main doc) "The 4 patients you look after, the most urgent first."))
     (is (= [["Patients" "4"]
             ["Active alerts" "2" "1 acknowledged today"]
             ["To confirm" "2" "requests for a visit"]
-            ["Readings" "18" "in the last 24 hours"]]
+            ["Away from normal" "3" "outside the normal range"]]
            (stats doc)))
     (testing "the alerts are in the colour of what needs attention, and nothing else is"
       (let [alert-stat (second (hx/select (main-of doc) #(and (= :div (hx/tag %)) (hx/has-class? % "shadow-card") (hx/has-class? % "p-4"))))]

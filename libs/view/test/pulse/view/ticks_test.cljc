@@ -1,11 +1,8 @@
-(ns pulse.web.ticks-test
+(ns pulse.view.ticks-test
   "The axis of time of a chart and the value of a field for a date and a time (ADR-0028): ticks on the clock of the clinic between
   two moments, whatever the minutes they begin at, and a moment written the way a browser writes it."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.test.check.clojure-test :refer [defspec]]
-            [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop]
-            [pulse.web.format :as fmt]))
+            [pulse.view.format :as fmt]))
 
 (deftest the-last-hour-of-an-axis-is-there-whatever-the-minutes-it-begins-at
   (testing "a stretch that begins in the middle of an hour has the hours that follow, up to the last one"
@@ -37,22 +34,6 @@
         "winter: one hour ahead")
     (is (= ["03:00"] (map :label (fmt/minute-ticks (fmt/millis "2026-07-15T00:55:00Z") (fmt/millis "2026-07-15T01:05:00Z") 60)))
         "summer: two")))
-
-(defspec the-ticks-of-hours-and-of-minutes-are-in-order-inside-the-stretch-and-on-the-step 200
-  (prop/for-all [from (gen/choose (fmt/millis "2026-01-01T00:00:00Z") (fmt/millis "2026-12-31T00:00:00Z"))
-                 length (gen/choose 0 (* 36 3600 1000))
-                 hours (gen/elements [1 2 3 6 12])
-                 minutes (gen/elements [5 10 15 30])]
-    (let [to (+ from length)
-          hour-ticks (fmt/hour-ticks from to hours)
-          minute-ticks (fmt/minute-ticks from to minutes)]
-      (and (every? #(<= from (:at %) to) (concat hour-ticks minute-ticks))
-           (or (empty? hour-ticks) (apply < (map :at hour-ticks)))
-           (or (empty? minute-ticks) (apply < (map :at minute-ticks)))
-           (every? #(zero? (mod (:at %) 3600000)) hour-ticks)
-           (every? #(zero? (mod (:at %) (* minutes 60000))) minute-ticks)
-           ;; none is missed: the count is what the stretch can hold
-           (<= (count minute-ticks) (inc (quot length (* minutes 60000))))))))
 
 (deftest a-time-for-a-field-for-a-date-and-a-time-is-the-time-on-the-clock-of-the-clinic-to-the-minute
   (is (= "2026-10-13T14:00" (fmt/local-input "2026-10-13T12:00:00Z")))

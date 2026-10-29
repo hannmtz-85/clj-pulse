@@ -20,6 +20,9 @@
           {:id :ui
            :test-paths ["libs/ui/test"]
            :ns-patterns ["-test$"]}
+          {:id :view
+           :test-paths ["libs/view/test"]
+           :ns-patterns ["-test$"]}
           {:id :tools
            :test-paths ["tools/test"]
            :ns-patterns ["-test$"]}

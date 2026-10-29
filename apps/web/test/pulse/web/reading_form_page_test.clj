@@ -13,7 +13,7 @@
             [pulse.web.html :as html]
             [pulse.web.pages.reading-form :as form]
             [pulse.web.recording :as recording]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (def ^:private links {:new-reading "/readings/new" :readings "/readings"})
 

@@ -10,10 +10,12 @@
             [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
             [pulse.fhir.appointment :as appointment]
+            [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.panel :as panel]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
-            [pulse.web.format :as fmt]
-            [pulse.web.views :as web-views])
+            [pulse.view.format :as fmt]
+            [pulse.view.views :as web-views])
   (:import (java.time LocalDate)))
 
 (def practitioner-id "pr-rivera")
@@ -73,75 +75,52 @@
 ;; ---------------------------------------------------------------------------
 ;; The panel
 
-(defn- latest-cell [patient-id]
-  (if-let [{:keys [kind reading]} (views/headline patient-id)]
-    [:div
-     [:p {:class "font-medium whitespace-nowrap"} (str (web-views/reading-text kind reading) " " (fmt/unit (:unit reading)))]
-     [:p {:class "text-xs text-muted"} (str (get-in web-views/kind-info [kind :label]) ", " (fmt/when-phrase (:at reading) data/now-text))]]
-    "–"))
+(defn- requests-page
+  "What `GET /api/appointments?status=proposed` answers the practitioner (or the administrator, for nil): the requests for a visit that
+  they take part in."
+  [practitioner-id]
+  (let [mine (str "Practitioner/" practitioner-id)]
+    (data/appointment-page (filter #(or (nil? practitioner-id) (= mine (:practitioner %)))
+                                   (concat (data/appointments) data/other-appointments))
+                           {:status "proposed" :limit 1})))
 
-(defn- next-visit [patient-id]
-  (or (:when (first (filter #(= "booked" (:status %)) (views/appointments-of patient-id)))) "–"))
+(defn- loaded [body]
+  {:state :loaded :data body})
 
-(defn- panel-row [patient-id]
-  (let [{:keys [name identifier birthDate]} (data/patient patient-id)
-        band (data/worst-band patient-id)
-        {:keys [kind]} (views/headline patient-id)
-        alerts (views/active-alerts patient-id)]
-    {:patient [:a {:href (chart-link patient-id) :class "flex items-center gap-3 hover:underline"}
-               (c/avatar {:name name})
-               [:span [:span {:class "block font-medium"} name]
-                [:span {:class "block text-xs font-normal text-muted"} (str identifier " · " (fmt/age birthDate data/now-text) " years")]]]
-     :status (if band
-               (c/band-badge band {:size :sm})
-               (c/tone-badge {:tone :info :icon :clock :size :sm} "No readings yet"))
-     :latest (latest-cell patient-id)
-     :trend (when kind (specimen/sparkline patient-id kind 14))
-     :alerts (if (pos? alerts)
-               (c/tone-badge {:tone :critical :icon :bell-ring :size :sm} (str alerts " active"))
-               [:span {:class "text-muted"} "None"])
-     :next (next-visit patient-id)}))
+(defn panel-state
+  "What the panel of the workspace is a function of when it has loaded: the state `pulse.spa.panel` keeps, made from what the api
+  answers, from the cohort at the moment of the mock-ups, for the practitioner `practitioner-id` (or every patient, for nil)."
+  [practitioner-id]
+  (let [patients (data/patient-list practitioner-id {:limit panel/list-limit})
+        from (fmt/instant-text (- (fmt/millis data/now-text) (* panel/series-days 86400000)))]
+    (panel/with-order
+      {:now data/now-text
+       :list (loaded patients)
+       :rows (into {}
+                   (for [{:keys [id]} (:items patients)
+                         :let [summary (data/summary id)
+                               head (panel/headline summary)]]
+                     [id (cond-> {:summary (loaded summary)}
+                           head (assoc :series (loaded (data/series id (:kind head) {:from from :limit panel/series-limit}))))]))
+       :inbox {:active (loaded (data/alert-page practitioner-id {:limit 1}))
+               :acknowledged (loaded (data/alert-page practitioner-id {:status "inactive" :limit 100}))
+               :requests (loaded (requests-page practitioner-id))}
+       :queue []
+       :inflight #{}})))
 
-(defn- panel-table [patient-ids]
-  (c/data-table
-   {:caption "Patients of your panel, the most urgent first"
-    :columns [{:key :patient :label "Patient" :header? true :class "whitespace-nowrap"}
-              {:key :status :label "Status"}
-              {:key :latest :label "Latest reading"}
-              {:key :trend :label "Last 14 days"}
-              {:key :alerts :label "Alerts"}
-              {:key :next :label "Next visit" :class "hidden xl:table-cell"}]
-    :rows (map panel-row patient-ids)}))
-
-(defn- readings-in-the-last-day [patient-ids]
-  (reduce + (for [id patient-ids kind data/kinds]
-              (count (specimen/within (data/readings id kind) 1)))))
+(def panel-links
+  "Where the buttons and names of the panel lead in the mock-ups, which have every page: the chart of each patient there is one of, and
+  the pills, which the mock-up does not make work."
+  {:panel (link "workspace-panel.html")
+   :filter (constantly "#")
+   :patient chart-link})
 
 (defn panel
-  "The panel of a practitioner: the figures that need a look, a filter, and the patients with the most urgent first."
+  "The panel of a practitioner: the figures that need a look, a filter, and the patients with the most urgent first. The page is the
+  one the workspace serves (`pulse.spa.pages.panel`), made from the cohort."
   [_context]
-  (let [ids (views/by-urgency (map :id (data/panel-of practitioner-id)))
-        with-alerts (count (filter #(pos? (views/active-alerts %)) ids))
-        away (count (filter #(pos? (views/severity %)) ids))
-        acknowledged (count (remove :active? (alerts-of practitioner-id)))
-        requests (count (filter #(and (= "proposed" (:status %)) (= practitioner-id (get-in % [:patient :practitioner])))
-                                (views/appointment-rows)))]
-    (page {:title "Panel" :current :panel}
-          [:div {:class "space-y-6"}
-           (c/page-header {:title "Your panel"
-                           :description (str "The " (count ids) " patients you look after, the most urgent first.")})
-           [:div {:class "grid gap-4 sm:grid-cols-2 xl:grid-cols-4"}
-            (c/stat {:label "Patients" :value (str (count ids)) :icon :users})
-            (c/stat {:label "Active alerts" :value (str with-alerts) :icon :bell-ring :tone (when (pos? with-alerts) :critical)
-                     :hint (str acknowledged " acknowledged today")})
-            (c/stat {:label "To confirm" :value (str requests) :icon :calendar-clock :hint "requests for a visit"})
-            (c/stat {:label "Readings" :value (str (readings-in-the-last-day ids)) :icon :activity :hint "in the last 24 hours"})]
-           (c/pill-nav {:label "Filter the panel"
-                        :items [{:href "#" :label "All" :count (count ids) :current? true}
-                                {:href "#" :label "With active alerts" :count with-alerts}
-                                {:href "#" :label "Away from normal" :count away}
-                                {:href "#" :label "Normal" :count (- (count ids) away)}]})
-           (panel-table ids)])))
+  (page {:title "Panel" :current :panel}
+        (panel-page/content (panel-state practitioner-id) {:show :all :q ""} {:admin? false :links panel-links})))
 
 ;; ---------------------------------------------------------------------------
 ;; The chart of a patient

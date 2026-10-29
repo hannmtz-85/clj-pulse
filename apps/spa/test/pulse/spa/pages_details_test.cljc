@@ -1,8 +1,8 @@
 (ns pulse.spa.pages-details-test
   "What the mutation analysis of the pages found that `pages-test` did not pin (Phase 8, step 3): the icons of the sidebar, the words
-  a screen reader is given while the person waits, what the card says on its own, and the one role the sidebar names."
+  a screen reader is given while the person waits and the one role the sidebar names."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is]]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.pages.start :as start]
             [pulse.ui.test.hiccup :as hx]))
@@ -30,26 +30,14 @@
     (is (some? status))
     (is (= "Signing in" (hx/words status)) "the words of the spinner itself, not the title of the card around it")))
 
-(deftest the-card-says-who-the-person-is-on-its-own
-  (let [card (start/content {:id "x" :username "dr.rivera@pulse.test" :name "Elena Rivera" :roles #{:practitioner}})
-        words (hx/words card)]
-    (is (str/includes? words "Name"))
-    (is (str/includes? words "Elena Rivera"))
-    (is (str/includes? words "Username"))
-    (is (str/includes? words "dr.rivera@pulse.test"))
-    (is (str/includes? words "Role"))
-    (is (str/includes? words "Practitioner"))))
-
-(deftest the-sidebar-names-the-first-role-and-the-card-names-them-all
+(deftest the-sidebar-names-the-first-role-of-the-person
   (let [person {:id "x" :username "u" :name "Someone" :roles #{:patient :practitioner :clinic-admin}}
-        page (start/signed-in person {:links links})
+        page (shell/frame {:current :panel :person person :links links} [:h1 "T"])
         sidebar (hx/words (first (hx/by-tag page :aside)))]
     (is (str/includes? sidebar "Someone"))
-    (is (str/includes? sidebar "Clinic administrator") "the first of the roles, in the order of the card")
+    (is (str/includes? sidebar "Clinic administrator") "the first of the roles")
     (is (not (str/includes? sidebar "Patient")))
-    (is (not (str/includes? sidebar "Practitioner")))
-    (testing "and the card names every one, in that order"
-      (is (str/includes? (hx/words (start/content person)) "Clinic administrator, Practitioner, Patient")))))
+    (is (not (str/includes? sidebar "Practitioner")))))
 
 (deftest the-failure-page-says-what-happened-and-the-button-what-to-do
   (let [page (start/failed {:retry (fn [])})]

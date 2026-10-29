@@ -1,12 +1,12 @@
-(ns pulse.web.format-test
+(ns pulse.view.format-test
   "How the interfaces write times and numbers: in the zone of the clinic, in English, and the same on every machine."
   (:require [clojure.test :refer [deftest is testing]]
-            [pulse.web.format :as fmt]))
+            [pulse.view.format :as fmt]))
 
 (def ^:private now "2026-10-13T12:00:00Z")
 
 (defn- clock-of [millis]
-  (fmt/clock (str (java.time.Instant/ofEpochMilli millis))))
+  (fmt/clock (fmt/instant-text millis)))
 
 (deftest a-time-is-the-time-of-the-clinic
   (is (= "10:00" (fmt/clock "2026-10-13T08:00:00Z")) "summer time: two hours ahead of UTC")

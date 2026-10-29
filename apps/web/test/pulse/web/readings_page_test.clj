@@ -9,7 +9,7 @@
             [pulse.ui.test.hiccup :as hx]
             [pulse.web.html :as html]
             [pulse.web.pages.readings :as readings]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (def ^:private links
   {:readings "/readings" :new-reading "/readings/new" :retry "/readings?measurement=blood-pressure&days=30"})

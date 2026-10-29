@@ -5,7 +5,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [pulse.spa.hiccup :as hiccup]
+            [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.pages.shell :as shell]
             [pulse.spa.pages.start :as start]
+            [pulse.spa.panel :as panel]
+            [pulse.spa.test.panel-fixtures :as fx]
             [pulse.ui.chart :as chart]
             [pulse.ui.component :as c]
             [reagent.dom.server :as server]))
@@ -36,16 +40,41 @@
                      :thresholds [{:at 150 :tone :high :label "R1"}]
                      :series [{:label "Systolic" :unit "mmHg" :points [[1 120] [2 126] [3 131] [4 160]]}]}))
 
+(defn- frame [person options]
+  (shell/frame (merge {:current :panel :person person :links links} options) [:h1 "Panel"]))
+
+(def ^:private sam {:id "s1" :username "admin@pulse.test" :name "Sam Admin" :roles #{:clinic-admin}})
+
+(defn- the-panel [state params person]
+  (panel-page/page state params {:person person
+                                 :links {:panel "/" :filter (fn [show] (str "/?show=" (name show)))}
+                                 :handlers {:retry (fn []) :sign-out (fn []) :search (fn [_])}}))
+
 (def ^:private pages
   {"the wait" (start/starting)
    "the failure" (start/failed {:retry (fn [])})
-   "the person who is signed in" (start/signed-in rivera {:links links})
-   "the person who is signed in, with the menu that signs out and what the api said" (start/signed-in rivera {:links links
-                                                                                                              :handlers {:sign-out (fn [])}
-                                                                                                              :me {:state :loaded :data {:fhirUser "Practitioner/pr-rivera"}}})
+   "the frame of the person who is signed in" (frame rivera {})
+   "the frame, with the menu that signs out and what the api said" (frame rivera {:handlers {:sign-out (fn [])}
+                                                                                  :me {:state :loaded :data {:resource {:name [{:prefix ["Dr."] :given ["Elena"] :family "Rivera"}]}}}})
    "a person the workspace is not for" (start/refused {:links {:portal "http://localhost:3300"} :handlers {:sign-out (fn [])}})
    "someone who has signed out" (start/signed-out {:links {:sign-in "/"}})
    "a sign-in that the api did not accept" (start/unauthorized {:links {:sign-in "/"}})
+   "an address that is no page" (start/not-found {:person rivera :links {:panel "/"} :handlers {:sign-out (fn [])}})
+   "a page that is not for the person" (start/not-allowed {:person rivera :links {:panel "/"}})
+   "the panel before it begins" (the-panel nil {:show :all :q ""} rivera)
+   "the panel with the list on its way" (the-panel (panel/start fx/now) {:show :all :q ""} rivera)
+   "the panel, loaded" (the-panel (fx/settled) {:show :all :q ""} rivera)
+   "the panel of the administrator" (the-panel (fx/settled) {:show :all :q ""} sam)
+   "the panel, narrowed by a filter" (the-panel (fx/settled) {:show :alerts :q ""} rivera)
+   "the panel, narrowed by a search that finds nobody" (the-panel (fx/settled) {:show :all :q "zzz"} rivera)
+   "the panel whose list could not be loaded" (the-panel (assoc (fx/settled) :list fx/failed :rows {} :order []) {:show :all :q ""} rivera)
+   "the panel with patients that could not be loaded" (the-panel (-> (fx/settled)
+                                                                     (assoc-in [:rows "pt-liam" :summary] fx/failed)
+                                                                     (assoc-in [:rows "pt-ana" :series] fx/failed))
+                                                                 {:show :all :q ""} rivera)
+   "the panel with figures that could not be loaded" (the-panel (assoc-in (fx/settled) [:inbox :active] fx/failed) {:show :all :q ""} rivera)
+   "the panel with no patients" (the-panel (-> (fx/settled) (assoc-in [:list :data] {:total 0 :offset 0 :limit 100 :items []}) (assoc :rows {} :order []))
+                                           {:show :all :q ""} rivera)
    "a chart and its table" [:div a-chart]
    "a table that scrolls" (c/data-table {:caption "Patients" :columns [{:key :name :label "Name"}] :rows [{:name "Ana"} {:name "Liam"}]})})
 
@@ -72,17 +101,36 @@
       (is (not (str/includes? made "[object Object]"))))))
 
 (deftest the-person-who-is-signed-in-is-on-the-page
-  (let [{:keys [html]} (rendered (hiccup/->reagent (start/signed-in rivera {:links links})))]
+  (let [{:keys [html]} (rendered (hiccup/->reagent (frame rivera {})))]
     (is (str/includes? html "Elena Rivera"))
-    (is (str/includes? html "dr.rivera@pulse.test"))
-    (is (str/includes? html "Practitioner"))
-    (is (str/includes? html "You are signed in"))))
+    (is (str/includes? html "Practitioner"))))
+
+(deftest the-panel-is-on-the-page-with-its-patients-and-its-sparklines
+  (let [{:keys [html messages]} (rendered (hiccup/->reagent (the-panel (fx/settled) {:show :all :q ""} rivera)))]
+    (is (= [] messages))
+    (doseq [text ["Your panel" "Ana García" "Sofía Rossi" "Liam Chen" "Omar Haddad" "Noah Kim" "Very high" "177/100" "Active alerts"
+                  "Away from normal" "With active alerts" "Blood pressure over the last 14 days"]]
+      (is (str/includes? html text) text))
+    (is (= 4 (count (re-seq #"<svg[^>]*role=\"img\"[^>]*aria-label=\"[^\"]* over the last 14 days\"" html))) "a sparkline for each patient who has readings")))
+
+(deftest the-search-box-is-a-field-whose-text-comes-from-the-address
+  (let [{:keys [html messages]} (rendered (hiccup/->reagent (the-panel (fx/settled) {:show :all :q "ana"} rivera)))]
+    (is (= [] messages) "a field with a value and a function to change it is a controlled field, which React takes without a word")
+    (is (str/includes? html "value=\"ana\""))))
 
 (deftest what-a-person-typed-or-a-provider-sent-is-text-and-never-markup
   (let [hostile {:id "h1" :username "<script>alert(1)</script>" :name "<img src=x onerror=alert(1)> \"quoted\" & co" :roles #{:practitioner}}
-        {:keys [html messages]} (rendered (hiccup/->reagent (start/signed-in hostile {:links links})))]
+        {:keys [html messages]} (rendered (hiccup/->reagent (frame hostile {})))]
     (is (= [] messages))
-    (is (str/includes? html "&lt;script&gt;alert(1)&lt;/script&gt;"))
     (is (str/includes? html "&lt;img src=x onerror=alert(1)&gt;"))
     (is (not (str/includes? html "<script")))
-    (is (not (str/includes? html "<img")))))
+    (is (not (str/includes? html "<img"))))
+  (testing "nor can the name of a patient"
+    (let [state (-> (fx/settled)
+                    (assoc-in [:list :data :items 1 :name] "<script>alert(1)</script>")
+                    (assoc-in [:list :data :items 1 :identifier] "<img src=x onerror=alert(1)>"))
+          {:keys [html messages]} (rendered (hiccup/->reagent (the-panel state {:show :all :q ""} rivera)))]
+      (is (= [] messages))
+      (is (str/includes? html "&lt;script&gt;alert(1)&lt;/script&gt;"))
+      (is (not (str/includes? html "<script")))
+      (is (not (str/includes? html "<img src"))))))

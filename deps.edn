@@ -7,6 +7,7 @@
   :dev {:extra-paths ["dev/repl" "dev/src"]
         :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                      pulse/platform {:local/root "libs/platform"}
+                     pulse/view {:local/root "libs/view"}
                      pulse/api {:local/root "apps/api"}
                      pulse/scheduler {:local/root "apps/scheduler"}
                      pulse/web {:local/root "apps/web"}
@@ -22,6 +23,7 @@
          :extra-deps {pulse/fhir {:local/root "libs/fhir"}
                       pulse/platform {:local/root "libs/platform"}
                       pulse/ui {:local/root "libs/ui"}
+                      pulse/view {:local/root "libs/view"}
                       pulse/api {:local/root "apps/api"}
                       pulse/scheduler {:local/root "apps/scheduler"}
                       pulse/web {:local/root "apps/web"}

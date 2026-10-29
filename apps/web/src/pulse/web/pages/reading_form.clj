@@ -21,11 +21,11 @@
   and `links` says where it leads: `:new-reading` (this page, which the forms are addressed to; required) and `:readings` (the
   button to cancel, which goes back to the readings of the measurement that was being recorded)."
   (:require [pulse.ui.component :as c]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.pages :as pages]
             [pulse.web.recording :as recording]
             [pulse.web.refusal :as refusal]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (defn- alert-of
   "The message at the top of the form: what to check when the reading was refused, or that nobody knows whether it was saved."

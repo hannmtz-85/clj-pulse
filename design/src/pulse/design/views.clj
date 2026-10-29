@@ -1,12 +1,12 @@
 (ns pulse.design.views
   "What the pages of the mock-ups of the workspace show of an appointment, an alert or a patient (ADR-0026): view models made
   from the data in the shapes of the api, as the interfaces will make them from what the api answers. What the patient portal
-  shows of an appointment is in `pulse.web.views`, which these build on."
+  shows of an appointment is in `pulse.view.views`, which these build on."
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
             [pulse.ui.tone :as tone]
-            [pulse.web.format :as fmt]
-            [pulse.web.views :as web-views]))
+            [pulse.view.format :as fmt]
+            [pulse.view.views :as web-views]))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments
@@ -15,7 +15,7 @@
   (some-> reference (str/split #"/") second data/patient))
 
 (defn appointment-row
-  "An appointment as a page of the workspace shows it: the row of `pulse.web.views/appointment-row`, with the doctor by
+  "An appointment as a page of the workspace shows it: the row of `pulse.view.views/appointment-row`, with the doctor by
   name from the cohort, and `:patient`, the view of the patient."
   [{:keys [patient] :as appointment}]
   (assoc (web-views/appointment-row appointment (data/practitioner-names)) :patient (patient-of patient)))

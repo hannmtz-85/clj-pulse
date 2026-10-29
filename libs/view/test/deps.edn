@@ -1,0 +1,4 @@
+;; Lets the tests of other projects that compile to JavaScript (the clinical workspace, on Node) take the tests of this library as a
+;; dependency, since a path outside a project is deprecated: the same `.cljc` that Kaocha runs on the JVM runs there too, which is how
+;; the browser is held to write what the JVM writes (ADR-0029). The JVM suite has the directory on its path.
+{:paths ["."]}

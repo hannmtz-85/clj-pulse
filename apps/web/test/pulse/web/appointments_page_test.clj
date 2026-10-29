@@ -12,7 +12,7 @@
             [pulse.ui.test.html :as parsed]
             [pulse.web.html :as html]
             [pulse.web.pages.appointments :as appointments]
-            [pulse.web.views :as views]
+            [pulse.view.views :as views]
             [pulse.web.visits :as visits]))
 
 (def ^:private links

@@ -23,9 +23,9 @@
   (:require [clojure.string :as str]
             [pulse.ui.component :as c]
             [pulse.web.charts :as charts]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.pages.parts :as parts]
-            [pulse.web.views :as views])
+            [pulse.view.views :as views])
   (:import (java.time Duration Instant)))
 
 (def periods
@@ -48,7 +48,7 @@
 ;; What the model says
 
 (defn offered-kinds
-  "The measurements the patient can choose between, in the order of `pulse.web.views/kinds`: those the summary has a reading of,
+  "The measurements the patient can choose between, in the order of `pulse.view.views/kinds`: those the summary has a reading of,
   those it could not load the reading of (they may have one), and `kind`, the one asked for, whatever the summary says. Of a
   summary that could not be had, all of them."
   [summary kind]

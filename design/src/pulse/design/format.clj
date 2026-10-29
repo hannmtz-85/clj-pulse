@@ -1,7 +1,7 @@
 (ns pulse.design.format
   "How the mock-ups of the workspace say what the scheduler reports (ADR-0026): an interval, a schedule, a duration and
   the name of a number in a result, as words. The times, numbers and units that every interface writes are in
-  `pulse.web.format`."
+  `pulse.view.format`."
   (:require [clojure.string :as str]))
 
 (defn- every-text [n unit]

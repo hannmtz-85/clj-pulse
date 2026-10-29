@@ -16,7 +16,7 @@
             [pulse.platform.test.oidc :as oidc-fake]
             [pulse.platform.token :as token]
             [pulse.scheduler.executor :as executor]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.session :as session]
             [ring.middleware.session.store :as store])
   (:import (java.io File)))

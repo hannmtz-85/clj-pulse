@@ -98,3 +98,46 @@
                (string? (:name p))
                (set? (:roles p))
                (every? person/roles (:roles p)))))))
+
+;; ---------------------------------------------------------------------------
+;; How the workspace writes who is signed in
+
+(deftest the-roles-are-said-in-one-order-whatever-the-order-of-the-set
+  (is (= ["Clinic administrator" "Practitioner" "Patient"] (person/role-words {:roles #{:patient :practitioner :clinic-admin}})))
+  (is (= ["Practitioner" "Patient"] (person/role-words {:roles #{:patient :practitioner}})))
+  (is (= ["Clinic administrator"] (person/role-words {:roles #{:clinic-admin :rules-engine :api-service}})) "the service roles are not said")
+  (is (= [] (person/role-words {:roles #{}})))
+  (is (= [] (person/role-words {:roles #{:rules-engine}})))
+  (is (= [] (person/role-words nil))))
+
+(def ^:private doctor {:id "r1" :username "dr.rivera@pulse.test" :name "Elena Rivera" :roles #{:practitioner}})
+
+(defn- resource-of [& {:as resource}] {:state :loaded :data {:resource resource}})
+
+(deftest the-person-is-written-as-the-identity-provider-has-them-until-the-api-says-more
+  (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor nil)))
+  (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor {:state :loading})))
+  (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor {:state :failed :kind :server})))
+  (is (= {:name "Sam Admin" :detail "Clinic administrator"} (person/display {:name "Sam Admin" :roles #{:clinic-admin}} {:state :loaded :data {:resource nil}}))
+      "the administrator has no resource of their own")
+  (is (= {:name "Ana" :detail nil} (person/display {:name "Ana" :roles #{}} nil)) "nor a role to say"))
+
+(deftest the-practitioner-is-written-as-the-clinic-writes-them-once-the-api-has-said
+  (is (= {:name "Dr. Elena Rivera" :detail "Internal medicine"}
+         (person/display doctor (resource-of :name [{:prefix ["Dr."] :given ["Elena"] :family "Rivera"}]
+                                             :qualification [{:code {:text "Internal medicine"}}]))))
+  (testing "the name and the qualification are told apart"
+    (is (= {:name "Dr. Elena Rivera" :detail "Practitioner"}
+           (person/display doctor (resource-of :name [{:prefix ["Dr."] :given ["Elena"] :family "Rivera"}]))))
+    (is (= {:name "Elena Rivera" :detail "Internal medicine"}
+           (person/display doctor (resource-of :qualification [{:code {:text "Internal medicine"}}])))))
+  (testing "all of the words of the name, in their order, and only those that are text"
+    (is (= "Dr. Ana Maria Lopez" (:name (person/display doctor (resource-of :name [{:prefix ["Dr."] :given ["Ana" "Maria"] :family "Lopez"}])))))
+    (is (= "Rivera" (:name (person/display doctor (resource-of :name [{:family "Rivera"}])))))
+    (is (= "Elena Rivera" (:name (person/display doctor (resource-of :name [{:prefix [nil "" 5] :given ["Elena" "  "] :family "Rivera"}]))))))
+  (testing "what the api gave that is not what it should be is left out, and the person is as the identity provider has them"
+    (doseq [resource [{:name "Dr. Rivera"} {:name [nil]} {:name ["x"]} {:name [{}]} {:name [{:given "Elena" :prefix {} :family 5}]} {:name []} {:qualification "x"}
+                      {:qualification [{:code "x"}]} {:qualification [{:code {:text 5}}]}]]
+      (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor {:state :loaded :data {:resource resource}})) (pr-str resource)))
+    (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor {:state :loaded :data nil})))
+    (is (= {:name "Elena Rivera" :detail "Practitioner"} (person/display doctor {:state :loaded :data {:resource "x"}})))))

@@ -9,11 +9,11 @@
   cannot. A window that is too long, a first day too far ahead and a reason that is too long are for the api to refuse, and its words
   are what the person reads.
 
-  The days of a window are days of the clinic's clock (`pulse.web.format/zone`): the window begins when the first day does and ends when
+  The days of a window are days of the clinic's clock (`pulse.view.format/zone`): the window begins when the first day does and ends when
   the last day does, so that asking from the 20th until the 20th is asking for that whole day."
   (:require [clojure.string :as str]
             [pulse.fhir.appointment :as appointment]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.refusal :as refusal])
   (:import (java.time Instant LocalDate)
            (java.time.format DateTimeParseException)

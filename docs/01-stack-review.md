@@ -75,7 +75,7 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | Reagent | 1.2.0 | **2.0.1** (2025-11) | Upgrade | **Requires React 19** and `reagent.dom.client/create-root` (replaces `reagent.dom/render`). The default compiler is still class-based; `defc` and `reagent.hooks` are optional |
 | re-frame | 1.4.3 | 1.4.7 (2026-04) | Upgrade | |
 | day8 http-fx + cljs-ajax | 0.2.4 / 0.8.4 | 0.2.4 (2022-01) / 0.8.4 (0.9.0 in beta) | Replace | In-house `:http` effect over `fetch` + `AbortController` (about 40 lines, no dependencies) |
-| reitit in the SPA | declared, unused | reitit-frontend 0.11.0 | Use | Real routing with controllers |
+| reitit in the SPA | declared, unused | reitit-frontend 0.11.0 | Use | Since Phase 8, step 5, for the history of the browser and the click on a link that stays in the workspace; the matching is `reitit.core` in a pure `.cljc` and the controllers are events as data (ADR-0029); the parameters of an address are read by our own malli schemas, which never throw, so `reitit-malli` is not used there |
 | hiccup (cljs) | 1.0.5 | none | Remove | Not used on the client |
 | keycloak-js | ^25.0.4 | 26.2.4 (latest); 26.0 line → **26.0.8** | Pin to 26.0.8 | Same line as the 26.0.x server |
 | Styling | minimal CSS | Tailwind 4.3.3 + daisyUI 5.7.50 | Add | Shared with `web` and the login theme; built with Node into one stylesheet, from the tokens of `design/tokens.edn` ([ADR-0026](adr/0026-design-system-as-data-tokens-theme-components-and-contrast-by-test.md)) |
@@ -110,7 +110,7 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | 8 | A new route was open to any authenticated user | Access rules kept apart from routes, ending in an "any authenticated user" rule | Authorization in the route data and **deny by default** | 4 |
 | 9 | Domain data in memory with inconsistent IDs | Seed EDN in an `atom` (string key, numeric `:id`, duplicates) | FHIR server + deterministic seed with fixed IDs | 3 |
 | 10 | `yarn clean` cleaned the wrong directory; `test`/`cards`/`e2e` scripts had no builds; two lockfiles; unused `keycloak.json`; duplicated dependencies | create-cljs-app template left unadapted | shadow-cljs with `:deps true`; npm only; real scripts; tests | 8 |
-| 11 | Side effects in render (SPA) and the token logged to the console | `dispatch` inside views; `console.log` of the Bearer token | Route events (reitit-frontend controllers); tokens are never logged | 8 |
+| 11 | Side effects in render (SPA) and the token logged to the console | `dispatch` inside views; `console.log` of the Bearer token | Route events (`:start` and `:stop` of a route, as data, applied by `pulse.spa.route/transition`); tokens are never logged | 8 |
 | 12 | Repeated `app.*` namespaces in three projects | Same root namespace in every app | One prefix per app (`pulse.api`, `pulse.web`, …) | 1 |
 | 13 | `.http` samples with stale secrets and users missing from the seed data | Copied from old sessions | Regenerated; REST Client variables without secrets | 2, 4 |
 | 14 | No tests, no CI | n/a | Kaocha + test.check + GitHub Actions | 1 onwards |

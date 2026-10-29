@@ -22,9 +22,9 @@
   (:require [clojure.string :as str]
             [pulse.ui.component :as c]
             [pulse.ui.icon :as i]
-            [pulse.web.format :as fmt]
+            [pulse.view.format :as fmt]
             [pulse.web.pages.parts :as parts]
-            [pulse.web.views :as views]))
+            [pulse.view.views :as views]))
 
 (def recent-count
   "How many readings the list of recent ones shows."
