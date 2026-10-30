@@ -153,7 +153,13 @@
  (fn [spec]
    (request! (live-env) spec)))
 
+(defn cancel-effect!
+  "What the effect `::cancel` does with its value, `{:id id}`, among the calls in `inflight`: stops the one with that `:id`. The value is a
+  map, as the value of `::request` is: a bare id would destructure to nothing, and nothing would be stopped."
+  [inflight {:keys [id]}]
+  (cancel! inflight id))
+
 (rf/reg-fx
  ::cancel
- (fn [{:keys [id]}]
-   (cancel! inflight id)))
+ (fn [value]
+   (cancel-effect! inflight value)))

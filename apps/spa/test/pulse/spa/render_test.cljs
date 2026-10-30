@@ -6,10 +6,13 @@
             [clojure.test :refer [deftest is testing]]
             [pulse.spa.hiccup :as hiccup]
             [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.pages.start :as start]
             [pulse.spa.panel :as panel]
+            [pulse.spa.patient :as patient]
             [pulse.spa.test.panel-fixtures :as fx]
+            [pulse.spa.test.patient-fixtures :as pfx]
             [pulse.ui.chart :as chart]
             [pulse.ui.component :as c]
             [reagent.dom.server :as server]))
@@ -50,6 +53,11 @@
                                  :links {:panel "/" :filter (fn [show] (str "/?show=" (name show)))}
                                  :handlers {:retry (fn []) :sign-out (fn []) :search (fn [_])}}))
 
+(defn- the-chart [state person]
+  (patient-page/page state {:person person
+                            :links {:panel "/" :chart (fn [{:keys [measurement days]}] (str "/patients/pt-ana?days=" days "&measurement=" (name measurement)))}
+                            :handlers {:retry (fn []) :sign-out (fn [])}}))
+
 (def ^:private pages
   {"the wait" (start/starting)
    "the failure" (start/failed {:retry (fn [])})
@@ -75,6 +83,17 @@
    "the panel with figures that could not be loaded" (the-panel (assoc-in (fx/settled) [:inbox :active] fx/failed) {:show :all :q ""} rivera)
    "the panel with no patients" (the-panel (-> (fx/settled) (assoc-in [:list :data] {:total 0 :offset 0 :limit 100 :items []}) (assoc :rows {} :order []))
                                            {:show :all :q ""} rivera)
+   "the chart of a patient before it begins" (the-chart nil rivera)
+   "the chart of a patient on its way" (the-chart (patient/start pfx/now {:id "pt-ana" :measurement nil :days 14}) rivera)
+   "the chart of a patient, loaded" (the-chart (pfx/settled-ana) rivera)
+   "the chart of a patient, of another measurement and period" (the-chart (pfx/settled-ana {:asked :heart-rate :days 30}) sam)
+   "the chart of a patient with a low saturation" (the-chart (pfx/settled-sofia) rivera)
+   "the chart of a patient with nothing measured" (the-chart (pfx/settled-noah) rivera)
+   "the chart of a patient who is not the person's" (the-chart (assoc (pfx/settled-ana) :patient pfx/forbidden) rivera)
+   "the chart of a patient with parts that could not be loaded" (the-chart (-> (pfx/settled-ana)
+                                                                               (assoc :summary {:state :failed :kind :server})
+                                                                               (assoc :series {:state :failed :kind :timeout :measurement :blood-pressure :days 14}))
+                                                                           rivera)
    "a chart and its table" [:div a-chart]
    "a table that scrolls" (c/data-table {:caption "Patients" :columns [{:key :name :label "Name"}] :rows [{:name "Ana"} {:name "Liam"}]})})
 

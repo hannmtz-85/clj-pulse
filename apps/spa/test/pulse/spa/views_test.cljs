@@ -7,6 +7,7 @@
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame.test :as rf-test]
             [pulse.spa.test.panel-fixtures :as fx]
+            [pulse.spa.test.patient-fixtures :as pfx]
             [pulse.spa.views :as views]
             [re-frame.db :as db]
             [reagent.dom.server :as server]))
@@ -73,3 +74,34 @@
      (is (re-find #"href=\"/\?q=ana&amp;show=alerts\"[^>]*aria-current=\"page\"|aria-current=\"page\"[^>]*href=\"/\?q=ana&amp;show=alerts\"" html)
          "the filter that is current is a link that keeps the search")
      (is (str/includes? html "href=\"/?q=ana&amp;show=away\"") "and the others keep it too"))))
+
+(deftest the-chart-of-a-patient-is-the-page-of-its-route
+  (rf-test/run-test-sync
+   (let [here {:name :patient :params {:id "pt-ana" :measurement nil :days 14}}]
+     (testing "the chart that is open"
+       (let [text (shown {:status :signed-in :person rivera :route here :chart (pfx/settled-ana)})]
+         (is (says? text "Ana García"))
+         (is (says? text "58 years · Female · PULSE-0001 · Madrid"))
+         (is (says? text "BP stage 2"))
+         (is (says? text "Elena Rivera"))))
+     (testing "before it has begun it is the wait inside the workspace, with no patient to name"
+       (let [text (shown {:status :signed-in :person rivera :route here})]
+         (is (says? text "Loading the chart of the patient"))
+         (is (not (says? text "Ana García")))))
+     (testing "the chart that is open may be another patient's for the moment between the change of the address and the events that follow it"
+       (let [text (shown {:status :signed-in :person rivera :route {:name :patient :params {:id "pt-sofia" :measurement nil :days 14}} :chart (pfx/settled-ana)})]
+         (is (says? text "Loading the chart of the patient"))
+         (is (not (says? text "Ana García")))
+         (is (not (says? text "BP stage 2")))))
+     (testing "a patient the api refuses is a page that says so"
+       (is (says? (shown {:status :signed-in :person rivera :route here :chart (assoc (pfx/settled-ana) :patient pfx/forbidden)})
+                  "We cannot find that patient")))
+     (testing "a person whose role does not open it"
+       (is (says? (shown {:status :signed-in :person ana :route here}) "You cannot open that page"))))))
+
+(deftest the-name-of-a-patient-in-the-panel-leads-to-their-chart
+  (rf-test/run-test-sync
+   (reset! db/app-db {:status :signed-in :person rivera :route {:name :panel :params {:show :all :q ""}} :panel (fx/settled)})
+   (let [html (server/render-to-string [views/root])]
+     (is (str/includes? html "href=\"/patients/pt-ana\""))
+     (is (str/includes? html "href=\"/patients/pt-noah\"")))))

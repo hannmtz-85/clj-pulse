@@ -1,14 +1,13 @@
-(ns pulse.web.charts
-  "The charts of the interfaces (ADR-0028): one measurement over a stretch of time, drawn from the readings the api answered. The
+(ns pulse.view.charts
+  "The charts of the interfaces (ADR-0028, ADR-0029): one measurement over a stretch of time, drawn from the readings the api answered. The
   drawing is `pulse.ui.chart`; this is what a reading needs to become one: which series a measurement has, the range it is drawn
   over, the band of its normal values and the lines of the rules, the words for a screen reader, and the labels of the axis. Pure,
-  and loaded by Babashka for the mock-ups of the review, which give it the synthetic cohort, so that what is reviewed is what is
-  served."
+  and `.cljc`: the patient portal draws it on the JVM, the clinical workspace in the browser, and the mock-ups of the review under
+  Babashka give it the synthetic cohort, so that what is reviewed is what is served."
   (:require [pulse.fhir.ranges :as ranges]
             [pulse.ui.chart :as chart]
             [pulse.view.format :as fmt]
-            [pulse.view.views :as views])
-  (:import (java.time Instant)))
+            [pulse.view.views :as views]))
 
 ;; ---------------------------------------------------------------------------
 ;; What is drawn behind and over the series
@@ -121,7 +120,7 @@
                   :width width :height height
                   :x-domain [from-ms to-ms]
                   :x-ticks (or ticks (x-ticks from-ms to-ms max-ticks))
-                  :x-label (fn [x] (fmt/when-text (str (Instant/ofEpochMilli (long x))) now))
+                  :x-label (fn [x] (fmt/when-text (fmt/instant-text x) now))
                   :series series}
            domain (assoc :y-domain domain)
            lines (assoc :thresholds lines)

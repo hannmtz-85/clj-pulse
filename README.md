@@ -16,7 +16,7 @@ A portfolio project: four applications of different kinds share one identity pro
 
 ## Status
 
-**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 2,660 tests (2,370 on the JVM and 290 on Node), 29 architecture decision records, and an acceptance journey of the patient portal in a real browser against the real Keycloak (62 checks).
+**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 3,040 tests (2,530 on the JVM and 510 on Node), 29 architecture decision records, and an acceptance journey of the patient portal in a real browser against the real Keycloak (62 checks).
 
 | Part | State |
 |---|---|
@@ -26,7 +26,7 @@ A portfolio project: four applications of different kinds share one identity pro
 | `scheduler`: jobs as data, a rules engine that raises each alert once, a device simulator and appointment reminders | Done |
 | Design system: tokens with measured contrast, shared components, mock-ups and the Keycloak login theme | Done |
 | `web`, the patient portal: its own PKCE sign-in, server-side sessions, readings, appointments, record and profile | Done |
-| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Sign-in with PKCE, a token that renews when a call needs it, a role gate, sign-out and the panel of patients (the most urgent first, with filters and a search that live in the address) done; patient charts, alerts and appointments next |
+| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Sign-in with PKCE, a token that renews when a call needs it, a role gate, sign-out the panel of patients (the most urgent first, with filters and a search that live in the address) and the chart of a patient (the alerts with the rule that raised each, the latest readings, a chart with its thresholds, the record and the appointments) done; the alert inbox and the appointments next |
 
 Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
 

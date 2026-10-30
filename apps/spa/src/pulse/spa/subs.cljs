@@ -28,6 +28,11 @@
   [db _]
   (:panel db))
 
+(defn chart
+  "The state of the chart of a patient (see `pulse.spa.patient`), or nil when the person is not on one."
+  [db _]
+  (:chart db))
+
 (rf/reg-sub ::status status)
 
 (rf/reg-sub ::person person)
@@ -37,3 +42,5 @@
 (rf/reg-sub ::route route)
 
 (rf/reg-sub ::panel panel)
+
+(rf/reg-sub ::chart chart)

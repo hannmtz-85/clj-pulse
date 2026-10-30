@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [pulse.design.data :as data]
             [pulse.ui.tone :as tone]
+            [pulse.view.alerts :as alerts]
             [pulse.view.format :as fmt]
             [pulse.view.views :as web-views]))
 
@@ -35,38 +36,22 @@
 ;; ---------------------------------------------------------------------------
 ;; Alerts
 
-(def rule-descriptions
-  "What each rule watches, in the words of the rules themselves, by the title of the alert it raises."
-  {"BP stage 2" "Blood pressure at stage 2 (a systolic of 160 or more, or a diastolic of 100 or more) in at least 2 of the last 3 readings of the last 3 days."
-   "Low SpO₂" "Oxygen saturation below 92 % in at least 2 readings of the last 24 hours."
-   "Glucose out of range" "A glucose above 250 or below 70 mg/dL in the last 24 hours."
-   "Rapid weight gain" "A latest weight, from the last 24 hours, 2 kg or more above the lowest of the 72 hours before it, for a patient with an active heart failure (ICD-10-CM I50)."})
-
-(def ^:private alert-kinds
-  {"BP stage 2" {:measurement :blood-pressure :tone :critical}
-   "Low SpO₂" {:measurement :spo2 :tone :high}
-   "Glucose out of range" {:measurement :glucose :tone :high}
-   "Rapid weight gain" {:measurement :weight :tone :elevated}})
-
 (defn alert-card
   "An alert as the inbox shows it: the api's fields, and `:patient` (the view of the patient), `:tone` of the rule,
   `:description` of what it watches, `:since-phrase` (`yesterday, 22:30`, for the middle of a sentence), `:evidence` (the
   last readings of what it watches, as lines of text), `:active?`, and for one that was acknowledged `:until-phrase`.
   The api does not say who acknowledged it, and neither does the card."
   [{:keys [id patient text status since until]}]
-  (let [{:keys [measurement tone]} (alert-kinds text)
-        patient-view (patient-of patient)
-        readings (take-last 3 (data/readings (:id patient-view) measurement))
-        {:keys [unit]} (last readings)]
+  (let [measurement (alerts/measurement text)
+        patient-view (patient-of patient)]
     {:id id
      :patient patient-view
      :text text
-     :tone tone
-     :description (rule-descriptions text)
+     :tone (alerts/tone text)
+     :description (alerts/description text)
      :since since
      :since-phrase (fmt/when-phrase since data/now-text)
-     :evidence (for [r (reverse readings)]
-                 (str (web-views/reading-text measurement r) " " (fmt/unit unit) ", " (fmt/when-phrase (:at r) data/now-text)))
+     :evidence (alerts/evidence measurement (data/readings (:id patient-view) measurement) data/now-text)
      :active? (= "active" status)
      :until-phrase (some-> until (fmt/when-phrase data/now-text))}))
 

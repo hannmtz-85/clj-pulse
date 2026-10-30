@@ -505,6 +505,25 @@
                                   (fetch/cancel! (:inflight w) ::nothing-there)
                                   (is (= {} @(:inflight w)) "and stopping what is not there is nothing")))))))))
 
+(deftest the-effect-that-stops-a-call-takes-its-id-in-a-map-as-the-effect-that-makes-one-takes-its-call
+  (async done
+         (finish done
+                 (with-world (fn [_ _ res] (js/setTimeout #(reply! res 200 "{}") 150))
+                   nil false
+                   (fn [w seen]
+                     (fetch/request! (:env w) {:id [:chart :series] :path ["api" "a"] :on-success [::ok] :on-failure [::failed]})
+                     (-> (until #(seq @seen))
+                         (.then (fn [_]
+                                  ;; the id of a call can be a vector, and a vector given as the value is not an id
+                                  (fetch/cancel-effect! (:inflight w) [:chart :series])
+                                  (is (= 1 (count @(:inflight w))) "a bare id stops nothing")
+                                  (fetch/cancel-effect! (:inflight w) {:id [:chart :series]})
+                                  (is (= {} @(:inflight w)) "and the id in a map stops the call")))
+                         (.then (fn [_] (pause 300)))
+                         (.then (fn [_]
+                                  (is (= [] @(:events w)) "it tells nobody anything")
+                                  (is (= 1 @(:aborted w)))))))))))
+
 (deftest calls-with-other-ids-or-none-do-not-stop-one-another
   (async done
          (finish done

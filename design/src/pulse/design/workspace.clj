@@ -11,9 +11,12 @@
             [pulse.design.views :as views]
             [pulse.fhir.appointment :as appointment]
             [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.panel :as panel]
+            [pulse.spa.patient :as patient]
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
+            [pulse.view.alerts :as alerts]
             [pulse.view.format :as fmt]
             [pulse.view.views :as web-views])
   (:import (java.time LocalDate)))
@@ -52,8 +55,9 @@
 
 (defn- page
   "The frame of a page of the workspace: the shell with the sidebar and the header, and the content in it. `:admin?`
-  signs in as the administrator, who sees every patient."
-  [{:keys [title current admin?]} & content]
+  signs in as the administrator, who sees every patient; `:search? false` leaves out the box to search the patients, for a page it
+  has nothing to search on."
+  [{:keys [title current admin? search?] :or {search? true}} & content]
   (let [doctor (data/practitioner practitioner-id)
         person (if admin?
                  {:name "Sam Admin" :detail "Clinic administrator"}
@@ -64,7 +68,7 @@
      (apply layout/workspace-shell
             {:current current
              :nav (nav admin? active)
-             :search {:id "search" :name "q" :label "Search patients" :placeholder "Search patients"}
+             :search (when search? {:id "search" :name "q" :label "Search patients" :placeholder "Search patients"})
              :user {:name (:name person) :items [{:href (link "login.html") :label "Sign out" :icon :log-out}]}
              :user-detail (:detail person)}
             content))))
@@ -123,40 +127,13 @@
         (panel-page/content (panel-state practitioner-id) {:show :all :q ""} {:admin? false :links panel-links})))
 
 ;; ---------------------------------------------------------------------------
-;; The chart of a patient
-
-(def ^:private chart-options
-  "How the chart of the headline measurement is drawn, by measurement."
-  {:blood-pressure {:days 30 :ticks-every 5}})
-
-(defn- conditions-row [patient-id]
-  (if-let [conditions (seq (data/conditions patient-id))]
-    (into [:ul {:class "flex flex-wrap gap-2" :aria-label "Conditions"}]
-          (for [{:keys [display code]} conditions]
-            [:li (c/badge {:variant :outline} (str display " · " code))]))
-    [:p {:class "text-muted"} "No conditions recorded."]))
-
-(defn- alert-block
-  "An alert of this patient, as a message in the colour of its tone, with the way to acknowledge it."
-  [{:keys [tone text since-phrase description evidence]}]
-  (c/alert {:tone tone :title text
-            :actions (list (c/button {:size :sm :icon :check :href (link "workspace-alerts.html")} "Acknowledge")
-                           (c/button {:variant :outline :size :sm :href (link "workspace-alerts.html")} "All alerts"))}
-           [:p (str "Raised " since-phrase ". " description)]
-           [:p {:class "mt-1"} (str "The latest readings: " (str/join "; " evidence) ".")]))
+;; Pieces that other pages of the mock-ups still use
 
 (defn- vitals-grid [patient-id]
   (let [vitals (data/vitals patient-id)]
     (into [:div {:class "grid gap-4 md:grid-cols-3"}]
           (for [kind data/kinds :let [reading (get vitals kind)] :when reading]
             (specimen/vital-tile kind reading)))))
-
-(defn- chart-card [patient-id kind]
-  (let [{:keys [days ticks-every] :or {days 14 ticks-every 2}} (chart-options kind)
-        label (get-in web-views/kind-info [kind :label])]
-    (c/card {:title label :subtitle (str "Last " days " days")}
-            (specimen/line-chart patient-id kind {:days days :width 600 :height 300 :ticks-every ticks-every
-                                                  :id (str "chart-" (name kind) "-" patient-id)}))))
 
 (defn- appointment-actions
   "The buttons an appointment gets from its status: what a clinician may do with it is `pulse.fhir.appointment`'s to say."
@@ -182,48 +159,45 @@
      (or when-text asked)]
     (when reason [:p {:class "text-muted"} (str "Reason: " reason)]))))
 
-(defn- side-card [title rows empty-text]
-  (c/card {:title title :flush? true}
-          (if (seq rows)
-            (c/list-group {:aria-label title} rows)
-            [:p {:class "px-5 pb-4 text-muted"} empty-text])))
+;; ---------------------------------------------------------------------------
+;; The chart of a patient
 
-(defn- chart-page [patient-id]
-  (let [{:keys [name birthDate gender identifier city]} (data/patient patient-id)
-        {:keys [kind]} (views/headline patient-id)]
-    (page {:title (str "Chart of " name) :current :panel}
-          [:div {:class "space-y-6"}
-           (c/breadcrumbs {:items [{:href (link "workspace-panel.html") :label "Panel"} {:label name}]})
-           (c/page-header {:title name
-                           :description (str (fmt/age birthDate data/now-text) " years · " (str/capitalize gender) " · " identifier " · " city)})
-           (conditions-row patient-id)
-           (for [alert (filter #(and (:active? %) (= patient-id (get-in % [:patient :id]))) (views/alert-cards))]
-             (alert-block alert))
-           [:section {:aria-labelledby "vitals"}
-            [:div {:class "mb-3"} (section-heading "vitals" "Latest readings")]
-            (vitals-grid patient-id)]
-           [:div {:class "grid items-start gap-6 xl:grid-cols-3"}
-            [:div {:class "space-y-6 xl:col-span-2"}
-             (chart-card patient-id kind)
-             [:div {:class "grid items-start gap-6 md:grid-cols-2"}
-              (side-card "Medication"
-                         (for [{:keys [display dosage]} (data/medications patient-id)]
-                           (c/list-row [:p {:class "font-medium"} (str/capitalize display)] [:p {:class "text-muted"} dosage]))
-                         "None.")
-              (side-card "Allergies"
-                         (for [{:keys [display reaction]} (data/allergies patient-id)]
-                           (c/list-row [:p {:class "font-medium"} display] [:p {:class "text-muted"} reaction]))
-                         "None recorded.")]]
-            ;; what is to come first, and what was cancelled last
-            (side-card "Appointments"
-                       (for [row (sort-by #(if (= "cancelled" (:status %)) 1 0) (views/appointments-of patient-id))]
-                         (appointment-row row {:show-patient? false}))
-                       "None.")]])))
+(defn patient-state
+  "What the chart of a patient of the workspace is a function of when it has loaded: the state `pulse.spa.patient` keeps, made from what
+  the api answers (the Patient, the summary, the series of the headline reading and the readings behind each alert), from the cohort at
+  the moment of the mock-ups."
+  [patient-id]
+  (let [summary (data/summary patient-id)
+        kind (patient/default-kind summary)
+        days patient/default-days
+        from (fmt/instant-text (- (fmt/millis data/now-text) (* days 86400000)))]
+    {:now data/now-text
+     :id patient-id
+     :asked nil
+     :days days
+     :patient (loaded (data/patient-resource patient-id))
+     :summary (loaded summary)
+     :series (when kind (assoc (loaded (data/series patient-id kind {:from from :limit patient/series-limit})) :measurement kind :days days))
+     :evidence (into {} (for [k (alerts/kinds-to-read (:alerts summary))]
+                          [k (loaded (data/series patient-id k alerts/evidence-count))]))
+     :queue []
+     :inflight #{}}))
+
+(defn- chart-links
+  "Where the buttons and the pills of the chart lead in the mock-ups: the panel, and, for the pills, nowhere (the mock-up does not make
+  them work)."
+  []
+  {:panel (link "workspace-panel.html")
+   :chart (constantly "#")})
 
 (defn patient
-  "The page function of the chart of `patient-id`."
+  "The page function of the chart of `patient-id`. The page is the one the workspace serves (`pulse.spa.pages.patient`), made from
+  the cohort; the search box and the buttons of the next steps (to acknowledge an alert, to confirm, move or cancel an appointment)
+  are not on it until the workspace has them."
   [patient-id]
-  (fn [_context] (chart-page patient-id)))
+  (fn [_context]
+    (page {:title (str "Chart of " (:name (data/patient patient-id))) :current :panel :search? false}
+          (patient-page/content (patient-state patient-id) {:admin? false :links (chart-links)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The inbox of alerts

@@ -22,6 +22,14 @@
   [x]
   (when (and (string? x) (not (str/blank? x))) x))
 
+(defn name-of
+  "What a page reads as the name of a medication, a condition or an allergy: the name the clinic wrote, with a capital letter to begin
+  (`penicillin G` is `Penicillin G`), or `Not named` when the record does not name it."
+  [display]
+  (if-let [text (text-of display)]
+    (str (str/upper-case (subs text 0 1)) (subs text 1))
+    "Not named"))
+
 ;; ---------------------------------------------------------------------------
 ;; Readings
 
@@ -212,3 +220,14 @@
   something to show."
   [summary]
   (filterv #(some? (get-in summary [:vitals %])) kinds))
+
+(defn offered-kinds
+  "The measurements a page can offer the choice between, in the order of `kinds`: those the `summary` has a reading of, those it could
+  not load the reading of (they may have one), and `kind`, the one asked for, whatever the summary says. Of a summary that could not be
+  had (nil), all of them."
+  [summary kind]
+  (if (nil? summary)
+    kinds
+    (let [lost (keep #(when (and (string? %) (str/starts-with? % "vitals.")) (keyword (subs % 7))) (when (sequential? (:unavailable summary)) (:unavailable summary)))
+          wanted (set (concat (measured-kinds summary) lost (when kind [kind])))]
+      (filterv wanted kinds))))

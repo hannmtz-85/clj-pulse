@@ -1,4 +1,4 @@
-(ns pulse.web.charts-test
+(ns pulse.view.charts-test
   "The chart of a measurement over a stretch of time, from the readings the api answered (ADR-0028): the axis of time for any stretch,
   the readings that are drawn and the ones that are left out, and the words for a screen reader. What a chart of the cohort looks
   like, measurement by measurement, is held by the tests of the mock-ups (`pulse.design.specimen-test`), which call this."
@@ -10,7 +10,7 @@
             [clojure.test.check.properties :as prop]
             [pulse.ui.test.a11y :as a11y]
             [pulse.ui.test.hiccup :as hx]
-            [pulse.web.charts :as charts]
+            [pulse.view.charts :as charts]
             [pulse.view.format :as fmt]))
 
 (def ^:private now "2026-10-13T12:00:00Z")
@@ -18,6 +18,10 @@
 (def ^:private day (* 24 3600 1000))
 
 (defn- millis [instant] (fmt/millis instant))
+
+(defn- finite? [x]
+  #?(:clj (not (or (Double/isNaN x) (Double/isInfinite x)))
+     :cljs (js/Number.isFinite x)))
 
 ;; ---------------------------------------------------------------------------
 ;; The axis of time
@@ -78,7 +82,9 @@
       (is (= ["Oct 23" "Oct 24" "Oct 25" "Oct 26" "Oct 27"] (map :label ticks)))
       (is (= [(* 24 3600 1000) (* 24 3600 1000) (* 25 3600 1000) (* 24 3600 1000)] (map - (rest (map :at ticks)) (map :at ticks)))))))
 
-(defspec the-ticks-are-in-order-inside-the-stretch-and-few-enough-for-any-stretch-from-ten-minutes-to-a-month 300
+(defspec the-ticks-are-in-order-inside-the-stretch-and-few-enough-for-any-stretch-from-ten-minutes-to-a-month
+  ;; on Node every tick is read from the calendar with `Intl`, which makes a run about fifty times slower than on the JVM
+  #?(:clj 300 :cljs 40)
   (prop/for-all [from (gen/choose (millis "2026-01-01T00:00:00Z") (millis "2026-12-31T00:00:00Z"))
                  length (gen/one-of [(gen/choose (* 10 60 1000) (* 2 day))
                                      (gen/choose (* 2 day) (* 30 day))])
@@ -204,7 +210,7 @@
   (testing "an axis that begins where it ends (now, with nothing before it)"
     (let [fig (chart [(reading "x" now 70)] {:from now})]
       (is (some? fig))
-      (is (every? #(and (not (Double/isNaN %)) (not (Double/isInfinite %))) (flatten (line-xs fig))))))
+      (is (every? finite? (flatten (line-xs fig))))))
   (testing "and one that begins after it (a clock that is behind)"
     (is (some? (chart [(reading "x" now 70)] {:from "2026-10-14T12:00:00Z"})))))
 
@@ -249,7 +255,7 @@
                                     (fn [pairs]
                                       (gen/shuffle (map-indexed (fn [i [offset value]]
                                                                   (reading (str "r" i)
-                                                                           (str (java.time.Instant/ofEpochMilli (+ (millis "2026-10-06T12:00:00Z") (* offset 60000))))
+                                                                           (fmt/instant-text (+ (millis "2026-10-06T12:00:00Z") (* offset 60000)))
                                                                            value))
                                                                 pairs))))]
     (let [fig (chart readings)

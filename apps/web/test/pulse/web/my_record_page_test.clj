@@ -204,16 +204,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The words of a row
 
-(deftest the-name-of-a-medication-begins-with-a-capital-and-is-otherwise-as-the-clinic-wrote-it
-  (is (= "Lisinopril" (record/name-of "lisinopril")))
-  (is (= "Penicillin G" (record/name-of "penicillin G")))
-  (is (= "Essential (primary) hypertension" (record/name-of "Essential (primary) hypertension")))
-  (is (= "Éclair" (record/name-of "éclair")))
-  (is (= "A" (record/name-of "a")))
-  (is (= "Metformin HCl 500 MG" (record/name-of "metformin HCl 500 MG")) "nothing else is changed")
-  (doseq [odd [nil "" " " "\n" 5 :kw [] {}]]
-    (is (= "Not named" (record/name-of odd)) (pr-str odd))))
-
 (deftest since-is-a-month-of-the-clinic
   (is (= "Since Nov 2025" (record/since "2025-11-04T09:00:00Z")))
   (is (= "Since Nov 2025" (record/since "2025-11-04")))

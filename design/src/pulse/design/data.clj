@@ -332,11 +332,16 @@
 ;; ---------------------------------------------------------------------------
 ;; What the api answers a patient
 
+(defn patient-resource
+  "What `GET /api/patients/{id}` answers for `patient-id`: the Patient resource of the cohort, as the FHIR server has it."
+  [patient-id]
+  (first (filter #(= patient-id (:id %)) (of-type "Patient"))))
+
 (defn me
   "What `GET /api/me` answers the patient `patient-id`: who they are as the api sees it, their Patient resource and their
   general practitioner, named. The user is the one of the realm, whose name is the email of the patient."
   [patient-id]
-  (let [resource (first (filter #(= patient-id (:id %)) (of-type "Patient")))
+  (let [resource (patient-resource patient-id)
         view (patient patient-id)
         gp-reference (get-in resource [:generalPractitioner 0 :reference])
         gp (some-> gp-reference reference-id practitioner)]

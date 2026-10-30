@@ -5,7 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [pulse.design.data :as data]
             [pulse.design.views :as views]
-            [pulse.scheduler.rules :as rules]))
+            [pulse.view.alerts :as alerts]))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments
@@ -73,7 +73,7 @@
     (is (nil? (:until-phrase ana)))
     (is (= ["177/100 mmHg, today, 10:00" "172/102 mmHg, yesterday, 22:00" "165/106 mmHg, yesterday, 10:00"]
            (:evidence ana)) "the newest first")
-    (is (= (views/rule-descriptions "BP stage 2") (:description ana)))
+    (is (= (alerts/description "BP stage 2") (:description ana)))
     (testing "what the api does not say, the card does not say"
       (is (not-any? #(contains? ana %) [:by :acknowledged-by])))))
 
@@ -101,11 +101,6 @@
 (deftest the-inbox-has-the-active-alerts-first-and-the-newest-first
   (is (= ["flag-pt-maya-R4" "flag-pt-ana-R1" "flag-pt-sofia-R2" "flag-pt-liam-R3"] (map :id (views/alert-cards))))
   (is (= [true true true false] (map :active? (views/alert-cards)))))
-
-(deftest what-a-rule-watches-is-said-in-the-words-of-the-rule
-  (is (= (set (map :title rules/catalogue)) (set (keys views/rule-descriptions))))
-  (doseq [{:keys [title doc]} rules/catalogue]
-    (is (= (str/replace doc #"\s+" " ") (get views/rule-descriptions title)) title)))
 
 ;; ---------------------------------------------------------------------------
 ;; Patients

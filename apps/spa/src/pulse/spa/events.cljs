@@ -54,11 +54,12 @@
 (rf/reg-event-fx
  ::navigated
  (fn [{:keys [db]} [_ here]]
-   (let [{:keys [page-change? stop start]} (route/transition (:route db) here (:person db))]
+   (let [{:keys [page-change? stop start] updates :update} (route/transition (:route db) here (:person db))]
      {:db (assoc db :route here)
       :fx (-> []
               (into (map (fn [event] [:dispatch event])) stop)
               (into (map (fn [event] [:dispatch event])) start)
+              (into (map (fn [event] [:dispatch event])) updates)
               (cond-> page-change? (conj [::router/arrived {:title (route/title (:name here))
                                                             ;; the first page is not one the person came to: nothing is moved for it
                                                             :focus? (some? (:route db))}])))})))

@@ -35,7 +35,7 @@
 (defn- cancels
   "The effects that stop the calls of the tasks `tasks`."
   [tasks]
-  (mapv (fn [task] [::fetch/cancel [:panel task]]) tasks))
+  (mapv (fn [task] [::fetch/cancel {:id [:panel task]}]) tasks))
 
 (defn- deadline [gen]
   [:dispatch-later {:ms panel/deadline-ms :dispatch [::panel/deadline gen]}])

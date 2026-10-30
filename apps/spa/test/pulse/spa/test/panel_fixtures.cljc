@@ -72,13 +72,13 @@
 
 (defn series
   "The series the api answers for a patient and a measurement: `values` are the numbers of readings one a day, the last one the newest,
-  as `{:items :truncated}` with the newest first. A blood pressure is given as pairs."
-  [kind values & {:keys [band truncated] :or {band "normal" truncated false}}]
+  as `{:items :truncated}` with the newest first. A blood pressure is given as pairs. The `unit` is `x` unless it is given."
+  [kind values & {:keys [band truncated unit] :or {band "normal" truncated false unit "x"}}]
   (let [n (count values)
         items (for [[i v] (map-indexed vector values)
                     :let [day (- 13 (- n i 1))
                           at (str "2026-10-" (if (< day 10) (str "0" day) day) "T08:00:00Z")]]
-                (cond-> {:id (str "o-" (name kind) "-" i) :at at :unit "x" :band band :measurement (name kind)}
+                (cond-> {:id (str "o-" (name kind) "-" i) :at at :unit unit :band band :measurement (name kind)}
                   (= :blood-pressure kind) (assoc :systolic (first v) :diastolic (second v))
                   (not= :blood-pressure kind) (assoc :value v)))]
     {:items (vec (reverse items)) :truncated truncated}))

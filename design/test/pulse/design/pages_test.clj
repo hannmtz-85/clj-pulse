@@ -291,11 +291,16 @@
                 buttons (hx/select doc #(and (hx/has-class? % "btn") (not (hx/has-class? % "btn-lg"))))]]
     (is (empty? buttons) (str file ": every button is a large one, 48 px high"))))
 
+(defn- a-chart? [file]
+  (str/starts-with? file "workspace-patient"))
+
 (deftest every-page-of-the-workspace-has-the-search-and-the-menu-of-the-person
   (doseq [{:keys [file group]} mockups
           :when (= "Clinical workspace" group)
           :let [doc (frame-of file)]]
-    (is (some? (hx/by-id doc "search")) file)
+    (if (a-chart? file)
+      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient has nothing to search, and a box that searched nothing is a control with nothing to do"))
+      (is (some? (hx/by-id doc "search")) file))
     (is (= 1 (count (hx/select doc #(str/starts-with? (str (:aria-label (hx/attributes %))) "Account menu of")))) file)))
 
 (deftest the-one-that-signs-in-is-the-same-person-in-the-menu-and-the-sidebar

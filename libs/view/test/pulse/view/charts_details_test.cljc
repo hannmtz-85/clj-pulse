@@ -1,9 +1,9 @@
-(ns pulse.web.charts-details-test
+(ns pulse.view.charts-details-test
   "What a mutation analysis of the chart found that the first tests did not hold: the unit that a chart says is the newest reading's, and
   where the range of normal values is shaded."
   (:require [clojure.test :refer [deftest is testing]]
             [pulse.ui.test.hiccup :as hx]
-            [pulse.web.charts :as charts]))
+            [pulse.view.charts :as charts]))
 
 (deftest the-unit-of-a-series-is-the-one-of-its-newest-reading
   ;; other systems write to the same server, and a series may not be in one unit: the chart says the unit that it ends in
@@ -30,19 +30,24 @@
         y (parse-double (:y (hx/attributes rect)))]
     [y (+ y (parse-double (:height (hx/attributes rect))))]))
 
-(defn- near? [expected actual] (< (Math/abs (- expected actual)) 0.1))
+(defn- near? [expected actual] (< (abs (- expected actual)) 0.1))
+
+(defn- day-text
+  "The instant 08:00 UTC of the day `day` of October 2026."
+  [day]
+  (str "2026-10-" (when (< day 10) "0") day "T08:00:00Z"))
 
 (deftest the-range-of-normal-values-is-shaded-from-its-lower-limit-to-its-upper-one
   (testing "a heart rate: 50 to 100"
     (let [fig (charts/line-chart {:kind :heart-rate :now "2026-10-13T12:00:00Z" :from "2026-10-06T12:00:00Z" :span "last 7 days" :id "h"
-                                  :readings (for [i (range 5)] {:id (str "h" i) :at (format "2026-10-%02dT08:00:00Z" (+ 7 i)) :value (+ 60 (* 5 i)) :unit "/min"})})
+                                  :readings (for [i (range 5)] {:id (str "h" i) :at (day-text (+ 7 i)) :value (+ 60 (* 5 i)) :unit "/min"})})
           y (y-of fig)
           [top bottom] (band-of fig)]
       (is (near? (y 100) top))
       (is (near? (y 50) bottom))))
   (testing "an oxygen saturation: 92 and up, to the top of the chart"
     (let [fig (charts/line-chart {:kind :spo2 :now "2026-10-13T12:00:00Z" :from "2026-10-06T12:00:00Z" :span "last 7 days" :id "s"
-                                  :readings (for [i (range 5)] {:id (str "s" i) :at (format "2026-10-%02dT08:00:00Z" (+ 7 i)) :value (+ 93 i) :unit "%"})})
+                                  :readings (for [i (range 5)] {:id (str "s" i) :at (day-text (+ 7 i)) :value (+ 93 i) :unit "%"})})
           y (y-of fig)
           [top bottom] (band-of fig)]
       (is (near? (y 100) top))

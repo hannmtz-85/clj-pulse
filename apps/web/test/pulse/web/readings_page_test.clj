@@ -96,23 +96,23 @@
 
 (deftest the-measurements-on-offer-are-those-the-patient-has-readings-of
   (testing "what the summary has a reading of, in the order the portal shows them"
-    (is (= [:blood-pressure :heart-rate :weight] (readings/offered-kinds (data/summary "pt-ana") nil)))
-    (is (= [:blood-pressure :glucose :weight] (readings/offered-kinds (data/summary "pt-liam") nil)))
-    (is (= [:heart-rate :spo2] (readings/offered-kinds (data/summary "pt-sofia") nil))))
+    (is (= [:blood-pressure :heart-rate :weight] (views/offered-kinds (data/summary "pt-ana") nil)))
+    (is (= [:blood-pressure :glucose :weight] (views/offered-kinds (data/summary "pt-liam") nil)))
+    (is (= [:heart-rate :spo2] (views/offered-kinds (data/summary "pt-sofia") nil))))
   (testing "and the one that was asked for, whatever the summary says"
-    (is (= [:blood-pressure :heart-rate :glucose :weight] (readings/offered-kinds (data/summary "pt-ana") :glucose)))
-    (is (= [:temperature] (readings/offered-kinds (data/summary "pt-noah") :temperature)))
-    (is (= [:blood-pressure :heart-rate :weight] (readings/offered-kinds (data/summary "pt-ana") :heart-rate)) "which is there already, once"))
+    (is (= [:blood-pressure :heart-rate :glucose :weight] (views/offered-kinds (data/summary "pt-ana") :glucose)))
+    (is (= [:temperature] (views/offered-kinds (data/summary "pt-noah") :temperature)))
+    (is (= [:blood-pressure :heart-rate :weight] (views/offered-kinds (data/summary "pt-ana") :heart-rate)) "which is there already, once"))
   (testing "a patient who has none is offered nothing"
-    (is (= [] (readings/offered-kinds (data/summary "pt-noah") nil))))
+    (is (= [] (views/offered-kinds (data/summary "pt-noah") nil))))
   (testing "a reading the summary could not load may be one: its measurement is offered"
     (let [lost (-> (data/summary "pt-noah") (assoc :unavailable ["appointments" "vitals.glucose" "vitals.spo2"]))]
-      (is (= [:spo2 :glucose] (readings/offered-kinds lost nil)) "in the order of the portal, not of the summary")
-      (is (= [:glucose] (readings/offered-kinds (assoc lost :unavailable ["vitals.glucose" "vitals.nonsense" "alerts"]) nil))
+      (is (= [:spo2 :glucose] (views/offered-kinds lost nil)) "in the order of the portal, not of the summary")
+      (is (= [:glucose] (views/offered-kinds (assoc lost :unavailable ["vitals.glucose" "vitals.nonsense" "alerts"]) nil))
           "and nothing that is not a measurement")))
   (testing "with no summary at all, every measurement: nobody knows which have readings"
-    (is (= views/kinds (readings/offered-kinds nil nil)))
-    (is (= views/kinds (readings/offered-kinds nil :weight)))))
+    (is (= views/kinds (views/offered-kinds nil nil)))
+    (is (= views/kinds (views/offered-kinds nil :weight)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The trend

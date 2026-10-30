@@ -1,4 +1,4 @@
-(ns pulse.web.series-test
+(ns pulse.view.series-test
   "A series of readings as the pages of the portal take it (ADR-0028): the ones that say something, oldest first, and always in the
   same order, whichever order the api gave them in."
   (:require [clojure.test :refer [deftest is testing]]

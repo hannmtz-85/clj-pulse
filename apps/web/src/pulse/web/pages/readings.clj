@@ -9,7 +9,7 @@
     `:kind`     the measurement shown (`:heart-rate`), or nil for a patient who has no readings at all
     `:days`     the period, one of `periods`
     `:summary`  what `GET /api/patients/{id}/summary` answered, or nil when it could not be had: it says which measurements the
-                patient has readings of, and so which have a place among the choices (see `offered-kinds`)
+                patient has readings of, and so which have a place among the choices (see `pulse.view.views/offered-kinds`)
     `:series`   what `GET /api/patients/{id}/observations` answered for `:kind`, the newest `series-limit` readings of the period,
                 or nil when it could not be had
     `:saved`    the reading the patient has just recorded, as the api answered, to say so (see `pulse.web.readings`)
@@ -22,7 +22,7 @@
   `series-limit` readings, so a stretch with more is shown as the latest of them, and the figures say that they are of these."
   (:require [clojure.string :as str]
             [pulse.ui.component :as c]
-            [pulse.web.charts :as charts]
+            [pulse.view.charts :as charts]
             [pulse.view.format :as fmt]
             [pulse.web.pages.parts :as parts]
             [pulse.view.views :as views])
@@ -46,17 +46,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; What the model says
-
-(defn offered-kinds
-  "The measurements the patient can choose between, in the order of `pulse.view.views/kinds`: those the summary has a reading of,
-  those it could not load the reading of (they may have one), and `kind`, the one asked for, whatever the summary says. Of a
-  summary that could not be had, all of them."
-  [summary kind]
-  (if (nil? summary)
-    views/kinds
-    (let [lost (keep #(when (str/starts-with? % "vitals.") (keyword (subs % 7))) (:unavailable summary))
-          wanted (set (concat (views/measured-kinds summary) lost (when kind [kind])))]
-      (filterv wanted views/kinds))))
 
 (defn- from-text
   "The instant the chart begins at: the start of the period, or, for a series that was cut, its oldest reading."
@@ -99,7 +88,7 @@
 (defn- choices [{:keys [summary kind days]} links]
   [:div {:class "flex flex-wrap items-center justify-between gap-x-6 gap-y-3"}
    (c/pill-nav {:label "Measurement" :size :lg
-                :items (for [k (offered-kinds summary kind)]
+                :items (for [k (views/offered-kinds summary kind)]
                          {:href (address links k days) :label (get-in views/kind-info [k :label]) :current? (= k kind)})})
    (c/pill-nav {:label "Period" :size :lg
                 :items (for [d periods]

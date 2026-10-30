@@ -504,7 +504,8 @@
                [:span {:class "rounded-full bg-base-100 px-2 text-xs text-base-content tabular-nums"} (str count)])]]))])
 
 (defn breadcrumbs
-  "The path to this page: `:items` is `[{:href :label} ...]`, the last being the page itself, which has no link."
+  "The path to this page: `:items` is `[{:href :label} ...]`, the last being the page itself, which has no link. A link is at least 24 px
+  high, as every target of the interfaces is (a line of text in small type is 20)."
   [{:keys [items]}]
   (let [n (count items)]
     [:nav {:aria-label "Breadcrumb"}
@@ -514,7 +515,7 @@
               (if (= (inc index) n)
                 [:li {:aria-current "page" :class "font-medium text-base-content"} text]
                 [:li {:class "flex items-center gap-1.5"}
-                 [:a {:href href :class "hover:text-base-content hover:underline"} text]
+                 [:a {:href href :class "inline-flex min-h-6 items-center hover:text-base-content hover:underline"} text]
                  (i/icon :chevron-right {:size :sm})]))
             items))]))
 

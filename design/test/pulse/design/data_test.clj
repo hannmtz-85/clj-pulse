@@ -8,6 +8,7 @@
             [pulse.api.jobs :as api-jobs]
             [pulse.api.me :as api-me]
             [pulse.api.observations :as api-observations]
+            [pulse.api.patients :as api-patients]
             [pulse.api.summary :as api-summary]
             [pulse.design.data :as data]
             [pulse.fhir.client.memory :as memory]
@@ -207,6 +208,13 @@
     (is (= {:reference "Practitioner/pr-rivera" :name "Dr. Elena Rivera" :specialty "Internal medicine"}
            (:generalPractitioner (data/me "pt-ana"))))
     (is (= "Dr. Chidi Okafor" (get-in (data/me "pt-noah") [:generalPractitioner :name])))))
+
+(deftest what-the-api-answers-for-a-patient-is-the-resource-the-mock-ups-have
+  (doseq [{:keys [id]} (data/patients)]
+    (is (= (:body ((api-patients/get-handler {:fhir @fhir}) {:path-params {:id id}})) (data/patient-resource id))
+        (str id ": the same as the handler of the api makes of the same cohort")))
+  (is (= "Valencia" (get-in (data/patient-resource "pt-ana") [:address 0 :city])) "the city of the header of the chart")
+  (is (nil? (data/patient-resource "pt-nobody"))))
 
 (deftest what-the-api-answers-the-summary-of-a-patient-is-what-the-mock-ups-have
   (let [by-the-hand (set (map :id data/other-appointments))

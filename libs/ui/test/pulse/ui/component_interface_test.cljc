@@ -138,6 +138,7 @@
     (is (= ["/panel" "/patients"] (map #(:href (hx/attributes %)) (hx/by-tag b :a))))
     (is (= [nil nil "page"] (map #(:aria-current (hx/attributes %)) items)))
     (is (= [1 1 0] (map #(count (hx/by-tag % :svg)) items)) "a chevron after each link and none after the page")
+    (is (every? #(hx/has-class? % "min-h-6") (hx/by-tag b :a)) "a link is a target of 24 px at least, and a line of small type is not")
     (is (hx/has-class? (last items) "font-medium"))
     (is (empty? (a11y/problems b))))
   (testing "a path of one is the page"

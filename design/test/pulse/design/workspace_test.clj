@@ -8,6 +8,7 @@
             [pulse.design.data :as data]
             [pulse.design.workspace :as workspace]
             [pulse.fhir.appointment :as appointment]
+            [pulse.spa.patient :as patient]
             [pulse.ui.test.hiccup :as hx]))
 
 (def ^:private context (build/context))
@@ -104,6 +105,11 @@
 ;; ---------------------------------------------------------------------------
 ;; The chart of a patient
 
+(defn- drawings
+  "The drawings of charts in `tree`: the svgs that are images, and not the icons."
+  [tree]
+  (hx/select tree #(and (= :svg (hx/tag %)) (= "img" (:role (hx/attributes %))))))
+
 (deftest the-chart-of-ana-has-the-alert-the-latest-readings-the-chart-and-the-rest-of-her-record
   (let [doc ((workspace/patient "pt-ana") context)
         main (main-of doc)]
@@ -112,20 +118,25 @@
     (is (= ["Panel" "Ana García"] (map hx/words (hx/by-tag (by-label doc "Breadcrumb") :li))))
     (is (= ["../workspace-panel.html"] (map href (hx/by-tag (by-label doc "Breadcrumb") :a))))
     (is (= ["Essential (primary) hypertension · I10"] (map hx/words (hx/by-tag (by-label doc "Conditions") :li))))
-    (testing "the alert that is active, with the way to acknowledge it"
+    (testing "the alert that is active: the rule, the readings behind it, and no way yet to acknowledge it"
       (let [alert (first (hx/select main #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-critical-soft"))))]
         (is (= "BP stage 2" (hx/words (first (hx/by-tag alert :p)))) "its title")
         (is (str/includes? (hx/words alert) "Raised yesterday, 22:30."))
         (is (str/includes? (hx/words alert) "177/100 mmHg, today, 10:00; 172/102 mmHg, yesterday, 22:00; 165/106 mmHg, yesterday, 10:00"))
-        (is (= ["Acknowledge" "All alerts"] (button-texts alert)))
-        (is (= ["../workspace-alerts.html" "../workspace-alerts.html"] (map href (buttons alert))))))
+        (is (= [] (button-texts alert)) "the page to acknowledge it is the next step of the phase")))
     (testing "the latest readings and the chart of the one furthest from normal"
       (is (= ["177/100" "70" "82.3"] (map hx/words (hx/select (section-of doc "vitals") #(hx/has-class? % "text-4xl")))))
-      (is (some? (hx/by-id doc "chart-blood-pressure-pt-ana-title")))
-      (is (str/includes? (words-of-main doc) "Last 30 days"))
-      (is (str/includes? (words-of-main doc) "Stage 2 · 160")))))
+      (is (= #{"chart-blood-pressure-wide-title chart-blood-pressure-wide-desc" "chart-blood-pressure-narrow-title chart-blood-pressure-narrow-desc"}
+             (set (map (comp :aria-labelledby hx/attributes) (drawings main)))))
+      (is (str/includes? (words-of-main doc) "Last 14 days"))
+      (is (str/includes? (words-of-main doc) "Stage 2 · 160")))
+    (testing "the pills that choose another measurement or period are there, and the mock-up does not make them work"
+      (is (= ["Blood pressure" "Heart rate" "Weight"] (map hx/words (hx/by-tag (by-label main "Measurement") :a))))
+      (is (= ["7 days" "14 days" "30 days"] (map hx/words (hx/by-tag (by-label main "Period") :a)))))
+    (testing "there is no search box: it would have nothing to search"
+      (is (empty? (hx/select doc #(= "search" (:type (hx/attributes %)))))))))
 
-(deftest the-appointments-in-a-chart-are-in-order-and-have-what-the-lifecycle-allows
+(deftest the-appointments-in-a-chart-are-in-order-and-are-read-only-until-the-workspace-can-change-them
   (let [doc ((workspace/patient "pt-ana") context)
         list-el (list-named doc "Appointments")
         list-rows (rows list-el)]
@@ -133,14 +144,12 @@
             ["Medication review" "Asked for a visit between Oct 20 and Oct 27"]
             ["Blood pressure check" "Tue 29 Sep, 09:00–09:30" "Reason: I had to travel that week."]]
            (map lines list-rows))
-        "what is to come first, the patient's own name left out")
-    (testing "what a clinician may do is what the lifecycle says of the status"
-      (is (= (for [status ["booked" "proposed" "cancelled"]]
-               (set (map button-label (appointment/available-actions {:status status} :clinician data/now-text))))
-             (map (fn [row] (set (map hx/words (buttons row)))) list-rows)))
-      (is (= [["Reschedule" "Cancel"] ["Confirm" "Cancel"] []]
-             (map (fn [row] (map hx/words (buttons row))) list-rows))))
-    (is (= ["../workspace-confirm.html"] (map href (filter #(= "Confirm" (hx/words %)) (buttons list-el)))))))
+        "what is to come first, and what was cancelled last")
+    (testing "each says its status in words"
+      (is (every? true? (map (fn [row word] (str/includes? (hx/words row) word)) list-rows ["Confirmed" "Requested" "Cancelled"]))))
+    (testing "and none has a button, since the buttons of the lifecycle are the step that follows"
+      (is (every? empty? (map buttons list-rows)))
+      (is (empty? (hx/by-tag list-el :a))))))
 
 (deftest the-chart-of-sofia-is-of-her-oxygen-and-has-her-allergy
   (let [doc ((workspace/patient "pt-sofia") context)
@@ -148,10 +157,10 @@
     (is (= ["Sofía Rossi"] (map hx/words (hx/by-tag doc :h1))))
     (is (str/includes? (hx/words main) "Chronic obstructive pulmonary disease, unspecified · J44.9"))
     (is (= "Low SpO₂" (hx/words (first (hx/by-tag (first (hx/select main #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-high-soft")))) :p)))))
-    (is (some? (hx/by-id doc "chart-spo2-pt-sofia-title")))
+    (is (some? (hx/by-id doc "chart-spo2-wide-title")))
     (is (str/includes? (hx/words main) "Last 14 days"))
-    (is (= [["penicillin G" "Skin rash"]] (map lines (rows (list-named doc "Allergies")))))
-    (is (= [["Tiotropium" "18 mcg inhaled once daily"] ["Albuterol" "2 puffs as needed"]] (map lines (rows (list-named doc "Medication")))))
+    (is (= [["Penicillin G" "Skin rash"]] (map lines (rows (list-named doc "Allergies")))))
+    (is (= [["Albuterol" "2 puffs as needed"] ["Tiotropium" "18 mcg inhaled once daily"]] (map lines (rows (list-named doc "Medication")))) "in the order the summary of the api gives them: by name")
     (is (= [["COPD check-up (requested by the patient)" "Asked for a visit between Oct 16 and Oct 23"]]
            (map lines (rows (list-named doc "Appointments")))))))
 
@@ -161,7 +170,7 @@
     (is (empty? (hx/select main #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-high-soft")))))
     (is (empty? (hx/select main #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-critical-soft")))))
     (is (str/includes? (hx/words main) "Type 2 diabetes mellitus without complications · E11.9"))
-    (is (some? (hx/by-id doc "chart-blood-pressure-pt-liam-title")) "the pressure, which is elevated, and not the glucose, which is normal")
+    (is (some? (hx/by-id doc "chart-blood-pressure-wide-title")) "the pressure, which is elevated, and not the glucose, which is normal")
     (is (= [["Diabetes review" "Fri 16 Oct, 14:00–14:30"]] (map lines (rows (list-named doc "Appointments")))))))
 
 (deftest the-chart-of-omar-says-what-is-not-there
@@ -173,6 +182,17 @@
     (is (str/includes? text "AppointmentsNone."))
     (is (str/includes? text "MedicationNone."))
     (is (str/includes? text "AllergiesNone recorded."))))
+
+(deftest the-state-of-a-chart-is-what-the-workspace-keeps-and-the-page-is-the-one-it-serves
+  (let [state (workspace/patient-state "pt-ana")]
+    (is (= "pt-ana" (:id state)))
+    (is (nil? (:asked state)) "the headline reading, which the cohort says is the blood pressure")
+    (is (= :blood-pressure (get-in state [:series :measurement])))
+    (is (= 14 (:days state)))
+    (is (= #{:blood-pressure} (set (keys (:evidence state)))) "the readings behind the one alert, of what its rule watches")
+    (is (patient/settled? state))
+    (is (= {} (:evidence (workspace/patient-state "pt-omar"))))
+    (is (nil? (:series (workspace/patient-state "pt-noah"))) "a patient who has nothing measured has nothing to draw")))
 
 (deftest every-chart-of-the-panel-is-a-page-of-the-registry
   (is (= #{"pt-ana" "pt-sofia" "pt-liam" "pt-omar"} (set (keys workspace/charts))))

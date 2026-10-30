@@ -5,8 +5,10 @@
   (:require [pulse.spa.events :as events]
             [pulse.spa.hiccup :as hiccup]
             [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.pages.start :as start]
             [pulse.spa.panel :as panel]
+            [pulse.spa.patient :as patient]
             [pulse.spa.route :as route]
             [pulse.spa.settings :as settings]
             [pulse.spa.subs :as subs]
@@ -17,6 +19,8 @@
 (defn- sign-out [] (rf/dispatch [::events/sign-out]))
 
 (defn- retry [] (rf/dispatch [::panel/retry]))
+
+(defn- retry-chart [] (rf/dispatch [::patient/retry]))
 
 (defn- search
   "The text of the box is the search of the panel, which is in the address too: it is dispatched at once, and not in the turn that
@@ -30,8 +34,22 @@
                      {:person person
                       :me me
                       :links {:panel (route/panel-path)
-                              :filter (fn [show] (route/panel-path {:show show :q (:q params)}))}
+                              :filter (fn [show] (route/panel-path {:show show :q (:q params)}))
+                              :patient route/patient-path}
                       :handlers {:sign-out sign-out :retry retry :search search}})))
+
+(defn- patient-view
+  "The chart of the patient the address names. The state of the chart that is open may be that of another patient for the moment
+  between the change of the address and the events that leave one chart and begin the other, and it is not shown for this one."
+  [person me {:keys [params]}]
+  (let [open @(rf/subscribe [::subs/chart])
+        state (when (= (:id params) (:id open)) open)]
+    (patient-page/page state
+                       {:person person
+                        :me me
+                        :links {:panel (route/panel-path)
+                                :chart (fn [{:keys [measurement days]}] (route/patient-path (:id params) {:measurement measurement :days days}))}
+                        :handlers {:sign-out sign-out :retry retry-chart}})))
 
 (defn- workspace
   "The page of the workspace the person is on: the wait while the history of the browser has not said where, the page for a page the
@@ -43,6 +61,7 @@
       (not (route/allowed? (:name here) person)) (start/not-allowed options)
       :else (case (:name here)
               :panel (panel-view person me here)
+              :patient (patient-view person me here)
               (start/not-found options)))))
 
 (defn root

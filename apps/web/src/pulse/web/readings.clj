@@ -69,7 +69,7 @@
             id (api/patient-id me)
             summary (api/degrading "summary" #(api/get-json api request (http/path "api" "patients" id "summary")))
             kind (or (recording/kind-of (text-param request "measurement"))
-                     (first (readings/offered-kinds summary nil)))
+                     (first (views/offered-kinds summary nil)))
             days (days-of request)
             now (now-of clock)
             series (when kind

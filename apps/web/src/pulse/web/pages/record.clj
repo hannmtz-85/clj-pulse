@@ -23,14 +23,6 @@
 ;; ---------------------------------------------------------------------------
 ;; What a row says
 
-(defn name-of
-  "What a patient reads as the name of a medication, a condition or an allergy: the name the clinic wrote, with a capital letter to
-  begin (`penicillin G` is `Penicillin G`), or `Not named` when the record does not name it."
-  [display]
-  (if-let [text (views/text-of display)]
-    (str (str/upper-case (subs text 0 1)) (subs text 1))
-    "Not named"))
-
 (defn since
   "`Since Nov 2025`, from an instant or a date, or nil when `text` is neither."
   [text]
@@ -47,18 +39,18 @@
 (defn- medication-row [{:keys [display dosage authoredOn]}]
   (c/list-row {:leading (c/icon-disc {:icon :pill})
                :trailing (since-badge authoredOn)}
-              [:p {:class "font-medium"} (name-of display)]
+              [:p {:class "font-medium"} (views/name-of display)]
               (detail dosage)))
 
 (defn- condition-row [{:keys [display onset status]}]
   (c/list-row {:leading (c/icon-disc {:icon :stethoscope})
                :trailing (since-badge onset)}
-              [:p {:class "font-medium"} (name-of display)]
+              [:p {:class "font-medium"} (views/name-of display)]
               (detail (some-> (views/text-of status) str/capitalize))))
 
 (defn- allergy-row [{:keys [display reaction]}]
   (c/list-row {:leading (c/icon-disc {:icon :triangle-alert})}
-              [:p {:class "font-medium"} (name-of display)]
+              [:p {:class "font-medium"} (views/name-of display)]
               (detail reaction)))
 
 ;; ---------------------------------------------------------------------------

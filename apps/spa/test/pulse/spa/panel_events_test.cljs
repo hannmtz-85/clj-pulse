@@ -51,7 +51,7 @@
 (defn- cancelled
   "The tasks whose calls were stopped."
   []
-  (set (for [[effect id] @asked :when (= ::fetch/cancel effect)] (second id))))
+  (set (for [[effect value] @asked :when (= ::fetch/cancel effect)] (second (:id value)))))
 
 (defn- deadlines [] (vec (for [[effect value] @asked :when (= :dispatch-later effect)] value)))
 

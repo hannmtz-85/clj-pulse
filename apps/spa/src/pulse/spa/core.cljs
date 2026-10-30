@@ -2,8 +2,9 @@
   "The entry of the browser build: mounts the workspace and asks for the sign-in (ADR-0029), unless the page is the one of a person
   who has just signed out, which must not send them straight back to sign in."
   (:require [pulse.spa.events :as events]
-            ;; the events of the panel are registered when this is loaded
+            ;; the events of the panel and of the chart of a patient are registered when these are loaded
             [pulse.spa.panel-events]
+            [pulse.spa.patient-events]
             [pulse.spa.route :as route]
             [pulse.spa.views :as views]
             [re-frame.core :as rf]

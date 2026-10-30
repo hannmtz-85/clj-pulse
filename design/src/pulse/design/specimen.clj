@@ -1,11 +1,11 @@
 (ns pulse.design.specimen
   "The pieces the pages of the mock-ups share (ADR-0026): what a reading looks like as a tile and as a chart, made
   from the cohort. This is the layer between the shape of the api and the components of `libs/ui`, which the
-  pages of `web` and `spa` will have too. The chart itself is `pulse.web.charts`, which the portal serves too: what
+  pages of `web` and `spa` will have too. The chart itself is `pulse.view.charts`, which the portal and the workspace serve too: what
   the cohort gives it here is what the api gives it there."
   (:require [pulse.design.data :as data]
             [pulse.ui.chart :as chart]
-            [pulse.web.charts :as charts]
+            [pulse.view.charts :as charts]
             [pulse.view.format :as fmt]
             [pulse.view.views :as web-views])
   (:import (java.time Instant)))
