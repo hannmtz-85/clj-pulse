@@ -11,11 +11,9 @@
   (:require [clojure.string :as str]
             [pulse.fhir.measurement :as measurement]
             [pulse.view.format :as fmt]
-            [pulse.web.refusal :as refusal]
+            [pulse.view.refusal :as refusal]
             [pulse.view.views :as views])
-  (:import (java.time Duration Instant LocalDateTime ZonedDateTime)
-           (java.time.format DateTimeParseException)
-           (java.time.temporal ChronoUnit)))
+  (:import (java.time Duration Instant)))
 
 (def max-age-days
   "How long ago a reading may have been taken, as the form says it: the api refuses an older one (a mistyped year should not
@@ -80,28 +78,18 @@
               (long x)
               x)))))))
 
-(def ^:private local-date-time
-  "A date and a time as a browser writes the value of a field for them: with no zone, to the minute or to the second."
-  #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?")
-
 (defn taken-at
   "The moment that the field `text` writes, a date and a time on the clinic's clock, as an instant in UTC written to the second
   (`2026-10-13T12:00:00Z`). Nil when the field is empty or is not there, which means now; `::invalid` when it is not a date and a
   time (or one that does not exist, such as the 30th of February), and when it is not text. A time that the clocks repeat when
   they go back is read as the first of the two, and one that they skip when they go forward as the same time after the gap (the
-  rule of the JDK for a time with no zone)."
+  rule of the JDK for a time with no zone): `pulse.view.format/local->instant`, which the workspace uses in the browser."
   [text]
   (cond
     (nil? text) nil
     (not (string? text)) ::invalid
     (str/blank? text) nil
-    :else (let [text (str/trim text)]
-            (if (re-matches local-date-time text)
-              (try
-                (let [^ZonedDateTime zoned (ZonedDateTime/ofLocal (LocalDateTime/parse text) fmt/zone nil)]
-                  (str (.truncatedTo (.toInstant zoned) ChronoUnit/SECONDS)))
-                (catch DateTimeParseException _ ::invalid))
-              ::invalid))))
+    :else (or (fmt/local->instant (str/trim text)) ::invalid)))
 
 (defn earliest
   "The moment a reading may have been taken at the soonest, as seen from `now`, an instant written as text."
@@ -140,7 +128,7 @@
   "The words beside the fields for a reading of `kind` that the api refused (a 400 or a 422): `errors` is the `errors` of its problem,
   a map from a field of the api to its messages. A map from the fields of the form to a sentence, for those the form has (the `at`
   of the api is `:taken` here); what the api says of anything else, such as the unit, which the form never sends, is left out.
-  Empty when there is nothing to place (see `pulse.web.refusal`)."
+  Empty when there is nothing to place (see `pulse.view.refusal`)."
   [kind errors]
   (refusal/place (into {:at :taken} (map (fn [{:keys [channel]}] [channel channel])) (fields kind))
                  errors))

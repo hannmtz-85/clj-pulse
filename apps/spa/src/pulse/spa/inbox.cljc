@@ -25,6 +25,7 @@
   `:patients`, `[:evidence patient-id measurement]` or `[:check :active]` and `[:check :acknowledged]`."
   (:require [pulse.spa.ack :as ack]
             [pulse.spa.panel :as panel]
+            [pulse.spa.patients :as patients]
             [pulse.view.alerts :as alerts]
             [pulse.view.format :as fmt]
             [pulse.view.views :as views]))
@@ -133,9 +134,7 @@
   "The id in a reference to a patient, such as `Patient/pt-ana`, or nil for anything else. An id of dots only (`.` and `..` are ids by
   the letter of FHIR) is nil too: no path can carry it, and the route of the chart does not open it."
   [reference]
-  (when (string? reference)
-    (let [id (second (re-matches #"Patient/([A-Za-z0-9\-.]{1,64})" reference))]
-      (when-not (contains? #{"." ".."} id) id))))
+  (patients/id-of reference))
 
 (defn- evidence-pairs
   "The patients and measurements whose latest readings the active alerts of `body` are told by: `[patient-id measurement]` once each,
@@ -314,22 +313,6 @@
   its calls: every part is on its way, and there is no moment yet."
   {:now nil :active loading :acknowledged loading :patients loading :evidence {} :latest {} :queue [] :inflight #{}})
 
-(defn- names-of
-  "The names of the patients the list says, by id; empty while it is not loaded."
-  [patients]
-  (if (= :loaded (:state patients))
-    (into {} (map (fn [patient] [(:id patient) (or (views/text-of (:name patient)) "Not named")]))
-          (panel/patients (:data patients)))
-    {}))
-
-(defn- name-of-patient
-  "The name the page gives the patient `id`: the one the clinic has, or, for one it was not told, their number."
-  [names id]
-  (cond
-    (nil? id) nil
-    (contains? names id) (get names id)
-    :else (str "Patient " id)))
-
 (defn- label-of [text name]
   (if name (str text " · " name) text))
 
@@ -348,7 +331,7 @@
 (defn- active-card [inbox names acks alert]
   (let [text (or (views/text-of (:text alert)) "Alert")
         id (patient-id (:patient alert))
-        name (name-of-patient names id)]
+        name (patients/name-of names id)]
     {:id (:id alert)
      :patient-id id
      :name name
@@ -363,7 +346,7 @@
 (defn- acknowledged-row [inbox names alert]
   (let [text (or (views/text-of (:text alert)) "Alert")
         id (patient-id (:patient alert))
-        name (name-of-patient names id)]
+        name (patients/name-of names id)]
     {:id (:id alert)
      :patient-id id
      :name name
@@ -401,7 +384,7 @@
     `:notices` (`{:id :changed}`, `{:id :check-failed}`, `{:id :names-failed}` and `{:id :evidence-failed :count n}`), `:settled?` and
     `:live`, the words a screen reader is told."
   [inbox {:keys [show acks said] :or {show :all}} admin?]
-  (let [names (names-of (:patients inbox))
+  (let [names (patients/names (:patients inbox))
         active (section inbox :active #(active-card inbox names acks %))
         acknowledged (section inbox :acknowledged #(acknowledged-row inbox names %))
         settled? (settled? inbox)

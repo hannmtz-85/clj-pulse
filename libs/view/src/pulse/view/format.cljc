@@ -16,7 +16,8 @@
   (`1968-03-14`) is what a date of birth is. What is neither makes a function throw, as `Instant/parse` does on the JVM:
   `instant?` and `date?` say first."
   (:require [clojure.string :as str])
-  #?(:clj (:import (java.time Instant LocalDate ZoneId ZonedDateTime)
+  #?(:clj (:import (java.time Instant LocalDate LocalDateTime ZoneId ZonedDateTime)
+                   (java.time.format DateTimeParseException)
                    (java.time.temporal ChronoUnit))))
 
 ;; ---------------------------------------------------------------------------
@@ -346,6 +347,46 @@
   [iso]
   (let [[year month day hour minute] (local-fields (millis iso))]
     (str (four-digits year) "-" (two-digits month) "-" (two-digits day) "T" (two-digits hour) ":" (two-digits minute))))
+
+(def ^:private local-text
+  "A date and a time as a browser writes the value of a field for them (`datetime-local`): with no zone, to the minute or to the
+  second, and a fraction of a second, which is dropped."
+  #"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?")
+
+#?(:cljs
+   (defn- zoned-millis
+     "The instant, in epoch milliseconds, that the wall-clock time `wall` (the milliseconds from 1970-01-01T00:00 as if the clock were
+     UTC's) is on the clock of the clinic, by the rule java.time has for a time with no zone. A time that the clocks pass twice, when
+     they go back, is the first of the two (the offset before the change), and a time that they skip, when they go forward, is the same
+     time after the gap, which is the offset before the change too: so the offset before the change is the one unless only the offset
+     after it fits. The offsets of the day before and the day after are those on either side of a change, which are never less than a
+     day apart."
+     [wall]
+     (let [before (offset-at (- wall 86400000))
+           after (offset-at (+ wall 86400000))
+           fits? (fn [offset] (== offset (offset-at (- wall offset))))]
+       (- wall (cond (fits? before) before
+                     (fits? after) after
+                     :else before)))))
+
+(defn local->instant
+  "The instant, as the text the api reads (to the second, in UTC: `2026-10-13T08:00:00Z`), that `text` is on the clock of the clinic:
+  `text` is a date and a time as a field of a form for them writes it (`datetime-local`, such as `2026-10-13T10:00`, or `2026-10-13T10:00:30`
+  with seconds), the way back of `local-input`. Nil when it is not one, or is one that does not exist (the 30th of February, `24:00`).
+  A time that the clocks pass twice when they go back is the first of the two, and a time that they skip when they go forward is the same
+  time after the gap, as java.time says for a time with no zone; the browser, which has no such rule, finds it from the offsets of the
+  clinic's clock (`pulse.view.parity-test` holds both to each other around every change of seven years)."
+  [text]
+  (when (and (string? text) (re-matches local-text text))
+    #?(:clj (try
+              (let [^ZonedDateTime zoned (ZonedDateTime/ofLocal (LocalDateTime/parse text) zone nil)]
+                (str (.truncatedTo (.toInstant zoned) ChronoUnit/SECONDS)))
+              (catch DateTimeParseException _ nil))
+       :cljs (let [[_ year month day hour minute sec] (re-matches local-text text)
+                   [year month day hour minute sec] (map #(js/parseInt % 10) [year month day hour minute (or sec "0")])]
+               (when (and (real-date? year month day) (<= 0 hour 23) (<= 0 minute 59) (<= 0 sec 59))
+                 (instant-text (zoned-millis (+ (* (days-from-civil year month day) 86400000)
+                                                (* hour 3600000) (* minute 60000) (* sec 1000)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The axis of time of a chart

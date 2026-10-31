@@ -14,6 +14,7 @@
   (:require [clojure.string :as str]
             [malli.core :as m]
             [pulse.fhir.reference :as reference]
+            [pulse.spa.appointment-command :as command]
             [pulse.spa.http :as http]
             [pulse.spa.patient :as patient]
             [pulse.spa.person :as person]
@@ -38,13 +39,34 @@
   acknowledged. Both is the default."
   #{:active :acknowledged})
 
+(def appointment-filters
+  "What the list of appointments can be narrowed to, by the `show` of its address: the requests to answer, the ones that are booked or the
+  ones that were cancelled. All of them is the default."
+  #{:requests :booked :cancelled})
+
+(def appointment-dialogs
+  "The dialogs that answer an appointment, by the name of the route that opens each: the command of the lifecycle it sends. They are
+  pages of their own in the address (the back button closes one, and a link opens it), and one page with the list they are over."
+  {:appointment-confirm :confirm
+   :appointment-reschedule :reschedule
+   :appointment-cancel :cancel})
+
 (def search-limit
   "The longest search the panel takes from an address: more is cut."
   100)
 
+(def ^:private appointments-events
+  "What every route of the appointments does: they are one page, which the list and each dialog over it share."
+  {:page :appointments
+   :roles person/workspace-roles
+   :start [[:pulse.spa.appointments/load]]
+   :update [[:pulse.spa.appointments/choose]]
+   :stop [[:pulse.spa.appointments/leave]]})
+
 (def routes
   "The pages of the workspace: `[path data]`. The data of a route is its `:name`, its `:title` (what the tab says, and what is
-  announced when the person comes to it), `:roles` or `:public?`, `:page-params` (a vector of the keywords of the parameters of its
+  announced when the person comes to it), `:roles` or `:public?`, `:page` (the name of the page it is one of, for routes that are
+  one page: the list of appointments and the dialogs over it), `:page-params` (a vector of the keywords of the parameters of its
   path that say which page of it this is), and `:start`, `:update`, `:refresh` and `:stop`, each a vector of events."
   [["/" {:name :panel
          :title "Panel"
@@ -64,6 +86,16 @@
                :start [[:pulse.spa.inbox/load]]
                :refresh [[:pulse.spa.inbox/check]]
                :stop [[:pulse.spa.inbox/leave]]}]
+   ["/appointments" (assoc appointments-events :name :appointments :title "Appointments")]
+   ["/appointments/:id/confirm" (assoc appointments-events :name :appointment-confirm :title "Confirm an appointment")]
+   ["/appointments/:id/reschedule" (assoc appointments-events :name :appointment-reschedule :title "Reschedule an appointment")]
+   ["/appointments/:id/cancel" (assoc appointments-events :name :appointment-cancel :title "Cancel an appointment")]
+   ["/jobs" {:name :jobs
+             :title "Jobs"
+             ;; the scheduler is the administrator's: the api says so too (Annex A, `:jobs/read`)
+             :roles #{:clinic-admin}
+             :start [[:pulse.spa.jobs/load]]
+             :stop [[:pulse.spa.jobs/leave]]}]
    [signed-out-path {:name :signed-out
                      :title "Signed out"
                      :public? true}]])
@@ -91,7 +123,9 @@
                          (when-not (events-ok? (:stop route [])) "has a :stop that is not a vector of events")
                          (when-not (let [page-params (:page-params route [])]
                                      (and (vector? page-params) (every? keyword? page-params)))
-                           "has :page-params that are not a vector of keywords")]
+                           "has :page-params that are not a vector of keywords")
+                         (when-not (or (not (contains? route :page)) (keyword? (:page route)))
+                           "has a :page that is not a keyword")]
                 :when problem]
             (str "the route " (pr-str path) " " problem))
           (for [[route-name n] (frequencies names)
@@ -190,6 +224,12 @@
                 (not (contains? #{"." ".."} id))
                 (reference/parse (str "Patient/" id)))))
 
+(defn appointment-id?
+  "Whether `id` can be the id of an appointment, as `patient-id?` says it of a patient's: the dialogs of the appointments are the pages of
+  nothing for an address with another."
+  [id]
+  (command/id? id))
+
 (def ^:private kind-names
   (into #{} (map name) views/kinds))
 
@@ -233,6 +273,49 @@
   ([{:keys [show]}]
    (str "/alerts" (some->> (http/query-string (cond-> {} (contains? alert-filters show) (assoc :show (name show)))) (str "?")))))
 
+(def ^:private appointments-show-schema
+  (into [:enum] (map name) (sort appointment-filters)))
+
+(defn appointments-params
+  "What the list of appointments is narrowed to, from the `query` of its address (as `panel-params` takes it): `{:show
+  :all|:requests|:booked|:cancelled}`. **It never fails**: a `show` that is none of those is all of them."
+  [query]
+  (let [show (first-of (:show query))]
+    {:show (if (m/validate appointments-show-schema show) (keyword show) :all)}))
+
+(defn appointment-dialog-params
+  "What a dialog over the list of appointments is about, from the `query` of its address and the `path` parameters that matched
+  (`{:id}`): `{:show :id :action}`, the list it is over (as `appointments-params` has it), the appointment and the command, which is the
+  one the route `route-name` opens (`appointment-dialogs`). **It never fails.**"
+  [route-name query path]
+  (assoc (appointments-params query) :id (:id path) :action (get appointment-dialogs route-name)))
+
+(defn appointments-query
+  "The query of the address of the list of appointments, and of the dialogs over it, narrowed to `show`, as the history of the browser takes
+  it: a map from keywords to texts. What is the default (all of them) is left out."
+  [show]
+  (cond-> {} (contains? appointment-filters show) (assoc :show (name show))))
+
+(defn appointments-path
+  "The path of the list of appointments narrowed to `params` (`{:show}`), as a link holds it: `/appointments`, or
+  `/appointments?show=requests`. What is the default (all of them) is left out."
+  ([] (appointments-path nil))
+  ([{:keys [show]}]
+   (str "/appointments" (some->> (http/query-string (appointments-query show)) (str "?")))))
+
+(defn appointment-path
+  "The path of the dialog that carries out `action` (`:confirm`, `:reschedule` or `:cancel`) on the appointment `id`, over the list narrowed
+  to `params` (`{:show}`), as a link holds it: `/appointments/appt-1/confirm`, or `/appointments/appt-1/cancel?show=booked`. The list keeps
+  its narrowing when the dialog is closed."
+  ([id action] (appointment-path id action nil))
+  ([id action {:keys [show]}]
+   (str "/appointments/" (http/encode id) "/" (name action)
+        (some->> (http/query-string (appointments-query show)) (str "?")))))
+
+(def jobs-path
+  "The path of the page of the jobs of the scheduler."
+  "/jobs")
+
 (defn params-of
   "The parameters of the route `route-name` from the `query` of an address and, for a route that has them, the `path` parameters."
   ([route-name query] (params-of route-name query nil))
@@ -241,15 +324,19 @@
      :panel (panel-params query)
      :patient (patient-params query path)
      :alerts (alerts-params query)
+     :appointments (appointments-params query)
+     (:appointment-confirm :appointment-reschedule :appointment-cancel) (appointment-dialog-params route-name query path)
      {})))
 
 (defn from-match
   "The route the workspace is on, from reitit's `match` of an address (`nil` when it matched none): `{:name :params}`, where `:name`
-  is `:not-found` for an address that is no page of the workspace, the chart of an id that cannot be a patient's among them."
+  is `:not-found` for an address that is no page of the workspace, the chart of an id that cannot be a patient's and the dialog of an id
+  that cannot be an appointment's among them."
   [match]
   (if-let [data (data-of match)]
     (let [params (params-of (:name data) (:query-params match) (:path-params match))]
-      (if (and (= :patient (:name data)) (not (patient-id? (:id params))))
+      (if (or (and (= :patient (:name data)) (not (patient-id? (:id params))))
+              (and (contains? appointment-dialogs (:name data)) (not (appointment-id? (:id params)))))
         {:name :not-found :params {}}
         {:name (:name data) :params params}))
     {:name :not-found :params {}}))
@@ -277,10 +364,12 @@
       :else (boolean (some roles (:roles person))))))
 
 (defn- page-of
-  "What makes `here` (`{:name :params}`) the page it is: its route, and the parameters of its path that say which page of the route it
-  is (the id of the patient, for the chart)."
+  "What makes `here` (`{:name :params}`) the page it is: its route, or the page that the route is one of (the list of appointments and the
+  dialogs over it are one page, so that opening a dialog loads nothing again and moves nobody's focus to a heading), and the parameters of
+  its path that say which page of the route it is (the id of the patient, for the chart)."
   [here]
-  [(:name here) (select-keys (:params here) (:page-params (data (:name here))))])
+  (let [route-data (data (:name here))]
+    [(or (:page route-data) (:name here)) (select-keys (:params here) (:page-params route-data))]))
 
 (defn transition
   "What the change from the route `from` to the route `to` (each `{:name :params}`, or nil before the first) starts, updates and

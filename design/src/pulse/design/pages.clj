@@ -115,10 +115,19 @@
    {:file "workspace-appointments.html" :title "Requests and visits" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/appointments
     :summary "The requests that wait for an answer, what is booked and what was cancelled, with the actions the lifecycle allows."
     :notes ["A request can be confirmed or cancelled; a booked appointment can be rescheduled or cancelled; a cancelled one has no action."
-            "The buttons come from the lifecycle in libs/fhir, not from the page."]}
+            "The buttons come from the lifecycle in libs/fhir, not from the page, and each leads to the form that carries the action out."]}
    {:file "workspace-confirm.html" :title "Confirm an appointment" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/confirm
     :summary "The form to confirm a request: the day and the time that are given to it."
-    :notes ["A visit lasts from 5 minutes to 4 hours, the limit of the api."]}
+    :notes ["A visit lasts from 5 minutes to 4 hours, the limit of the api."
+            "The day proposed is the first day of the window the patient asked for that is not past, and at the earliest tomorrow."
+            "What the lifecycle or the api refuses is written beside the field it is about, in their own words."]}
+   {:file "workspace-reschedule.html" :title "Reschedule an appointment" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/reschedule
+    :summary "The form to move a booked appointment: it starts from the day and the time it has."
+    :notes ["The patient sees the new time in the portal."]}
+   {:file "workspace-cancel-appointment.html" :title "Cancel a booked appointment" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/cancel-appointment
+    :summary "The question before a booked appointment is cancelled: why, if the clinician wants to say."
+    :notes ["The reason is optional, and the patient sees it in the portal."
+            "Keep it leaves the appointment as it is."]}
    {:file "workspace-jobs.html" :title "Jobs" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/jobs
     :summary "For the administrator: what the scheduler does on its own, and how the last run of each went."
     :notes ["One job is running, and the last run of the reminders failed. The page shows the class of the error, never its message."

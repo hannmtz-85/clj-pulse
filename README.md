@@ -16,7 +16,7 @@ A portfolio project: four applications of different kinds share one identity pro
 
 ## Status
 
-**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 3,490 tests (2,707 on the JVM and 783 on Node), 29 architecture decision records, and an acceptance journey of the patient portal in a real browser against the real Keycloak (62 checks).
+**Phases 0 to 7 are done; Phase 8 (the clinical workspace) is under way.** About 4,110 tests (2,970 on the JVM and 1,144 on Node), 29 architecture decision records, and an acceptance journey of the patient portal in a real browser against the real Keycloak (62 checks).
 
 | Part | State |
 |---|---|
@@ -26,7 +26,7 @@ A portfolio project: four applications of different kinds share one identity pro
 | `scheduler`: jobs as data, a rules engine that raises each alert once, a device simulator and appointment reminders | Done |
 | Design system: tokens with measured contrast, shared components, mock-ups and the Keycloak login theme | Done |
 | `web`, the patient portal: its own PKCE sign-in, server-side sessions, readings, appointments, record and profile | Done |
-| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Sign-in with PKCE, a token that renews when a call needs it, a role gate, sign-out the panel of patients (the most urgent first, with filters and a search that live in the address), the chart of a patient (the alerts with the rule that raised each, the latest readings, a chart with its thresholds, the record and the appointments) and the inbox of alerts (acknowledged from the inbox or from the chart, with the count in the navigation read again every 30 seconds and a list that never moves under the hand) done; the appointments and the jobs next |
+| `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Sign-in with PKCE, a token that renews when a call needs it, a role gate, sign-out the panel of patients (the most urgent first, with filters and a search that live in the address), the chart of a patient (the alerts with the rule that raised each, the latest readings, a chart with its thresholds, the record and the appointments), the inbox of alerts (acknowledged from the inbox or from the chart, with the count in the navigation read again every 30 seconds and a list that never moves under the hand), the appointments (confirm, reschedule and cancel in dialogs that have their own address, with the lifecycle checked before the api is asked and the api's own words beside the fields) and the jobs of the scheduler for the administrator done; the empty and error states, accessibility and the acceptance in a real browser next |
 
 Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
 

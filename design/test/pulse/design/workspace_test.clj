@@ -8,8 +8,10 @@
             [pulse.design.data :as data]
             [pulse.design.workspace :as workspace]
             [pulse.fhir.appointment :as appointment]
+            [pulse.spa.appointments :as appointments]
             [pulse.spa.inbox :as inbox]
             [pulse.spa.pages.alerts :as alerts-page]
+            [pulse.spa.pages.appointments :as appointments-page]
             [pulse.spa.patient :as patient]
             [pulse.ui.test.hiccup :as hx]))
 
@@ -139,7 +141,7 @@
     (testing "there is no search box: it would have nothing to search"
       (is (empty? (hx/select doc #(= "search" (:type (hx/attributes %)))))))))
 
-(deftest the-appointments-in-a-chart-are-in-order-and-are-read-only-until-the-workspace-can-change-them
+(deftest the-appointments-in-a-chart-are-in-order-and-have-what-the-lifecycle-allows
   (let [doc ((workspace/patient "pt-ana") context)
         list-el (list-named doc "Appointments")
         list-rows (rows list-el)]
@@ -150,9 +152,10 @@
         "what is to come first, and what was cancelled last")
     (testing "each says its status in words"
       (is (every? true? (map (fn [row word] (str/includes? (hx/words row) word)) list-rows ["Confirmed" "Requested" "Cancelled"]))))
-    (testing "and none has a button, since the buttons of the lifecycle are the step that follows"
-      (is (every? empty? (map buttons list-rows)))
-      (is (empty? (hx/by-tag list-el :a))))))
+    (testing "and each has the buttons that the lifecycle gives a clinician, which lead to the dialogs over the list of appointments"
+      (is (= [["Reschedule" "Cancel"] ["Confirm" "Cancel"] []] (map #(map hx/words (buttons %)) list-rows)))
+      (is (= [["../workspace-reschedule.html" "../workspace-cancel-appointment.html"] ["../workspace-confirm.html" "../workspace-cancel-appointment.html"] []]
+             (map #(map href (buttons %)) list-rows))))))
 
 (deftest the-chart-of-sofia-is-of-her-oxygen-and-has-her-allergy
   (let [doc ((workspace/patient "pt-sofia") context)
@@ -304,25 +307,82 @@
     (is (not (str/includes? text "Heart failure review")) "that of Maya Patel is Dr. Okafor's")
     (is (not (str/includes? text "New patient intake")) "and so is Noah Kim's")))
 
+(deftest the-state-of-the-appointments-is-what-the-api-answers-a-practitioner
+  (let [state (workspace/appointments-state workspace/practitioner-id)]
+    (testing "the three lists of the api, by status, in the order the api gives them"
+      (is (= ["appt-sofia-1" "appt-ana-2"] (map :id (get-in state [:requests :data :items]))) "the soonest asked-for first")
+      (is (= ["appt-ana-1" "appt-liam-1"] (map :id (get-in state [:booked :data :items]))))
+      (is (= ["appt-ana-0"] (map :id (get-in state [:cancelled :data :items])))))
+    (testing "the patients of the panel, and not Maya or Noah"
+      (is (= #{"pt-ana" "pt-sofia" "pt-liam" "pt-omar"} (set (map :id (get-in state [:patients :data :items]))))))
+    (testing "nothing waits and the page is settled"
+      (is (true? (appointments/settled? state)))
+      (is (= {} (:latest state))))
+    (testing "the page is the one the workspace serves, and the mock-up only leads its buttons to the pages there are"
+      (let [served (appointments-page/content state {:show :all :admin? false :links workspace/appointment-links})]
+        (is (= (hx/words served) (hx/words (main-of (workspace/appointments context)))))))))
+
+(deftest the-administrator-s-appointments-are-every-patient-s
+  (let [state (workspace/appointments-state nil)]
+    (is (= 3 (get-in state [:requests :data :total])) "Noah's request too")
+    (is (= 3 (get-in state [:booked :data :total])) "and Maya's appointment")
+    (is (str/includes? (hx/words (appointments-page/content state {:show :all :admin? true :links workspace/appointment-links})) "New patient intake"))))
+
+(deftest the-appointment-pages-have-no-search-box-and-lead-their-dialogs-to-the-mock-ups-of-each-command
+  (doseq [f [workspace/appointments workspace/confirm workspace/reschedule workspace/cancel-appointment]
+          :let [doc (f context)]]
+    (is (nil? (hx/by-id doc "search")) "a box that searched nothing here would be a control with nothing to do")
+    (is (some? (section-of doc "requests"))))
+  (let [row-buttons (fn [id] (map (juxt hx/words href) (buttons (first (hx/select (workspace/appointments context) #(= (str "appointment-" id) (:id (hx/attributes %))))))))]
+    (is (= [["Confirm" "../workspace-confirm.html"] ["Cancel" "../workspace-cancel-appointment.html"]] (row-buttons "appt-sofia-1")))
+    (is (= [["Reschedule" "../workspace-reschedule.html"] ["Cancel" "../workspace-cancel-appointment.html"]] (row-buttons "appt-ana-1")))))
+
 (deftest the-form-to-confirm-gives-a-time-inside-the-days-that-were-asked-for
   (let [doc (workspace/confirm context)
         dialog (first (hx/by-tag doc :dialog))
         day (:value (hx/attributes (hx/by-id dialog "day")))
         [lower upper] (:slot-minutes appointment/limits)]
     (is (true? (:open (hx/attributes dialog))))
-    (is (= "Confirm the appointment" (hx/words (hx/by-id dialog "confirm-appointment-title"))))
+    (is (= "Confirm the appointment" (hx/words (hx/by-id dialog "appointment-dialog-title"))))
     (is (str/includes? (hx/words dialog) "COPD check-up (requested by the patient)"))
     (is (str/includes? (hx/words dialog) "Sofía Rossi"))
     (is (str/includes? (hx/words dialog) "Asked for a visit between Oct 16 and Oct 23"))
     (is (<= (compare "2026-10-16" day) 0) "not before the first day")
     (is (<= (compare day "2026-10-23") 0) "nor after the last")
-    (is (= ["10:00" "10:30"] (map #(:value (hx/attributes (hx/by-id dialog %))) ["start" "end"])))
-    (is (= ["date" "time" "time"] (map #(:type (hx/attributes (hx/by-id dialog %))) ["day" "start" "end"])))
-    (is (str/includes? (hx/words (hx/by-id dialog "end-hint")) (str lower " minutes to " (quot upper 60) " hours")))
+    (is (= ["10:00" "10:30"] (map #(:value (hx/attributes (hx/by-id dialog %))) ["from" "until"])))
+    (is (= ["date" "time" "time"] (map #(:type (hx/attributes (hx/by-id dialog %))) ["day" "from" "until"])))
+    (is (str/includes? (hx/words (hx/by-id dialog "until-hint")) (str lower " minutes to " (quot upper 60) " hours")))
     (is (= ["Not now" "Confirm"] (map hx/words (sort-by #(if (hx/has-class? % "btn-ghost") 0 1) (buttons dialog)))))
-    (is (= ["../workspace-appointments.html" "../workspace-appointments.html"] (map href (buttons dialog))))
+    (is (= ["../workspace-appointments.html"] (keep href (buttons dialog))) "the way out leads to the list; the other button sends the form")
+    (testing "the patient is told what happens, and no more than the system does"
+      (is (str/includes? (hx/words dialog) "Sofía sees the new time in the portal."))
+      (is (not (str/includes? (hx/words dialog) "reminded")) "no endpoint shows a reminder to the patient"))
     (testing "behind it, the appointments"
       (is (some? (section-of doc "requests"))))))
+
+(deftest the-form-to-reschedule-starts-from-the-time-the-appointment-has
+  (let [doc (workspace/reschedule context)
+        dialog (first (hx/by-tag doc :dialog))]
+    (is (= "Reschedule the appointment" (hx/words (hx/by-id dialog "appointment-dialog-title"))))
+    (is (str/includes? (hx/words dialog) "Hypertension follow-up"))
+    (is (str/includes? (hx/words dialog) "Wed 14 Oct, 10:00–10:30"))
+    (is (= ["2026-10-14" "10:00" "10:30"] (map #(:value (hx/attributes (hx/by-id dialog %))) ["day" "from" "until"])))
+    (is (= ["Not now" "Reschedule"] (map hx/words (sort-by #(if (hx/has-class? % "btn-ghost") 0 1) (buttons dialog)))))
+    (is (str/includes? (hx/words dialog) "Ana sees the new time in the portal."))))
+
+(deftest the-question-before-an-appointment-is-cancelled-asks-why-if-the-clinician-wants-to-say
+  (let [doc (workspace/cancel-appointment context)
+        dialog (first (hx/by-tag doc :dialog))
+        why (hx/by-id dialog "why")]
+    (is (= "Cancel the appointment" (hx/words (hx/by-id dialog "appointment-dialog-title"))))
+    (is (str/includes? (hx/words dialog) "Diabetes review"))
+    (is (str/includes? (hx/words dialog) "Liam Chen"))
+    (is (str/includes? (hx/words dialog) "Why? (optional)"))
+    (is (= "" (:value (hx/attributes why))))
+    (is (nil? (hx/by-id dialog "day")) "a cancellation has no time")
+    (is (= ["Keep it" "Cancel the appointment"] (map hx/words (sort-by #(if (hx/has-class? % "btn-ghost") 0 1) (buttons dialog)))))
+    (is (hx/has-class? (hx/by-id dialog "appointment-submit") "btn-error") "red: it cannot be taken back")
+    (is (str/includes? (hx/words dialog) "Liam sees in the portal that it was cancelled, and why if you say."))))
 
 ;; ---------------------------------------------------------------------------
 ;; The jobs

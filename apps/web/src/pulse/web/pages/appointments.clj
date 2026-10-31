@@ -30,7 +30,7 @@
             [pulse.ui.component :as c]
             [pulse.web.pages :as pages]
             [pulse.web.pages.parts :as parts]
-            [pulse.web.refusal :as refusal]
+            [pulse.view.refusal :as refusal]
             [pulse.view.views :as views]
             [pulse.web.visits :as visits]))
 

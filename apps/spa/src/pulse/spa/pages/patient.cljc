@@ -15,9 +15,11 @@
   A control that has nothing to lead to is not there: a pill is there only when `:chart` is among the `links` (a function from
   `{:measurement :days}` to an address), a breadcrumb back to the panel only when `:panel` is, the link to all the alerts only when
   `:alerts` is, the button that acknowledges an alert only when `:acknowledge` is among the `handlers` (or the `links`, for the mock-up,
-  which has no handlers), and a button to try again only when `:retry` is among the `handlers`. The buttons to confirm, move or cancel an
-  appointment are not here until there is a page for them (the next step of the phase)."
+  which has no handlers), and a button to try again only when `:retry` is among the `handlers`. The buttons to confirm, reschedule or
+  cancel an appointment are there only when `:dialog` is among the `links` (a function from the id of the appointment and the command to
+  the address of the dialog over the list of appointments that carries it out)."
   (:require [clojure.string :as str]
+            [pulse.spa.appointment-command :as command]
             [pulse.spa.pages.parts :as parts :refer [retry-button wrapped]]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.patient :as patient]
@@ -224,15 +226,18 @@
   (c/list-row [:p {:class "font-medium wrap-anywhere"} (views/name-of display)] (detail reaction)))
 
 (defn- appointment-row
-  "A row of the appointments of the patient: the day, or a clock for a request, what it is for, when, and its status."
-  [{:keys [status description month day reason asked] when-text :when}]
-  (c/list-row
-   {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
-    :trailing-wraps? true
-    :trailing (views/appointment-chip status)}
-   [:p {:class "font-semibold wrap-anywhere"} (or (views/text-of description) "Appointment")]
-   (detail (or when-text asked))
-   (when-let [r (views/text-of reason)] [:p {:class "text-muted wrap-anywhere"} (str "Reason: " r)])))
+  "A row of the appointments of the patient: the day, or a clock for a request, what it is for, when, its status and, when the page can
+  lead there (`:dialog` among the `links`), the buttons for what the lifecycle lets a clinician do with it, which lead to the dialogs of the
+  list of appointments."
+  [{:keys [status description month day reason asked] when-text :when :as row} now options]
+  (let [named (assoc row :label (views/text-of description) :actions (command/available row now))]
+    (c/list-row
+     {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
+      :trailing-wraps? true
+      :trailing (parts/actions (views/appointment-chip status) (parts/appointment-buttons named options))}
+     [:p {:class "font-semibold wrap-anywhere"} (or (views/text-of description) "Appointment")]
+     (detail (or when-text asked))
+     (when-let [r (views/text-of reason)] [:p {:class "text-muted wrap-anywhere"} (str "Reason: " r)]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The page
@@ -272,7 +277,7 @@
          [:div {:class "grid items-start gap-6 md:grid-cols-2"}
           (list-card "Medication" (:medications m) medication-row "None." handlers)
           (list-card "Allergies" (:allergies m) allergy-row "None recorded." handlers)]]
-        (list-card "Appointments" (:appointments m) appointment-row "None." handlers)]])))
+        (list-card "Appointments" (:appointments m) #(appointment-row % now options) "None." handlers)]])))
 
 (defn page
   "The workspace around the chart of a patient. `options` are those of `content`, and `:person` (who is signed in), `:me` (what the api

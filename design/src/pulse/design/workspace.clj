@@ -3,15 +3,16 @@
   and what the administrator sees besides. The practitioner is Dr. Elena Rivera, whose panel has Ana (a very high blood
   pressure), Sofía (a low oxygen saturation), Liam and Omar; the administrator is Sam Admin. Each page is a function
   from the context of the build to the document of its frame."
-  (:require [clojure.string :as str]
-            [pulse.design.data :as data]
-            [pulse.design.format :as jobs-fmt]
+  (:require [pulse.design.data :as data]
             [pulse.design.mockup :as mockup]
             [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
-            [pulse.fhir.appointment :as appointment]
+            [pulse.spa.appointment-command :as command]
+            [pulse.spa.appointments :as appointments]
             [pulse.spa.inbox :as inbox]
             [pulse.spa.pages.alerts :as alerts-page]
+            [pulse.spa.pages.appointments :as appointments-page]
+            [pulse.spa.pages.jobs :as jobs-page]
             [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.panel :as panel]
@@ -19,9 +20,7 @@
             [pulse.ui.component :as c]
             [pulse.ui.layout :as layout]
             [pulse.view.alerts :as alerts]
-            [pulse.view.format :as fmt]
-            [pulse.view.views :as web-views])
-  (:import (java.time LocalDate)))
+            [pulse.view.format :as fmt]))
 
 (def practitioner-id "pr-rivera")
 
@@ -36,6 +35,12 @@
 
 (defn- chart-link [patient-id]
   (link (get charts patient-id "workspace-panel.html")))
+
+(def ^:private dialog-files
+  "The mock-up of the dialog of each command that answers an appointment."
+  {:confirm "workspace-confirm.html"
+   :reschedule "workspace-reschedule.html"
+   :cancel "workspace-cancel-appointment.html"})
 
 ;; ---------------------------------------------------------------------------
 ;; The frame
@@ -129,39 +134,6 @@
         (panel-page/content (panel-state practitioner-id) {:show :all :q ""} {:admin? false :links panel-links})))
 
 ;; ---------------------------------------------------------------------------
-;; Pieces that other pages of the mock-ups still use
-
-(defn- vitals-grid [patient-id]
-  (let [vitals (data/vitals patient-id)]
-    (into [:div {:class "grid gap-4 md:grid-cols-3"}]
-          (for [kind data/kinds :let [reading (get vitals kind)] :when reading]
-            (specimen/vital-tile kind reading)))))
-
-(defn- appointment-actions
-  "The buttons an appointment gets from its status: what a clinician may do with it is `pulse.fhir.appointment`'s to say."
-  [status]
-  (let [actions (appointment/available-actions {:status status} :clinician data/now-text)]
-    (list (when (:confirm actions) (c/button {:size :sm :icon :calendar-check :href (link "workspace-confirm.html")} "Confirm"))
-          (when (:reschedule actions) (c/button {:variant :outline :size :sm :icon :calendar-clock :href "#"} "Reschedule"))
-          (when (:cancel actions) (c/button {:variant :ghost :size :sm :icon :calendar-x :href "#"} "Cancel")))))
-
-(defn- appointment-row
-  "A row of a list of appointments of the workspace: the day, or a clock for a request, the patient (unless the list is
-  the patient's own), what it is, its status and what a clinician may do."
-  ([row] (appointment-row row {}))
-  ([{:keys [status description month day reason asked patient] when-text :when} {:keys [show-patient?] :or {show-patient? true}}]
-   (c/list-row
-    {:leading (if day (c/date-block {:month month :day day}) (c/date-block {:icon :clock}))
-     :trailing-wraps? true
-     :trailing (list (web-views/appointment-chip status) (appointment-actions status))}
-    [:p {:class "font-semibold"} description]
-    [:p {:class "text-muted"}
-     (when show-patient?
-       (list [:a {:href (chart-link (:id patient)) :class "text-base-content underline"} (:name patient)] " · "))
-     (or when-text asked)]
-    (when reason [:p {:class "text-muted"} (str "Reason: " reason)]))))
-
-;; ---------------------------------------------------------------------------
 ;; The chart of a patient
 
 (defn patient-state
@@ -187,17 +159,18 @@
 
 (defn- chart-links
   "Where the buttons and the pills of the chart lead in the mock-ups: the panel, the inbox of alerts (where the button that acknowledges an
-  alert leads too, since the mock-up does not make it work) and, for the pills, nowhere."
+  alert leads too, since the mock-up does not make it work), the dialog of each command on an appointment and, for the pills, nowhere."
   []
   {:panel (link "workspace-panel.html")
    :alerts (link "workspace-alerts.html")
    :acknowledge (constantly (link "workspace-alerts.html"))
+   :dialog (fn [_id action] (link (dialog-files action)))
    :chart (constantly "#")})
 
 (defn patient
   "The page function of the chart of `patient-id`. The page is the one the workspace serves (`pulse.spa.pages.patient`), made from
-  the cohort; the search box and the buttons of the next step (to confirm, move or cancel an appointment) are not on it until the
-  workspace has them."
+  the cohort, with the buttons to confirm, reschedule or cancel an appointment that the lifecycle gives a clinician; the box to
+  search the patients is not on it: it would have nothing to search here."
   [patient-id]
   (fn [_context]
     (page {:title (str "Chart of " (:name (data/patient patient-id))) :current :panel :search? false}
@@ -247,117 +220,88 @@
 ;; ---------------------------------------------------------------------------
 ;; Appointments
 
-(defn- panel-appointments
-  "The appointments of the panel of the practitioner, as rows."
-  []
-  (filter #(= practitioner-id (get-in % [:patient :practitioner])) (views/appointment-rows)))
+(defn appointments-state
+  "What the list of appointments of the workspace is a function of when it has loaded: the state `pulse.spa.appointments` keeps, made from
+  what the api answers (the requests, the booked and the cancelled appointments, and the patients), from the cohort at the moment of the
+  mock-ups, for the practitioner `practitioner-id` (or every patient, for nil)."
+  [practitioner-id]
+  (let [mine (str "Practitioner/" practitioner-id)
+        visible (filter #(or (nil? practitioner-id) (= mine (:practitioner %)))
+                        (concat (data/appointments) data/other-appointments))
+        listed (fn [status order] (loaded (data/appointment-page visible {:status status :sort order :limit appointments/list-limit})))]
+    {:now data/now-text
+     :requests (listed "proposed" "start")
+     :booked (listed "booked" "start")
+     :cancelled (listed "cancelled" "-start")
+     :patients (loaded (data/patient-list practitioner-id {:limit panel/list-limit}))
+     :latest {}
+     :adopt? false
+     :queue []
+     :inflight #{}
+     :dialog nil
+     :said nil}))
 
-(defn- appointment-section [id title rows]
-  [:section {:aria-labelledby id}
-   [:div {:class "mb-3"} (section-heading id title)]
-   (c/card {:flush? true} (c/list-group {:aria-label title} (map appointment-row rows)))])
-
-(defn- appointments-content [rows]
-  (let [with-status (fn [status] (filter #(= status (:status %)) rows))]
-    [:div {:class "space-y-6"}
-     (c/page-header {:title "Appointments" :description "Requests to answer and visits to come."})
-     (c/tab-nav {:label "Appointments by status"
-                 :items [{:href "#" :label (str "All (" (count rows) ")") :current? true}
-                         {:href "#" :label (str "Requests (" (count (with-status "proposed")) ")")}
-                         {:href "#" :label (str "Booked (" (count (with-status "booked")) ")")}
-                         {:href "#" :label (str "Cancelled (" (count (with-status "cancelled")) ")")}]})
-     (appointment-section "requests" "Requests to answer" (with-status "proposed"))
-     (appointment-section "booked" "Booked" (with-status "booked"))
-     (appointment-section "cancelled" "Cancelled" (with-status "cancelled"))]))
+(def appointment-links
+  "Where the buttons of the appointments lead in the mock-ups, which have every page: the dialog of each command there is one of, the
+  chart of each patient there is one of, and the tabs, which the mock-up does not make work."
+  {:panel (link "workspace-panel.html")
+   :alerts (link "workspace-alerts.html")
+   :appointments (link "workspace-appointments.html")
+   :filter (constantly "#")
+   :patient chart-link
+   :dialog (fn [_id action] (link (dialog-files action)))
+   :close (link "workspace-appointments.html")})
 
 (defn appointments
-  "The appointments of a practitioner's panel by status: the requests that wait for an answer, what is booked, and what
-  was cancelled, each with what the lifecycle allows."
+  "The appointments of a practitioner's panel by status: the requests that wait for an answer, what is booked, and what was cancelled, each
+  with what the lifecycle allows. The page is the one the workspace serves (`pulse.spa.pages.appointments`), made from the cohort. The box
+  to search the patients is not on it: it would have nothing to search here."
   [_context]
-  (page {:title "Appointments" :current :appointments}
-        (appointments-content (panel-appointments))))
+  (page {:title "Appointments" :current :appointments :search? false}
+        (appointments-page/content (appointments-state practitioner-id) {:show :all :admin? false :links appointment-links})))
 
-(defn- three-days-after
-  "The date, as `2026-10-19`, three days after the first day of the window of a request."
-  [window-start]
-  (str (.plusDays (LocalDate/parse (subs window-start 0 10)) 3)))
+(defn- appointment-dialog
+  "The page function of the dialog that carries out `action` on the appointment `id`, over the list of the practitioner."
+  [title action id]
+  (fn [_context]
+    (page {:title title :current :appointments :search? false}
+          (appointments-page/content (assoc (appointments-state practitioner-id) :dialog (command/opened action id))
+                                     {:show :all :admin? false :links appointment-links}))))
 
-(defn confirm
-  "The appointments with the form to confirm a request: the time that is given to it."
-  [_context]
-  (let [rows (panel-appointments)
-        {:keys [description patient asked requested-start]} (first (filter #(= "proposed" (:status %)) rows))]
-    (page {:title "Confirm an appointment" :current :appointments}
-          (appointments-content rows)
-          (c/dialog {:id "confirm-appointment" :title "Confirm the appointment" :open? true
-                     :actions (list (c/button {:variant :ghost :href (link "workspace-appointments.html")} "Not now")
-                                    (c/button {:icon :calendar-check :href (link "workspace-appointments.html")} "Confirm"))}
-                    [:p {:class "text-base font-medium"} description]
-                    [:p {:class "text-base text-muted"} (:name patient)]
-                    [:p {:class "text-base text-muted"} asked]
-                    [:div {:class "mt-4 grid gap-4 sm:grid-cols-3"}
-                     (c/text-field {:id "day" :name "day" :label "Day" :type "date" :value (three-days-after requested-start)})
-                     (c/text-field {:id "start" :name "start" :label "From" :type "time" :value "10:00"})
-                     (c/text-field {:id "end" :name "end" :label "Until" :type "time" :value "10:30"
-                                    :hint "A visit lasts from 5 minutes to 4 hours."})]
-                    [:p {:class "mt-3 text-muted"} (str (first (:given patient)) " sees the new time in the portal, and is reminded of it.")]))))
+(def confirm
+  "The list of appointments with the form to confirm a request: the day and the time that are given to it."
+  (appointment-dialog "Confirm an appointment" :confirm "appt-sofia-1"))
+
+(def reschedule
+  "The list of appointments with the form to move a booked appointment: the day and the time it has, to change."
+  (appointment-dialog "Reschedule an appointment" :reschedule "appt-ana-1"))
+
+(def cancel-appointment
+  "The list of appointments with the form to cancel a booked appointment: why, if the clinician wants to say."
+  (appointment-dialog "Cancel an appointment" :cancel "appt-liam-1"))
 
 ;; ---------------------------------------------------------------------------
 ;; The jobs of the scheduler
 
-(defn- outcome-chip [outcome]
-  (case outcome
-    "ok" (c/tone-badge {:tone :normal :size :sm} "OK")
-    "failed" (c/tone-badge {:tone :critical :size :sm} "Failed")
-    "interrupted" (c/tone-badge {:tone :high :size :sm} "Interrupted")))
-
-(defn- result-text [result]
-  (str/join ", " (for [[k v] result] (str v " " (jobs-fmt/words k)))))
-
-(defn- run-line
-  "How the last run of a job went: its outcome, when it began, how long it took, and what it reported."
-  [{:keys [startedAt durationMs outcome result error]}]
-  [:span {:class "flex flex-wrap items-center gap-x-2 gap-y-1"}
-   (outcome-chip outcome)
-   [:span (str (fmt/clock-seconds startedAt) " · " (jobs-fmt/duration-text durationMs))]
-   (cond result [:span {:class "text-muted"} (result-text result)]
-         error [:span {:class "text-muted"} (str "Error: " error)])])
-
-(defn- state-chip [{:keys [state runningSince]}]
-  (if (= "running" state)
-    (c/tone-badge {:tone :info :icon :loader-circle} (str "Running since " (fmt/clock-seconds runningSince)))
-    (c/badge {:variant :outline} "Idle")))
-
-(defn- job-row [{:keys [id description schedule nextRun lastRun counts] :as job}]
-  (c/list-row
-   {:trailing-wraps? true :trailing (state-chip job)}
-   [:p {:class "font-semibold"} id]
-   [:p {:class "mb-3 text-muted"} description]
-   (c/facts [["Schedule" (jobs-fmt/schedule-text schedule)]
-             ["Last run" (if lastRun (run-line lastRun) "Has not run yet")]
-             ["Next run" (fmt/clock-seconds nextRun)]
-             ["Runs" (str (:ok counts) " ok, " (:failed counts) " failed, " (:interrupted counts) " interrupted, "
-                          (:skipped counts) " skipped")]])))
+(defn jobs-state
+  "What the page of the jobs is a function of when it has loaded: the state `pulse.spa.jobs` keeps, made from what the api answers, from the
+  jobs of `data/jobs`, fifteen seconds after the moment of the other mock-ups."
+  []
+  {:now "2026-10-13T12:00:15Z" :list (loaded data/jobs)})
 
 (defn jobs
-  "The status of the scheduler's jobs, for the administrator: what each one does, when it runs, how the last run went."
+  "The status of the scheduler's jobs, for the administrator: what each one does, when it runs, how the last run went. The page is the one
+  the workspace serves (`pulse.spa.pages.jobs`), made from the jobs of the demo. There is no button to start a job: the api only shows
+  the status. The box to search the patients is not on it."
   [_context]
-  (let [{:keys [items total]} data/jobs
-        running (count (filter #(= "running" (:state %)) items))
-        failed (filter #(= "failed" (get-in % [:lastRun :outcome])) items)]
-    (page {:title "Jobs" :current :jobs :admin? true}
-          [:div {:class "space-y-6"}
-           (c/page-header {:title "Jobs" :description "What the scheduler does on its own, and how the last run of each went."})
-           [:div {:class "grid gap-4 sm:grid-cols-3"}
-            (c/stat {:label "Jobs" :value (str total) :icon :timer})
-            (c/stat {:label "Running now" :value (str running) :icon :loader-circle})
-            (c/stat {:label "Last run failed" :value (str (count failed)) :icon :circle-alert :tone (when (seq failed) :high)})]
-           (for [{:keys [id lastRun nextRun]} failed]
-             (c/alert {:tone :high :title (str "The last run of " id " failed")}
-                      (str (:error lastRun) " after " (jobs-fmt/duration-text (:durationMs lastRun)) ". The next run is at "
-                           (fmt/clock-seconds nextRun) ".")))
-           (c/card {:flush? true}
-                   (c/list-group {:aria-label "Jobs of the scheduler"} (map job-row items)))])))
+  (page {:title "Jobs" :current :jobs :admin? true :search? false}
+        (jobs-page/content (jobs-state) {:links {:panel (link "workspace-panel.html")}})))
+
+(defn- vitals-grid [patient-id]
+  (let [vitals (data/vitals patient-id)]
+    (into [:div {:class "grid gap-4 md:grid-cols-3"}]
+          (for [kind data/kinds :let [reading (get vitals kind)] :when reading]
+            (specimen/vital-tile kind reading)))))
 
 ;; ---------------------------------------------------------------------------
 ;; What goes wrong

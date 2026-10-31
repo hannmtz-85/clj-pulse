@@ -27,6 +27,14 @@
  (fn [path]
    (.replaceState js/history nil "" path)))
 
+(rf/reg-fx
+ ::go
+ (fn [{route-name :name :keys [query replace?]}]
+   ;; the history of reitit, which tells `on-navigate` (and so `:pulse.spa.events/navigated`) where the workspace is now: for the
+   ;; page that a person is taken to by what they did (the dialog they closed). `replace?` does not add to the history, so that the
+   ;; back button does not take them to a dialog that was finished.
+   ((if replace? rfe/replace-state rfe/push-state) route-name {} (or query {}))))
+
 (def ^:private controls
   "The elements that take the focus by themselves: any other needs a `tabindex` of its own, and one that is a control must not be given
   one, which would take it out of the order of the tab key."

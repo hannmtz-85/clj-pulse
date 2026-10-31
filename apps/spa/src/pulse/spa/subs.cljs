@@ -44,6 +44,16 @@
   [db _]
   (:acks db))
 
+(defn jobs
+  "The state of the page of the scheduler's jobs (see `pulse.spa.jobs`), or nil when the person is not on it."
+  [db _]
+  (:jobs db))
+
+(defn appointments
+  "The state of the list of appointments and of the dialog over it (see `pulse.spa.appointments`), or nil when the person is not on it."
+  [db _]
+  (:appointments db))
+
 (defn alert-count
   "How many alerts need a decision, for the navigation: a number, `:unknown` when it could not be read, nil while it is not known."
   [db _]
@@ -64,5 +74,9 @@
 (rf/reg-sub ::inbox inbox)
 
 (rf/reg-sub ::acks acks)
+
+(rf/reg-sub ::jobs jobs)
+
+(rf/reg-sub ::appointments appointments)
 
 (rf/reg-sub ::alert-count alert-count)

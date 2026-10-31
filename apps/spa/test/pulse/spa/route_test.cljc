@@ -42,8 +42,11 @@
   (is (= [] (route/problems route/routes)))
   (is (= route/routes (route/check! route/routes)))
   (testing "the pages the workspace has so far"
-    (is (= [:panel :patient :alerts :signed-out] (map (comp :name second) route/routes)))
-    (is (= ["/" "/patients/:id" "/alerts" "/signed-out"] (map first route/routes))))
+    (is (= [:panel :patient :alerts :appointments :appointment-confirm :appointment-reschedule :appointment-cancel :jobs :signed-out]
+           (map (comp :name second) route/routes)))
+    (is (= ["/" "/patients/:id" "/alerts" "/appointments" "/appointments/:id/confirm" "/appointments/:id/reschedule" "/appointments/:id/cancel"
+            "/jobs" "/signed-out"]
+           (map first route/routes))))
   (testing "the panel is for the clinic's people and for nobody else"
     (is (= person/workspace-roles (:roles (route/data :panel))))
     (is (not (:public? (route/data :panel)))))

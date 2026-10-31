@@ -9,6 +9,7 @@
   the links, and the one that tries again only when `:retry` is among the handlers."
   (:require [clojure.string :as str]
             [pulse.spa.ack :as ack]
+            [pulse.spa.appointment-command :as command]
             [pulse.ui.component :as c]))
 
 (defn wrapped
@@ -47,6 +48,27 @@
                   (and (not on-click) href) (assoc :href (href id))
                   (and on-click (contains? ack/busy-states (:state ack))) (assoc :loading? true))
                 "Acknowledge"))))
+
+(defn appointment-buttons
+  "The buttons of an appointment, for a page that lists them: one for each command that the lifecycle lets a clinician take on it
+  (`:actions`, a set; `pulse.spa.appointment-command/available`), in the order Confirm, Reschedule, Cancel. Each is a link to the dialog that
+  carries the command out (`:dialog` among the `links`, a function from the id of the appointment and the command to the address), so a
+  page without it has no buttons: a control with nothing to lead to is not there. A screen reader is told which appointment each is for,
+  so that the buttons of a page do not all say the same (`label` is how the page names it, such as `Medication review · Ana García`).
+  A seq of buttons, or nil."
+  [{:keys [id label actions]} {:keys [links]}]
+  (when-let [href (:dialog links)]
+    (seq (for [action command/order
+               :when (contains? actions action)
+               :let [{:keys [icon button]} (get command/commands action)]]
+           (c/button (cond-> {:id (command/dom-id (name action) id)
+                              :size :sm
+                              :icon icon
+                              :href (href id action)
+                              :aria-label (if (str/blank? label) button (str button " " label))}
+                       (= :reschedule action) (assoc :variant :outline)
+                       (= :cancel action) (assoc :variant :ghost))
+                     button)))))
 
 (defn failure-message
   "What the person is told when an alert was not acknowledged, in the alert's own card, or nil when there is nothing to tell."

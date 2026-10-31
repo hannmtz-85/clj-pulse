@@ -1,11 +1,12 @@
-(ns pulse.web.refusal-test
-  "What the api refuses, as words beside the fields of a form (ADR-0028), whatever the form: the api's own messages, each as a sentence of
-  its own, and only for the fields the form has."
+(ns pulse.view.refusal-test
+  "What the api refuses, as words beside the fields of a form (ADR-0028, ADR-0029), whatever the form: the api's own messages, each as a
+  sentence of its own, and only for the fields the form has. The same words on the JVM, where the portal writes them, and in the browser,
+  where the workspace does."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [pulse.web.refusal :as refusal]))
+            [pulse.view.refusal :as refusal]))
 
 (def ^:private known {:description :reason :requestedStart :from})
 

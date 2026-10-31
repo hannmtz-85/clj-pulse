@@ -1,11 +1,12 @@
-(ns pulse.web.refusal
-  "What the api refuses, as words beside the fields of a form (ADR-0028). A form of the portal does not repeat the rules of the api: it
+(ns pulse.view.refusal
+  "What the api refuses, as words beside the fields of a form (ADR-0028, ADR-0029). A form does not repeat the rules of the api: it
   sends what was typed, and when the api says no (a 400 for the shape, a 422 for what cannot be right) it writes the api's own
-  message beside the field that it is about, as a sentence of its own. A rule that the portal wrote would be one more place to
-  change. Pure functions of data in the shapes of the api, free of Ring and of the network.
+  message beside the field that it is about, as a sentence of its own. A rule that the interface wrote would be one more place to
+  change. Pure functions of data in the shapes of the api, free of the network, and `.cljc`: the patient portal writes them on the
+  JVM and the clinical workspace in the browser.
 
-  The forms that use it are the one that records a reading (`pulse.web.recording`) and the ones that ask for a visit and cancel an
-  appointment (`pulse.web.requesting`)."
+  The forms that use it are, in the portal, the one that records a reading (`pulse.web.recording`) and the ones that ask for a visit
+  and cancel an appointment (`pulse.web.visits`), and, in the workspace, the ones that confirm, move and cancel an appointment."
   (:require [clojure.string :as str]))
 
 (def ^:private max-message-length 200)

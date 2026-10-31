@@ -5,6 +5,8 @@
   (:require [pulse.spa.events :as events]
             [pulse.spa.hiccup :as hiccup]
             [pulse.spa.pages.alerts :as alerts-page]
+            [pulse.spa.pages.appointments :as appointments-page]
+            [pulse.spa.pages.jobs :as jobs-page]
             [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.pages.start :as start]
@@ -26,6 +28,29 @@
 (defn- retry-inbox [] (rf/dispatch [:pulse.spa.inbox/retry]))
 
 (defn- show-changes [] (rf/dispatch [:pulse.spa.inbox/show-changes]))
+
+(defn- retry-jobs [] (rf/dispatch [:pulse.spa.jobs/retry]))
+
+(defn- retry-appointments [] (rf/dispatch [:pulse.spa.appointments/retry]))
+
+(defn- edit-appointment
+  "The person typed in a field of the dialog. The text of the field is the state, and it is dispatched at once, and not in the turn that
+  follows, because a field whose text comes back a moment later loses the place of the cursor."
+  [field ^js event]
+  (rf/dispatch-sync [:pulse.spa.appointments/edit field (.. event -target -value)]))
+
+(defn- submit-appointment
+  "The person pressed the button of the dialog, or Enter in a field of it: the browser would send the form to an address, and the
+  command is sent by the workspace."
+  [^js event]
+  (.preventDefault event)
+  (rf/dispatch [:pulse.spa.appointments/submit]))
+
+(defn- appointment-key-down
+  "Escape closes the dialog, as the link that is its way out does."
+  [^js event]
+  (when (= "Escape" (.-key event))
+    (rf/dispatch [:pulse.spa.appointments/close])))
 
 (defn- acknowledge
   "The person pressed the button that acknowledges the alert `id`, which the page names `label`."
@@ -65,7 +90,8 @@
                        (with options
                              {:acks (:alerts acks)
                               :said (:said acks)
-                              :links {:chart (fn [{:keys [measurement days]}] (route/patient-path (:id params) {:measurement measurement :days days}))}
+                              :links {:chart (fn [{:keys [measurement days]}] (route/patient-path (:id params) {:measurement measurement :days days}))
+                                      :dialog (fn [id action] (route/appointment-path id action))}
                               :handlers {:retry retry-chart :acknowledge acknowledge}}))))
 
 (defn- alerts-view [options {:keys [params]}]
@@ -80,6 +106,27 @@
                                      :patient route/patient-path}
                              :handlers {:retry retry-inbox :show-changes show-changes :acknowledge acknowledge}}))))
 
+(defn- jobs-view [options _here]
+  (let [state @(rf/subscribe [::subs/jobs])]
+    (jobs-page/page state (with options {:handlers {:retry retry-jobs}}))))
+
+(defn- appointments-view
+  "The list of appointments, with the dialog over it that the address names, if it names one."
+  [options {:keys [params]}]
+  (let [state @(rf/subscribe [::subs/appointments])
+        show (:show params)]
+    (appointments-page/page state
+                            (with options
+                                  {:show show
+                                   :links {:filter (fn [filter-id] (route/appointments-path {:show filter-id}))
+                                           :patient route/patient-path
+                                           :dialog (fn [id action] (route/appointment-path id action {:show show}))
+                                           :close (route/appointments-path {:show show})}
+                                   :handlers {:retry retry-appointments
+                                              :edit edit-appointment
+                                              :submit submit-appointment
+                                              :key-down appointment-key-down}}))))
+
 (defn- workspace
   "The page of the workspace the person is on: the wait while the history of the browser has not said where, the page for a page the
   person's role does not open, the page for an address that is none, or the page the route names."
@@ -87,7 +134,7 @@
   (let [options {:person person
                  :me me
                  :alert-count @(rf/subscribe [::subs/alert-count])
-                 :links {:panel (route/panel-path) :alerts (route/alerts-path)}
+                 :links {:panel (route/panel-path) :alerts (route/alerts-path) :appointments (route/appointments-path) :jobs route/jobs-path}
                  :handlers {:sign-out sign-out}}]
     (cond
       (nil? here) (start/starting)
@@ -96,6 +143,8 @@
               :panel (panel-view options here)
               :patient (patient-view options here)
               :alerts (alerts-view options here)
+              (:appointments :appointment-confirm :appointment-reschedule :appointment-cancel) (appointments-view options here)
+              :jobs (jobs-view options here)
               (start/not-found options)))))
 
 (defn root

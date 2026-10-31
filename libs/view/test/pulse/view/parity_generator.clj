@@ -9,7 +9,7 @@
   `clojure -Sdeps '{:paths [\"libs/view/test\"]}' -M:dev -e \"(require 'pulse.view.parity-generator) (pulse.view.parity-generator/write!)\"`"
   (:require [clojure.string :as str]
             [pulse.view.format :as fmt])
-  (:import (java.time DayOfWeek Instant LocalDate ZoneId)
+  (:import (java.time DayOfWeek Instant LocalDate LocalDateTime LocalTime ZoneId)
            (java.time.temporal ChronoUnit)))
 
 (def ^:private ^ZoneId madrid (ZoneId/of "Europe/Madrid"))
@@ -139,6 +139,41 @@
              :let [f (case kind :day-ticks fmt/day-ticks :hour-ticks fmt/hour-ticks :minute-ticks fmt/minute-ticks)]]
          [kind from to every (mapv (juxt :at :label) (f from to every))])))
 
+(defn- local-texts-around
+  "The times on the wall, as a field of a form writes them, every `step-minutes` from `before-hours` before to `after-hours` after 02:00 on the
+  day of the change of the clocks `iso`: the hours that the clocks of Madrid skip when they go forward, and the ones they pass twice when they
+  go back, are in the middle of it."
+  [iso before-hours after-hours step-minutes]
+  (let [base (LocalDateTime/of (LocalDate/parse (subs iso 0 10)) (LocalTime/of 2 0))]
+    (for [m (range (- (* before-hours 60)) (inc (* after-hours 60)) step-minutes)]
+      (str (.plusMinutes base m)))))
+
+(def ^:private local-boundaries
+  "The seconds at the edges of the hours that the clocks skip and repeat, written on the day of each change of 2026 and 2027."
+  (vec (for [change (filter #(re-find #"^202[67]" %) clock-changes)
+             time ["01:59:59" "02:00:00" "02:00:01" "02:59:59" "03:00:00" "03:00:01"]]
+         (str (subs change 0 10) "T" time))))
+
+(def ^:private local-cases
+  "Texts that a field for a date and a time could hold, and are not an ordinary time of an ordinary day: what cannot be read, what does not
+  exist and what is at the edge of what can."
+  ["2026-10-13T10:00" "2026-10-13T10:00:30" "2026-10-13T10:00:30.5" "2026-10-13T10:00:30.123456789" "2026-10-13T10:00:30.1234567890"
+   "2026-10-13T00:00" "2026-10-13T23:59" "2026-10-13T23:59:59" "2026-10-13T24:00" "2026-10-13T24:00:00" "2026-10-13T23:59:60" "2026-10-13T23:60"
+   "2026-10-13T25:00" "2026-10-13T10:60" "2026-10-13T10:00:61" "2026-02-28T10:00" "2026-02-29T10:00" "2026-02-30T10:00" "2028-02-29T10:00"
+   "1900-02-29T10:00" "2000-02-29T10:00" "2100-02-29T10:00" "2026-04-31T10:00" "2026-13-01T10:00" "2026-00-10T10:00" "2026-10-00T10:00"
+   "2026-10-32T10:00" "2026-10-13" "2026-10-13T" "T10:00" "" "soon" " 2026-10-13T10:00" "2026-10-13T10:00 " "2026-10-13 10:00"
+   "2026-10-13t10:00" "2026-10-13T10:00Z" "2026-10-13T10:00+02:00" "2026-10-13T1:00" "2026-10-13T10" "26-10-13T10:00" "2026-1-13T10:00"
+   "2026-10-13T10:00:30." "2026-10-13T10:00:30,5" "0001-01-01T00:00" "9999-12-31T23:59" "1970-01-01T00:00" "1970-01-01T01:00"
+   "1969-12-31T23:59" "2026-12-31T23:59" "2027-01-01T00:00" "2026-06-30T23:59:59" "2026-07-01T00:00"])
+
+(defn- local-instant-rows
+  "What `local->instant` answers for the texts of `local-cases`, the hours around each change of the clocks and a spread of times."
+  []
+  (let [around (mapcat #(local-texts-around % 3 3 15) clock-changes)
+        spread-texts (map fmt/local-input (spread 150))]
+    (vec (for [text (distinct (concat around local-boundaries spread-texts local-cases))]
+           [text (fmt/local->instant text)]))))
+
 (def ^:private numbers
   [138 82.4 70.0 1.5 0 -3.0 36.6 5.55555 120.0 0.1 -0.5 1000 99.9 172 104.0 3.14159 100000 12.50])
 
@@ -157,6 +192,7 @@
    :parsed (parsed-rows)
    :date? (date-case-rows)
    :day-starts (day-starts)
+   :local-instants (local-instant-rows)
    :ticks (ticks-cases)
    :numbers (number-rows)})
 
@@ -177,7 +213,7 @@
         entry (fn [k] (str (pr-str k) nl "   [" (str/join (str nl "    ") (map pr-str (get t k))) "]"))]
     (str header
          "(def table" nl "  {:instant-columns " (pr-str (:instant-columns t)) nl "   "
-         (str/join (str nl "   ") (map entry [:instants :day-labels :ages :dates :instant? :parsed :date? :day-starts :ticks :numbers]))
+         (str/join (str nl "   ") (map entry [:instants :day-labels :ages :dates :instant? :parsed :date? :day-starts :local-instants :ticks :numbers]))
          "})" nl)))
 
 (defn write!

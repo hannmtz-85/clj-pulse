@@ -40,7 +40,7 @@
           "portal-cancel-request.html" "portal-record.html" "portal-profile.html" "portal-new-patient.html" "portal-errors.html"
           "workspace-panel.html" "workspace-patient.html" "workspace-patient-sofia.html" "workspace-patient-liam.html"
           "workspace-patient-omar.html" "workspace-alerts.html" "workspace-appointments.html" "workspace-confirm.html"
-          "workspace-jobs.html" "workspace-states.html"]
+          "workspace-reschedule.html" "workspace-cancel-appointment.html" "workspace-jobs.html" "workspace-states.html"]
          (map :file pages/pages)))
   (is (= ["Overview" "Style tile" "Sign-in" "Patient portal" "Clinical workspace"] (distinct (map :group pages/pages)))))
 
@@ -55,7 +55,7 @@
     (is (= 1 (count (filter some? [render frame]))) file)))
 
 (deftest a-mockup-says-what-it-shows-and-what-to-look-at-and-which-widths-it-is-for
-  (is (= 22 (count mockups)))
+  (is (= 24 (count mockups)))
   (doseq [{:keys [file summary notes devices listed?]} mockups]
     (is (not (str/blank? summary)) file)
     (is (seq devices) file)
@@ -141,7 +141,7 @@
         menus (hx/by-tag nav :details)]
     (is (= ["Overview"] (map hx/words (filter #(= :a (hx/tag %)) (hx/child-nodes nav)))) "a group of one page is a link")
     (is (= ["Style tile" "Sign-in" "Patient portal" "Clinical workspace"] (map #(hx/words (first (hx/by-tag % :summary))) menus)))
-    (is (= [5 2 10 7] (map #(count (hx/by-tag % :a)) menus)) "the pages that are not listed are not in it")))
+    (is (= [5 2 10 9] (map #(count (hx/by-tag % :a)) menus)) "the pages that are not listed are not in it")))
 
 (deftest the-overview-says-what-was-decided-and-lists-the-listed-pages-under-their-groups
   (let [page (document-of "index.html")
@@ -254,7 +254,8 @@
    "portal-profile.html" "Profile" "portal-new-patient.html" "Home" "portal-errors.html" "Home"
    "workspace-panel.html" "Panel" "workspace-patient.html" "Panel" "workspace-patient-sofia.html" "Panel"
    "workspace-patient-liam.html" "Panel" "workspace-patient-omar.html" "Panel" "workspace-alerts.html" "Alerts"
-   "workspace-appointments.html" "Appointments" "workspace-confirm.html" "Appointments" "workspace-jobs.html" "Jobs"
+   "workspace-appointments.html" "Appointments" "workspace-confirm.html" "Appointments" "workspace-reschedule.html" "Appointments"
+   "workspace-cancel-appointment.html" "Appointments" "workspace-jobs.html" "Jobs"
    "workspace-states.html" "Panel"})
 
 (defn- navs [doc labels]
@@ -294,15 +295,18 @@
 (defn- a-chart? [file]
   (str/starts-with? file "workspace-patient"))
 
-(defn- has-nothing-to-search? [file]
-  (or (a-chart? file) (= "workspace-alerts.html" file)))
+(defn- has-nothing-to-search?
+  "The pages that have nothing to search: a chart, the inbox, the appointments with the dialogs over them, and the jobs."
+  [file]
+  (or (a-chart? file) (contains? #{"workspace-alerts.html" "workspace-appointments.html" "workspace-confirm.html" "workspace-reschedule.html"
+                                   "workspace-cancel-appointment.html" "workspace-jobs.html"} file)))
 
 (deftest every-page-of-the-workspace-has-the-search-and-the-menu-of-the-person
   (doseq [{:keys [file group]} mockups
           :when (= "Clinical workspace" group)
           :let [doc (frame-of file)]]
     (if (has-nothing-to-search? file)
-      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient and the inbox of alerts have nothing to search, and a box that searched nothing is a control with nothing to do"))
+      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient, the inbox, the appointments and the jobs have nothing to search, and a box that searched nothing is a control with nothing to do"))
       (is (some? (hx/by-id doc "search")) file))
     (is (= 1 (count (hx/select doc #(str/starts-with? (str (:aria-label (hx/attributes %))) "Account menu of")))) file)))
 

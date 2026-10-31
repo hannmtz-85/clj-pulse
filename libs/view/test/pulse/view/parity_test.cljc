@@ -62,6 +62,16 @@
         to (fmt/millis "2028-12-31T12:00:00Z")]
     (is (= (:day-starts table) (mapv :at (fmt/day-ticks from to 1))) "the midnights of four years, the nights of the clocks among them")))
 
+(deftest a-time-on-the-clock-of-the-clinic-is-the-same-instant-for-both
+  (is (< 300 (count (:local-instants table))))
+  (testing "the table holds the hours the clocks skip and the ones they pass twice, and the texts that are no time"
+    (let [texts (set (map first (:local-instants table)))]
+      (is (contains? texts "2026-03-29T02:30") "an hour that does not exist")
+      (is (contains? texts "2026-10-25T02:30") "an hour that happens twice")
+      (is (contains? texts "2026-10-13T24:00"))
+      (is (contains? texts "2026-02-30T10:00"))))
+  (is (= [] (difference (:local-instants table) (fn [[text]] [text (fmt/local->instant text)])))))
+
 (deftest the-ticks-around-the-changes-of-the-clocks-are-the-same
   (is (= [] (difference (:ticks table)
                         (fn [[kind from to every]]

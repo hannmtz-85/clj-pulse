@@ -24,7 +24,7 @@
             [pulse.view.format :as fmt]
             [pulse.web.pages :as pages]
             [pulse.web.recording :as recording]
-            [pulse.web.refusal :as refusal]
+            [pulse.view.refusal :as refusal]
             [pulse.view.views :as views]))
 
 (defn- alert-of

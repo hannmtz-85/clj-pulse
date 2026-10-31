@@ -14,7 +14,7 @@
   (:require [clojure.string :as str]
             [pulse.fhir.appointment :as appointment]
             [pulse.view.format :as fmt]
-            [pulse.web.refusal :as refusal])
+            [pulse.view.refusal :as refusal])
   (:import (java.time Instant LocalDate)
            (java.time.format DateTimeParseException)
            (java.time.temporal ChronoUnit)))

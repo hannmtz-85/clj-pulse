@@ -64,7 +64,11 @@
               (into (map (fn [event] [:dispatch event])) updates)
               (cond-> page-change? (conj [::router/arrived {:title (route/title (:name here))
                                                             ;; the first page is not one the person came to: nothing is moved for it
-                                                            :focus? (some? (:route db))}])))})))
+                                                            :focus? (some? (:route db))}]))
+              ;; a route of the same page (the list of appointments and the dialog over it) says what it is in the title of the tab, and
+              ;; moves nobody's focus: the page it belongs to does that
+              (cond-> (and (not page-change?) (not= (:name (:route db)) (:name here)))
+                (conj [::router/arrived {:title (route/title (:name here)) :focus? false}])))})))
 
 (rf/reg-event-db
  ::unauthorized
