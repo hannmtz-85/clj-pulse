@@ -13,6 +13,7 @@
             [pulse.spa.panel-events :as panel-events]
             [pulse.spa.router :as router]
             [pulse.spa.subs :as subs]
+            [pulse.spa.watch-events :as watch-events]
             [pulse.spa.test.panel-fixtures :as fx]
             [pulse.view.format :as fmt]
             [re-frame.core :as rf]
@@ -37,7 +38,7 @@
   (reset! asked [])
   (quietly
    (fn []
-     (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived :dispatch-later]]
+     (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived ::watch-events/listen :dispatch-later]]
        (rf/reg-fx effect (fn [value] (swap! asked conj [effect value]))))
      (rf/reg-cofx ::panel-events/now (fn [cofx _] (assoc cofx :now fx/now))))))
 

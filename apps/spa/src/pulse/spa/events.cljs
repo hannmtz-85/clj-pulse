@@ -31,6 +31,8 @@
      (if (person/allowed? who)
        {:db (assoc db :status :signed-in :person who)
         :fx [[:dispatch [::load-me]]
+             ;; the beat that keeps the count of the alerts in the navigation (`pulse.spa.watch-events`)
+             [:dispatch [:pulse.spa.watch/start]]
              [::router/start nil]]}
        ;; the workspace is not for them: nothing is asked of the api, which would refuse everything
        {:db (assoc db :status :refused :person who)})

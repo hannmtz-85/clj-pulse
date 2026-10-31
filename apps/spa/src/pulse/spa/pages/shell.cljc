@@ -8,16 +8,25 @@
   (:require [pulse.spa.person :as person]
             [pulse.ui.layout :as layout]))
 
+(defn- alerts-item
+  "The item of the alerts, with the count that needs a decision: none when there are none or when it is not known yet, the number when
+  there are some, and a question mark when it could not be read (`:unknown`): a badge that went away would say that there are no alerts,
+  which is the one thing a clinician must not be told by mistake."
+  [href active-alerts]
+  (let [item {:id :alerts :href href :label "Alerts" :icon :bell}]
+    (cond
+      (= :unknown active-alerts) (assoc item :count "?" :count-label "could not be read")
+      (and (number? active-alerts) (pos? active-alerts)) (assoc item :count active-alerts :count-label (str active-alerts " active"))
+      :else item)))
+
 (defn nav
   "The groups of the sidebar, from the pages that exist (`links`, the address of each). The administrator has one more group,
-  with the jobs of the scheduler, which a practitioner does not see. `:active-alerts` is the count that the Alerts item shows
-  (none when there are none, or when it is not known)."
+  with the jobs of the scheduler, which a practitioner does not see. `:active-alerts` is the count that the Alerts item shows: a number
+  (none is shown for zero), `:unknown` for one that could not be read, or nil while it is not known."
   [{:keys [admin? active-alerts]} links]
   (let [main (cond-> []
                (:panel links) (conj {:id :panel :href (:panel links) :label "Panel" :icon :layout-dashboard})
-               (:alerts links) (conj (cond-> {:id :alerts :href (:alerts links) :label "Alerts" :icon :bell}
-                                       (pos? (or active-alerts 0)) (assoc :count active-alerts
-                                                                          :count-label (str active-alerts " active"))))
+               (:alerts links) (conj (alerts-item (:alerts links) active-alerts))
                (:appointments links) (conj {:id :appointments :href (:appointments links) :label "Appointments" :icon :calendar}))]
     (cond-> []
       (seq main) (conj {:items main})
@@ -46,13 +55,13 @@
   "The workspace around a page of the person who is signed in: the shell with the sidebar of the pages there are, the header and the
   menu of the person. `options` are `:current` (the id of the item of this page), `:person` (who is signed in), `:me` (what the api
   said of them: see `pulse.spa.person/display`), `:links` (where the pages are: see `nav`), `:handlers` (`:sign-out`, which puts
-  \"Sign out\" in the menu of the person, and `:search`, a function of the text typed in the box, which puts the box in the header) and
-  `:search-value` (what the box holds). The children are the page."
-  [{:keys [current person me links handlers search-value]} & content]
+  \"Sign out\" in the menu of the person, and `:search`, a function of the text typed in the box, which puts the box in the header),
+  `:search-value` (what the box holds) and `:alert-count` (how many alerts need a decision: see `nav`). The children are the page."
+  [{:keys [current person me links handlers search-value alert-count]} & content]
   (apply shell
          {:current current
           :person (person/display person me)
-          :nav (nav {:admin? (person/admin? person)} links)
+          :nav (nav {:admin? (person/admin? person) :active-alerts alert-count} links)
           :search (when-let [on-search (:search handlers)]
                     {:id "search" :name "q" :label "Search patients" :placeholder "Search patients"
                      :value (or search-value "") :on-change on-search :autocomplete "off"})

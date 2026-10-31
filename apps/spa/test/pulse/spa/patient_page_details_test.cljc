@@ -239,3 +239,8 @@
       (doseq [title ["The medication could not be loaded" "The allergies could not be loaded" "The appointments could not be loaded"]]
         (is (not (beside? title)) title)
         (is (= ["Try again"] (map words (hx/by-tag (get by-title title) :button))) title)))))
+
+(deftest each-alert-of-the-patient-is-keyed-by-its-id
+  ;; as in the inbox: the button that has the focus must not be handed to another alert when the list changes
+  (let [blocks (hx/select (content (fx/settled-ana)) #(str/starts-with? (str (:id (hx/attributes %))) "alert-"))]
+    (is (= ["flag-pt-ana-R1"] (map #(:key (meta %)) blocks)))))

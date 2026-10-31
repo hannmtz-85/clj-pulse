@@ -53,6 +53,25 @@
     (is (= {:id :alerts :href "/alerts" :label "Alerts" :icon :bell} (alerts {})))
     (is (= {:id :alerts :href "/alerts" :label "Alerts" :icon :bell} (alerts {:active-alerts nil})))))
 
+(deftest a-count-that-could-not-be-read-is-a-question-mark-and-never-a-badge-that-went-away
+  (let [alerts (fn [options] (first (filter #(= :alerts (:id %)) (items (shell/nav options links)))))]
+    (is (= {:id :alerts :href "/alerts" :label "Alerts" :icon :bell :count "?" :count-label "could not be read"} (alerts {:active-alerts :unknown})))
+    (testing "what is not a count is no count"
+      (doseq [value ["3" -1 :x [] {} true]]
+        (is (nil? (:count (alerts {:active-alerts value}))) (pr-str value))))))
+
+(deftest the-frame-shows-the-count-of-alerts-in-the-sidebar
+  (let [counted (fn [alert-count] (hx/words (first (filter #(= "Alerts" (:title (hx/attributes %))) (hx/by-tag (frame rivera {:links links :alert-count alert-count}) :a)))))]
+    (is (= "Alerts3" (counted 3)))
+    (is (= "Alerts?" (counted :unknown)))
+    (is (= "Alerts" (counted 0)))
+    (is (= "Alerts" (counted nil)))
+    (testing "and a screen reader is told what it means"
+      (let [item (first (filter #(= "Alerts" (:title (hx/attributes %))) (hx/by-tag (frame rivera {:links links :alert-count :unknown}) :a)))]
+        (is (= "Alerts, could not be read" (:aria-label (hx/attributes item)))))
+      (let [item (first (filter #(= "Alerts" (:title (hx/attributes %))) (hx/by-tag (frame rivera {:links links :alert-count 3}) :a)))]
+        (is (= "Alerts, 3 active" (:aria-label (hx/attributes item))))))))
+
 (deftest the-shell-has-the-person-and-no-button-that-does-nothing
   (let [shell-page (shell/shell {:current :panel :person {:name "Elena Rivera" :detail "Practitioner"} :nav (shell/nav {} links)} [:h1 "Panel"])
         labels (set (map (comp :aria-label hx/attributes) (hx/by-tag shell-page :button)))]

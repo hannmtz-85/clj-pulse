@@ -16,10 +16,14 @@
   deadline, `deadline-ms`, ends what is not back: a part that did not arrive is a failed part, `:timeout`, and **never an empty one**.
   Each part has its own state, `{:state :loading|:loaded|:failed ...}`, so that one can fail alone and the rest is shown.
 
+  **Reading the summary again.** The alerts of a patient are in the summary, so after the person acknowledges one the summary is asked
+  for again (`refresh`, the task `:refresh`) and the chart is not blanked to do it: what it holds stays until the new one is back, and
+  if that fails it stays for good and the page says the alerts could not be updated (`:refresh-failed`, the kind of the failure).
+
   The state is a map: `:now`, `:id` (of the patient), `:asked` (the measurement the address asks for, or nil), `:days`, the parts
   `:patient`, `:summary`, `:series` (with its `:measurement` and `:days`, nil until there is a measurement to draw) and `:evidence` (by
-  measurement), `:queue` (the tasks not started) and `:inflight` (a set of tasks). A task is `:patient`, `:summary`,
-  `[:series kind days]` or `[:evidence kind]`."
+  measurement), `:refresh-failed`, `:queue` (the tasks not started) and `:inflight` (a set of tasks). A task is `:patient`, `:summary`,
+  `:refresh`, `[:series kind days]` or `[:evidence kind]`."
   (:require [clojure.string :as str]
             [pulse.spa.panel :as panel]
             [pulse.view.alerts :as alerts]
@@ -82,7 +86,7 @@
               :on-failure [:pulse.spa.patient/failed generation task]}]
     (case (task-type task)
       :patient (assoc base :path ["api" "patients" id])
-      :summary (assoc base :path ["api" "patients" id "summary"])
+      (:summary :refresh) (assoc base :path ["api" "patients" id "summary"])
       :series (let [[_ kind days] task]
                 (assoc base
                        :path ["api" "patients" id "observations"]
@@ -196,7 +200,7 @@
   [task body]
   (case (task-type task)
     :patient (and (map? body) (= "Patient" (:resourceType body)))
-    :summary (map? body)
+    (:summary :refresh) (map? body)
     (:series :evidence) (and (map? body) (sequential? (:items body)))))
 
 (defn- stale?
@@ -211,12 +215,26 @@
 
 (defn- with-evidence
   "The chart when the summary is back: the readings behind each active alert are the next to be asked for, one call for each
-  measurement that the rules of the alerts watch."
+  measurement that the rules of the alerts watch. The readings it has for a measurement that is still wanted are kept, and not asked
+  for again, so that reading the summary again does not blank what the alerts say."
   [chart summary]
-  (let [kinds (alerts/kinds-to-read (when (sequential? (:alerts summary)) (:alerts summary)))]
+  (let [kinds (alerts/kinds-to-read (when (sequential? (:alerts summary)) (:alerts summary)))
+        kept (select-keys (:evidence chart) kinds)
+        missing (remove #(contains? kept %) kinds)]
     (-> chart
-        (assoc :evidence (into {} (map (fn [kind] [kind {:state :loading}])) kinds))
-        (update :queue into (map (fn [kind] [:evidence kind])) kinds))))
+        (assoc :evidence (into kept (map (fn [kind] [kind {:state :loading}])) missing))
+        (update :queue into (map (fn [kind] [:evidence kind])) missing))))
+
+(defn- answer-refresh
+  "The chart when the summary that was asked for again is answered with `outcome`: it replaces the one the chart holds, and a failure
+  leaves that one where it is and is said (`:refresh-failed`)."
+  [chart outcome]
+  (if (and (= :ok (:result outcome)) (well-formed? :refresh (:body outcome)))
+    (-> chart
+        (assoc :summary {:state :loaded :data (:body outcome)})
+        (dissoc :refresh-failed)
+        (with-evidence (:body outcome)))
+    (assoc chart :refresh-failed (if (= :ok (:result outcome)) :unexpected (or (:kind outcome) :unexpected)))))
 
 (defn answer
   "The chart when the call for `task` is answered with `outcome`: `{:result :ok :body ...}` or `{:result :failed :kind ...}`, as
@@ -224,8 +242,10 @@
   `:unexpected`. The answer to a call that the chart has left behind (see `choose`) is dropped."
   [chart task outcome]
   (let [chart (update chart :inflight disj task)]
-    (if (stale? chart task)
-      chart
+    (cond
+      (= :refresh task) (answer-refresh chart outcome)
+      (stale? chart task) chart
+      :else
       (let [ok? (and (= :ok (:result outcome)) (well-formed? task (:body outcome)))
             part (cond ok? {:state :loaded :data (:body outcome)}
                        (= :ok (:result outcome)) {:state :failed :kind :unexpected}
@@ -245,15 +265,22 @@
                      (nil? (:series chart)) with-series)
           chart)))))
 
-(defn settled?
-  "Whether every part of the chart is back or has failed: nothing is loading."
+(defn refreshing?
+  "Whether the summary is waiting to be asked for again, or is on its way."
   [chart]
-  (not-any? #(= :loading (:state %))
-            (concat [(:patient chart) (:summary chart)] (when-let [series (:series chart)] [series]) (vals (:evidence chart)))))
+  (boolean (some #{:refresh} (concat (:queue chart) (:inflight chart)))))
+
+(defn settled?
+  "Whether every part of the chart is back or has failed, and the summary is not being read again: nothing is loading."
+  [chart]
+  (and (not (refreshing? chart))
+       (not-any? #(= :loading (:state %))
+                 (concat [(:patient chart) (:summary chart)] (when-let [series (:series chart)] [series]) (vals (:evidence chart))))))
 
 (defn expire
-  "The chart when the deadline has come: every part that is still loading has failed, of kind `:timeout`, and nothing waits or is on
-  its way any more. The tasks that were on their way are in `:cancelled` (in the order of their names), for the calls to be stopped."
+  "The chart when the deadline has come: every part that is still loading has failed, of kind `:timeout`, a summary that was being read
+  again has failed to be (`:refresh-failed`, the same kind), and nothing waits or is on its way any more. The tasks that were on their
+  way are in `:cancelled` (in the order of their names), for the calls to be stopped."
   [chart]
   (let [timed-out (fn [part] (if (= :loading (:state part)) (assoc part :state :failed :kind :timeout) part))]
     (-> chart
@@ -261,6 +288,7 @@
         (update :summary timed-out)
         (update :series #(some-> % timed-out))
         (update :evidence update-vals timed-out)
+        (cond-> (refreshing? chart) (assoc :refresh-failed :timeout))
         (assoc :cancelled (vec (sort-by str (:inflight chart))) :queue [] :inflight #{}))))
 
 (defn failed-tasks
@@ -273,16 +301,29 @@
                  (when (and series (failed? series)) [[:series (:measurement series) (:days series)]])
                  (for [[kind part] (sort-by (comp str key) (:evidence chart))
                        :when (failed? part)]
-                   [:evidence kind])))))
+                   [:evidence kind])
+                 (when (:refresh-failed chart) [:refresh])))))
+
+(defn refresh
+  "The chart with the summary asked for again, as it must be after an alert was acknowledged: the summary the chart holds stays until
+  the new one is back. A call that is on its way is stopped by this one (they share an id)."
+  [chart]
+  (-> chart
+      (dissoc :refresh-failed)
+      (update :inflight disj :refresh)
+      (update :queue (fn [queue] (conj (vec (remove #{:refresh} queue)) :refresh)))))
 
 (defn retry
-  "The chart with what failed asked for again: the failed parts loading and their tasks waiting."
+  "The chart with what failed asked for again: the failed parts loading and their tasks waiting; a summary that could not be read again
+  is asked for again as it was."
   [chart]
   (reduce (fn [chart task]
-            (-> chart
-                (assoc-in (part-path task) (cond-> {:state :loading}
-                                             (= :series (task-type task)) (assoc :measurement (second task) :days (nth task 2))))
-                (update :queue conj task)))
+            (if (= :refresh task)
+              (refresh chart)
+              (-> chart
+                  (assoc-in (part-path task) (cond-> {:state :loading}
+                                               (= :series (task-type task)) (assoc :measurement (second task) :days (nth task 2))))
+                  (update :queue conj task))))
           chart
           (failed-tasks chart)))
 
@@ -365,20 +406,25 @@
 
 (defn- alert-cards
   "The active alerts of the summary: `{:state :loading}`, `{:state :lost}` or `{:state :loaded :items [...]}`, each item
-  `{:id :text :tone :since-phrase :description :evidence}`, the newest first as the api gives them."
-  [chart]
-  (let [{:keys [state items]} (section (:summary chart) :alerts)]
-    (if (= :loaded state)
-      {:state :loaded
-       :items (vec (for [alert items
-                         :let [text (or (text-of (:text alert)) "Alert")]]
-                     {:id (:id alert)
-                      :text text
-                      :tone (alerts/tone text)
-                      :since-phrase (when (fmt/instant? (:since alert)) (fmt/when-phrase (:since alert) (:now chart)))
-                      :description (alerts/description text)
-                      :evidence (evidence-of chart text)}))}
-      {:state state})))
+  `{:id :text :label :tone :since-phrase :description :evidence}` (the label is how the alert is named when it is acted on: its text
+  and the name of the patient), the newest first as the api gives them. `:stale` is the kind of the failure when the summary could not
+  be read again after an alert was acknowledged, and what is shown is what was read before."
+  [chart name]
+  (let [{:keys [state items]} (section (:summary chart) :alerts)
+        cards (if (= :loaded state)
+                {:state :loaded
+                 :items (vec (for [alert items
+                                   :let [text (or (text-of (:text alert)) "Alert")]]
+                               {:id (:id alert)
+                                :text text
+                                :label (if name (str text " · " name) text)
+                                :tone (alerts/tone text)
+                                :since-phrase (when (fmt/instant? (:since alert)) (fmt/when-phrase (:since alert) (:now chart)))
+                                :description (alerts/description text)
+                                :evidence (evidence-of chart text)}))}
+                {:state state})]
+    (cond-> cards
+      (:refresh-failed chart) (assoc :stale (:refresh-failed chart)))))
 
 (defn- appointment-rows
   "The appointments of the summary as rows, in the order a clinician reads them: what is coming, soonest first, what has begun, and
@@ -415,7 +461,8 @@
         name (when resource (or (full-name resource) "Not named"))
         settled? (settled? chart)
         parts (concat [patient-part summary-part] (when series [series]) (vals (:evidence chart)))
-        failed-parts (count (filter #(= :failed (:state %)) parts))
+        failed-parts (+ (count (filter #(= :failed (:state %)) parts))
+                        (if (:refresh-failed chart) 1 0))
         kind (:measurement series)
         vitals* (vitals summary-part)
         offered (case (:state summary-part)
@@ -435,7 +482,7 @@
      :medications (section summary-part :medications)
      :allergies (section summary-part :allergies)
      :vitals vitals*
-     :alerts (alert-cards chart)
+     :alerts (alert-cards chart name)
      :appointments (appointment-rows chart)
      :no-readings? (and (= :loaded (:state vitals*)) (empty? offered))
      :settled? settled?

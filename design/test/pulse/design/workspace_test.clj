@@ -8,6 +8,8 @@
             [pulse.design.data :as data]
             [pulse.design.workspace :as workspace]
             [pulse.fhir.appointment :as appointment]
+            [pulse.spa.inbox :as inbox]
+            [pulse.spa.pages.alerts :as alerts-page]
             [pulse.spa.patient :as patient]
             [pulse.ui.test.hiccup :as hx]))
 
@@ -118,12 +120,13 @@
     (is (= ["Panel" "Ana García"] (map hx/words (hx/by-tag (by-label doc "Breadcrumb") :li))))
     (is (= ["../workspace-panel.html"] (map href (hx/by-tag (by-label doc "Breadcrumb") :a))))
     (is (= ["Essential (primary) hypertension · I10"] (map hx/words (hx/by-tag (by-label doc "Conditions") :li))))
-    (testing "the alert that is active: the rule, the readings behind it, and no way yet to acknowledge it"
+    (testing "the alert that is active: the rule, the readings behind it, and the buttons to acknowledge it and to see all of them"
       (let [alert (first (hx/select main #(and (= :div (hx/tag %)) (hx/has-class? % "bg-tone-critical-soft"))))]
         (is (= "BP stage 2" (hx/words (first (hx/by-tag alert :p)))) "its title")
         (is (str/includes? (hx/words alert) "Raised yesterday, 22:30."))
         (is (str/includes? (hx/words alert) "177/100 mmHg, today, 10:00; 172/102 mmHg, yesterday, 22:00; 165/106 mmHg, yesterday, 10:00"))
-        (is (= [] (button-texts alert)) "the page to acknowledge it is the next step of the phase")))
+        (is (= ["Acknowledge" "All alerts"] (button-texts alert)))
+        (is (= ["../workspace-alerts.html" "../workspace-alerts.html"] (map href (buttons alert))) "the mock-up leads both to the inbox")))
     (testing "the latest readings and the chart of the one furthest from normal"
       (is (= ["177/100" "70" "82.3"] (map hx/words (hx/select (section-of doc "vitals") #(hx/has-class? % "text-4xl")))))
       (is (= #{"chart-blood-pressure-wide-title chart-blood-pressure-wide-desc" "chart-blood-pressure-narrow-title chart-blood-pressure-narrow-desc"}
@@ -217,6 +220,28 @@
       (is (= ["Acknowledge" "Open the chart"] (button-texts ana)))
       (is (= "../workspace-patient.html" (href (second (buttons ana))))))
     (is (= "../workspace-patient-sofia.html" (href (second (buttons (second alerts))))))))
+
+(deftest the-inbox-is-the-page-the-workspace-serves-made-from-the-cohort
+  (let [state (workspace/inbox-state workspace/practitioner-id)]
+    (testing "of the lists the api answers a practitioner"
+      (is (= ["flag-pt-ana-R1" "flag-pt-sofia-R2"] (map :id (get-in state [:active :data :items]))) "the newest first")
+      (is (= ["flag-pt-liam-R3"] (map :id (get-in state [:acknowledged :data :items]))))
+      (is (= #{"pt-ana" "pt-sofia" "pt-liam" "pt-omar"} (set (map :id (get-in state [:patients :data :items])))) "the panel, and not Maya"))
+    (testing "and the readings behind the alerts, by the patient and the measurement of the rule"
+      (is (= #{["pt-ana" :blood-pressure] ["pt-sofia" :spo2]} (set (keys (:evidence state)))))
+      (is (every? #(= 3 (count (get-in % [:data :items]))) (vals (:evidence state)))))
+    (testing "settled: nothing waits and nothing is being looked at"
+      (is (true? (inbox/settled? state)))
+      (is (= {} (:latest state))))
+    (testing "the page is the one the workspace serves, and the mock-up only leads its buttons to the pages there are"
+      (let [served (alerts-page/content state {:show :all :admin? false :links workspace/inbox-links})]
+        (is (= (hx/words served) (hx/words (main-of (workspace/alerts context)))))))))
+
+(deftest the-administrator-s-inbox-has-every-patient-s-alerts
+  (let [state (workspace/inbox-state nil)]
+    (is (= 3 (get-in state [:active :data :total])))
+    (is (contains? (set (keys (:evidence state))) ["pt-maya" :weight]))
+    (is (str/includes? (hx/words (alerts-page/content state {:show :all :admin? true :links workspace/inbox-links})) "Rapid weight gain · Maya Patel"))))
 
 (deftest the-inbox-has-what-was-acknowledged-and-says-no-more-than-the-api-does
   (let [doc (workspace/alerts context)

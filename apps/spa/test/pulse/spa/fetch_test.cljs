@@ -585,3 +585,26 @@
     (is (= js/fetch (:fetch env)))
     (is (every? fn? (map env [:token! :renew! :login! :dispatch :on-unauthorized])))
     (is (instance? cljs.core/Atom (:inflight env)))))
+
+;; ---------------------------------------------------------------------------
+;; A call that cannot be made
+
+(deftest a-path-that-cannot-be-made-is-a-failure-of-the-call-and-not-an-exception-of-the-effect
+  ;; an id that came from a list and is `.` or `..` (ids by the letter of FHIR) or is empty: no browser would send it where it was meant
+  (async done
+         (finish done
+                 (sequentially
+                  [["a segment of dots" ["api" "patients" ".." "observations"]]
+                   ["a single dot" ["api" "alerts" "." "ack"]]
+                   ["an empty segment" ["api" "alerts" "" "ack"]]
+                   ["no segment at all" []]]
+                  (fn [[label segments]]
+                    (.then (run-calls! (fn [_ _ res] (reply! res 200 "{}"))
+                                       [{:method :post :path segments :id [:ack "x"] :on-success [::ok] :on-failure [::failed]}])
+                           (fn [{:keys [w seen]}]
+                             (is (= [] seen) (str label ": nothing is sent"))
+                             (is (= 1 (count @(:events w))) label)
+                             (is (= ::failed (first (only-event w))) label)
+                             (is (= :unexpected (:kind (second (only-event w)))) label)
+                             (is (= [0 0 0 0] (counts w)) (str label ": not even a token was asked for"))
+                             (is (= {} @(:inflight w)) (str label ": and it is not among the calls on their way")))))))))

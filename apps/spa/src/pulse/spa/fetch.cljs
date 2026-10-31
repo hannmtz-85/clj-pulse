@@ -61,7 +61,8 @@
   [{:keys [base-url token! renew! login! dispatch fetch timeout-ms inflight on-unauthorized]}
    {:keys [method path query body id on-success on-refusal on-failure] :or {method :get}}]
   (let [run (atom {:settled? false :cancelled? false :timer nil :controller nil})
-        address (http/url base-url path query)
+        ;; a path that cannot be made (an id that is `.` or `..`, an empty segment) is a call that cannot be made
+        address (try (http/url base-url path query) (catch :default _ nil))
         done? (fn [] (let [{:keys [settled? cancelled?]} @run] (or settled? cancelled?)))
         ;; a call that was stopped is never settled, so a call that settles is always the one that is kept under its id
         release! (fn []
@@ -123,15 +124,19 @@
                   :failed (if (and (= :unauthorized kind) (not retried?))
                             (attempt! true)
                             (settle! #(tell-failure {:kind kind :status status :request-id request-id}))))))]
-      (when id
-        (when-let [previous (get @inflight id)] (cancel-run! previous))
-        (swap! inflight assoc id run))
-      ;; settling and stopping a call clear its timer, so it fires only for a call that is still on its way
-      (swap! run assoc :timer (js/setTimeout (fn []
-                                               (when-let [^js controller (:controller @run)] (.abort controller))
-                                               (settle! #(tell-failure {:kind :timeout})))
-                                             timeout-ms))
-      (attempt! false)
+      (if (nil? address)
+        ;; a failure of the call, told as any other, and not an exception out of the effect, which would take the rest of the event with it
+        (tell-failure {:kind :unexpected})
+        (do
+          (when id
+            (when-let [previous (get @inflight id)] (cancel-run! previous))
+            (swap! inflight assoc id run))
+          ;; settling and stopping a call clear its timer, so it fires only for a call that is still on its way
+          (swap! run assoc :timer (js/setTimeout (fn []
+                                                   (when-let [^js controller (:controller @run)] (.abort controller))
+                                                   (settle! #(tell-failure {:kind :timeout})))
+                                                 timeout-ms))
+          (attempt! false)))
       nil)))
 
 (defonce ^:private inflight (atom {}))

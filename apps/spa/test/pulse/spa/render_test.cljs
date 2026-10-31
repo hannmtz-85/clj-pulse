@@ -5,12 +5,15 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [pulse.spa.hiccup :as hiccup]
+            [pulse.spa.inbox :as inbox]
+            [pulse.spa.pages.alerts :as alerts-page]
             [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.pages.start :as start]
             [pulse.spa.panel :as panel]
             [pulse.spa.patient :as patient]
+            [pulse.spa.test.inbox-fixtures :as ifx]
             [pulse.spa.test.panel-fixtures :as fx]
             [pulse.spa.test.patient-fixtures :as pfx]
             [pulse.ui.chart :as chart]
@@ -53,10 +56,28 @@
                                  :links {:panel "/" :filter (fn [show] (str "/?show=" (name show)))}
                                  :handlers {:retry (fn []) :sign-out (fn []) :search (fn [_])}}))
 
-(defn- the-chart [state person]
-  (patient-page/page state {:person person
-                            :links {:panel "/" :chart (fn [{:keys [measurement days]}] (str "/patients/pt-ana?days=" days "&measurement=" (name measurement)))}
-                            :handlers {:retry (fn []) :sign-out (fn [])}}))
+(defn- the-chart
+  ([state person] (the-chart state person nil))
+  ([state person acks]
+   (patient-page/page state {:person person
+                             :alert-count 1
+                             :acks acks
+                             :links {:panel "/" :alerts "/alerts"
+                                     :chart (fn [{:keys [measurement days]}] (str "/patients/pt-ana?days=" days "&measurement=" (name measurement)))}
+                             :handlers {:retry (fn []) :acknowledge (fn [_ _]) :sign-out (fn [])}})))
+
+(defn- the-inbox
+  ([state person] (the-inbox state person {}))
+  ([state person {:keys [show acks said alert-count] :or {show :all alert-count 2}}]
+   (alerts-page/page state {:person person
+                            :show show
+                            :acks acks
+                            :said said
+                            :alert-count alert-count
+                            :links {:panel "/" :alerts "/alerts"
+                                    :filter (fn [show] (str "/alerts" (when (#{:active :acknowledged} show) (str "?show=" (name show)))))
+                                    :patient (fn [id] (str "/patients/" id))}
+                            :handlers {:retry (fn []) :acknowledge (fn [_ _]) :show-changes (fn []) :sign-out (fn [])}})))
 
 (def ^:private pages
   {"the wait" (start/starting)
@@ -94,6 +115,27 @@
                                                                                (assoc :summary {:state :failed :kind :server})
                                                                                (assoc :series {:state :failed :kind :timeout :measurement :blood-pressure :days 14}))
                                                                            rivera)
+   "the chart of a patient with an alert being acknowledged" (the-chart (pfx/settled-ana) rivera {"flag-pt-ana-R1" {:state :sending}})
+   "the chart of a patient with an alert that was not acknowledged" (the-chart (pfx/settled-ana) rivera {"flag-pt-ana-R1" {:state :failed :message "You are not allowed to acknowledge this alert."}})
+   "the chart of a patient whose alerts could not be updated" (the-chart (assoc (pfx/settled-ana) :refresh-failed :timeout) rivera)
+   "the inbox before it begins" (the-inbox nil rivera)
+   "the inbox on its way" (the-inbox (inbox/start ifx/now) rivera)
+   "the inbox, loaded" (the-inbox (ifx/settled) rivera)
+   "the inbox of the administrator" (the-inbox (ifx/settled) sam {:alert-count 12})
+   "the inbox, narrowed to the active alerts" (the-inbox (ifx/settled) rivera {:show :active})
+   "the inbox, narrowed to the acknowledged alerts" (the-inbox (ifx/settled) rivera {:show :acknowledged})
+   "the inbox with nothing to decide" (the-inbox (assoc-in (ifx/settled) [:active :data] ifx/none) rivera {:show :active :alert-count 0})
+   "the inbox with nothing at all" (the-inbox (-> (ifx/settled) (assoc-in [:active :data] ifx/none) (assoc-in [:acknowledged :data] ifx/none)) rivera {:alert-count 0})
+   "the inbox with lists that could not be loaded" (the-inbox (assoc (ifx/settled) :active ifx/failed :acknowledged ifx/failed) rivera {:alert-count :unknown})
+   "the inbox whose names and readings could not be loaded" (the-inbox (-> (ifx/settled)
+                                                                           (assoc :patients ifx/failed)
+                                                                           (assoc-in [:evidence ["pt-ana" :blood-pressure]] ifx/failed)) rivera)
+   "the inbox that has changed" (the-inbox (assoc (ifx/settled) :latest {:active (ifx/loaded ifx/active-with-liam)}) rivera)
+   "the inbox that could not look again" (the-inbox (assoc-in (ifx/settled) [:latest :active] ifx/failed) rivera)
+   "the inbox with an alert being acknowledged" (the-inbox (ifx/settled) rivera {:acks {"flag-pt-ana-R1" {:state :sending}} :said "Said."})
+   "the inbox with an alert that was not acknowledged" (the-inbox (ifx/settled) rivera
+                                                                  {:acks {"flag-pt-ana-R1" {:state :failed :message "The alert was not acknowledged."}}})
+   "the inbox with a list that was cut" (the-inbox (assoc-in (ifx/settled) [:active :data :total] 130) rivera)
    "a chart and its table" [:div a-chart]
    "a table that scrolls" (c/data-table {:caption "Patients" :columns [{:key :name :label "Name"}] :rows [{:name "Ana"} {:name "Liam"}]})})
 

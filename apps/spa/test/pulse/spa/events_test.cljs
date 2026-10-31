@@ -12,6 +12,8 @@
             [pulse.spa.router :as router]
             [pulse.spa.subs :as subs]
             [pulse.spa.test.stand-in :as stand-in]
+            [pulse.spa.watch :as watch]
+            [pulse.spa.watch-events :as watch-events]
             [re-frame.core :as rf]
             [re-frame.db :as db]
             [re-frame.loggers :as loggers]))
@@ -33,15 +35,23 @@
 
 (defn- note-the-effects!
   "Replaces the effects that reach out of the page by ones that write down what they were asked: the identity provider, the api, the
-  history of the browser and the clock."
+  history of the browser, the clock and the tab."
   []
   (reset! asked [])
-  (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived :dispatch-later]]
+  (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived
+                  ::watch-events/listen :dispatch-later]]
     (replace-effect! effect (fn [value] (swap! asked conj [effect value])))))
 
 (def ^:private router-started
   "What the router is asked when the person has been let in."
   [::router/start nil])
+
+(def ^:private beat-begun
+  "What the beat of the workspace asks when the person has been let in: the count of the alerts now, the first beat in 30 seconds, and
+  the tab to be listened to."
+  #{[::fetch/request (watch/count-request 1)]
+    [:dispatch-later {:ms 30000 :dispatch [:pulse.spa.watch/beat 1]}]
+    [::watch-events/listen nil]})
 
 (defn- state [] @db/app-db)
 
@@ -86,8 +96,9 @@
    (is (= {:id "6f2c-rivera" :username "dr.rivera@pulse.test" :name "Elena Rivera" :roles #{:practitioner}}
           (subs/person (state) nil)))
    (is (= {:state :loading} (subs/me (state) nil)))
-   (is (= #{who-is-asked router-started} (set @asked)) "who they are is asked of the api, the history begins, and nothing else")
-   (is (= 2 (count @asked)))))
+   (is (= (conj beat-begun who-is-asked router-started) (set @asked))
+       "who they are is asked of the api, the history begins, the beat of the workspace begins, and nothing else")
+   (is (= 5 (count @asked)))))
 
 (deftest the-administrator-is-let-in-too
   (rf-test/run-test-sync
@@ -95,7 +106,7 @@
    (rf/dispatch [::events/signed-in (claims-with-roles "clinic-admin")])
    (is (= :signed-in (subs/status (state) nil)))
    (is (= #{:clinic-admin} (:roles (subs/person (state) nil))))
-   (is (= #{who-is-asked router-started} (set @asked)))))
+   (is (= (conj beat-begun who-is-asked router-started) (set @asked)))))
 
 (deftest a-person-who-is-not-of-the-clinic-is-refused-and-nothing-is-asked-of-the-api
   (doseq [[label roles] {"a patient" ["patient"]
@@ -117,13 +128,13 @@
    (note-the-effects!)
    (rf/dispatch [::events/signed-in (claims-with-roles "patient" "practitioner")])
    (is (= :signed-in (subs/status (state) nil)))
-   (is (= #{who-is-asked router-started} (set @asked)))))
+   (is (= (conj beat-begun who-is-asked router-started) (set @asked)))))
 
 (deftest what-the-state-holds-of-the-person-is-who-they-are-and-no-token
   (rf-test/run-test-sync
    (note-the-effects!)
    (rf/dispatch [::events/signed-in (assoc claims "access_token" "eyJhbGciOi.abc.def" "refresh_token" "eyJhbGciOi.ghi.jkl" "id_token" "eyJhbGciOi.mno.pqr")])
-   (is (= #{:status :person :me} (set (keys (state)))))
+   (is (= #{:status :person :me :watch} (set (keys (state)))))
    (is (= #{:id :username :name :roles} (set (keys (:person (state))))))
    (is (not (re-find #"eyJ" (pr-str (state)))))
    (is (not (re-find #"eyJ" (pr-str @asked))) "and no effect is given one")))
@@ -212,9 +223,20 @@
 ;; ---------------------------------------------------------------------------
 ;; The whole way: the event, the effect that calls the api, a server, and the state
 
+(defn- replace-event!
+  "Makes `f` the handler of the event `event`, in place of the real one (silently, as `replace-effect!` is)."
+  [event f]
+  (let [loggers (loggers/get-loggers)]
+    (loggers/set-loggers! {:warn (fn [& args] (when-not (str/starts-with? (str (first args)) "re-frame: overwriting") (apply (:warn loggers) args)))})
+    (try
+      (rf/reg-event-fx event f)
+      (finally
+        (loggers/set-loggers! loggers)))))
+
 (defn- the-api-is-a-server
   "Runs `f` with a stand-in for the api that answers with `answer` (see `stand-in/serve!`): `(f server seen)`. The effect of the api is
-  the real one, `fetch/request!`, with a token that is the test's and the server for an address; what it dispatches is re-frame's."
+  the real one, `fetch/request!`, with a token that is the test's and the server for an address; what it dispatches is re-frame's. The
+  beat of the workspace is not what these flows are about, and its question would be one more that the server is asked: it does not begin."
   [answer f]
   (.then (stand-in/serve! answer)
          (fn [{:keys [server port seen]}]
@@ -228,6 +250,7 @@
                       :inflight (atom {})
                       :on-unauthorized #(rf/dispatch [::events/unauthorized])}]
              (replace-effect! ::fetch/request (fn [spec] (fetch/request! env spec)))
+             (replace-event! :pulse.spa.watch/start (fn [_ _] {}))
              (doseq [effect [::router/start ::router/replace ::router/arrived]]
                (replace-effect! effect (fn [_] nil)))
              (f server seen)))))

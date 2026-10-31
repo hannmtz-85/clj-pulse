@@ -15,6 +15,7 @@
             [pulse.spa.patient-events :as patient-events]
             [pulse.spa.router :as router]
             [pulse.spa.subs :as subs]
+            [pulse.spa.watch-events :as watch-events]
             [pulse.spa.test.patient-fixtures :as fx]
             [pulse.view.format :as fmt]
             [re-frame.core :as rf]
@@ -39,7 +40,7 @@
   (reset! asked [])
   (quietly
    (fn []
-     (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived :dispatch-later]]
+     (doseq [effect [::auth/init ::auth/logout ::fetch/request ::fetch/cancel ::router/start ::router/replace ::router/arrived ::router/focus ::watch-events/listen :dispatch-later]]
        (rf/reg-fx effect (fn [value] (swap! asked conj [effect value]))))
      (rf/reg-cofx ::patient-events/now (fn [cofx _] (assoc cofx :now fx/now))))))
 
@@ -455,3 +456,121 @@
      (is (= [:patient :summary] (tasks-asked)) (str (pr-str order) ": no series, no readings behind an alert, nothing"))
      (is (true? (:gone? (patient/model (:chart (state))))) (pr-str order))
      (is (patient/settled? (:chart (state)))))))
+
+;; ---------------------------------------------------------------------------
+;; The summary read again, after an alert was acknowledged
+
+(defn- the-chart-has-loaded! []
+  (on-the-chart!)
+  (answer-everything!)
+  (reset! asked []))
+
+(defn- refresh-call [] (first (filter #(= :refresh (nth (:on-success %) 2)) (calls))))
+
+(deftest after-acknowledging-the-summary-is-asked-for-again-with-a-deadline-and-the-chart-is-not-blanked
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (let [before (:chart (state))]
+     (rf/dispatch [:pulse.spa.patient/after-ack])
+     (is (= [:refresh] (tasks-asked)))
+     (is (= {:method :get :id [:chart :refresh] :path ["api" "patients" "pt-ana" "summary"]
+             :on-success [:pulse.spa.patient/succeeded 1 :refresh] :on-failure [:pulse.spa.patient/failed 1 :refresh]}
+            (refresh-call)))
+     (is (= [{:ms 10000 :dispatch [:pulse.spa.patient/deadline 1 2]}] (deadlines)) "a deadline of its own, in the same load")
+     (is (= (:summary before) (get-in (state) [:chart :summary])) "what the chart holds stays")
+     (is (= [] (filter #(= ::router/focus (first %)) @asked)) "and the focus is not moved until the summary is back"))))
+
+(deftest the-summary-that-comes-is-the-chart-s-the-wait-is-over-and-the-focus-goes-to-the-heading
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :settling :label "BP stage 2 · Ana García"}} :said "Said."})
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (let [call (refresh-call)]
+     (reset! asked [])
+     (rf/dispatch (conj (:on-success call) {:status 200 :body (assoc fx/ana-summary :alerts []) :request-id "r"})))
+   (is (= [] (get-in (state) [:chart :summary :data :alerts])))
+   (is (= {} (get-in (state) [:chart :evidence])) "the readings behind an alert that is gone are gone too")
+   (is (= {:alerts {}} (:acks (state))) "nothing waits for the summary any more, and what was said gives way to the page")
+   (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))
+   (is (true? (patient/settled? (:chart (state)))))))
+
+(deftest a-summary-that-does-not-come-is-said-and-ends-the-wait-too
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :settling :label "A"}} :said "Said."})
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (let [call (refresh-call)]
+     (reset! asked [])
+     (rf/dispatch (conj (:on-failure call) {:kind :timeout :request-id "r"})))
+   (is (= :timeout (get-in (state) [:chart :refresh-failed])))
+   (is (= (fx/loaded fx/ana-summary) (get-in (state) [:chart :summary])) "what was read before is still there")
+   (is (= {:alerts {}} (:acks (state))))
+   (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))
+
+(deftest a-summary-that-is-not-back-by-its-deadline-has-failed-to-be-read-again
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :settling :label "A"}} :said "Said."})
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (reset! asked [])
+   (rf/dispatch [:pulse.spa.patient/deadline 1 2])
+   (is (= :timeout (get-in (state) [:chart :refresh-failed])))
+   (is (= #{[:chart :refresh]} (cancelled)) "its call is stopped")
+   (is (= {:alerts {}} (:acks (state))))
+   (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))
+
+(deftest the-deadline-of-a-chart-that-was-not-being-read-again-moves-nothing
+  (rf-test/run-test-sync
+   (on-the-chart!)
+   (swap! db/app-db assoc :acks {:alerts {"x" {:state :settling :label "X"}}})
+   (reset! asked [])
+   (rf/dispatch [:pulse.spa.patient/deadline 1 1])
+   (is (= [] (filter #(= ::router/focus (first %)) @asked)) "the focus is where the person put it")
+   (is (= {:alerts {"x" {:state :settling :label "X"}}} (:acks (state))) "and what waits for something else is left waiting")))
+
+(deftest a-retry-asks-for-the-summary-again-when-that-is-what-failed
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (rf/dispatch (conj (:on-failure (refresh-call)) {:kind :server :request-id "r"}))
+   (reset! asked [])
+   (rf/dispatch [:pulse.spa.patient/retry])
+   (is (= [:refresh] (tasks-asked)))
+   (is (= 2 (:chart-generation (state))) "a new load, as any retry")
+   (is (nil? (get-in (state) [:chart :refresh-failed])))))
+
+(deftest after-acknowledging-with-no-chart-open-nothing-is-asked
+  (rf-test/run-test-sync
+   (note-the-effects!)
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (is (= [] @asked))))
+
+(deftest leaving-the-chart-ends-what-the-acknowledgements-were-waiting-for
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (swap! db/app-db assoc :acks {:alerts {"a" {:state :settling :label "A"} "b" {:state :sending :label "B"}} :said "Said."})
+   (rf/dispatch [:pulse.spa.patient/leave])
+   (is (= {:alerts {"b" {:state :sending :label "B"}}} (:acks (state))))))
+
+;; ---------------------------------------------------------------------------
+;; What a mutation analysis found that the tests above did not hold
+
+(deftest an-answer-that-is-not-the-summary-read-again-does-not-end-what-the-acknowledgements-wait-for
+  ;; the summary is on its way again, and the call of the series of the chart answers first: the button of the alert stays busy and the
+  ;; focus stays where the person put it, until the summary is the one that comes
+  (rf-test/run-test-sync
+   (the-chart-has-loaded!)
+   (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :settling :label "A"}} :said "Said."})
+   (rf/dispatch [:pulse.spa.patient/after-ack])
+   (let [summary-call (refresh-call)]
+     (is (some? summary-call) "the summary is on its way")
+     (reset! asked [])
+     (doseq [[task body] [[[:series :blood-pressure 14] fx/ana-pressure-series] [[:evidence :blood-pressure] fx/ana-pressure-evidence]]]
+       (rf/dispatch [:pulse.spa.patient/succeeded 1 task {:status 200 :body body :request-id "r"}]))
+     (rf/dispatch [:pulse.spa.patient/failed 1 [:series :blood-pressure 14] {:kind :server :request-id "r"}])
+     (is (= {:alerts {"flag-pt-ana-R1" {:state :settling :label "A"}} :said "Said."} (:acks (state))) "still waiting for the summary")
+     (is (= [] (filter #(= ::router/focus (first %)) @asked)) "and the focus is not moved")
+     (testing "until the summary itself comes"
+       (rf/dispatch (conj (:on-success summary-call) {:status 200 :body fx/ana-summary :request-id "r"}))
+       (is (= {:alerts {}} (:acks (state))))
+       (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))))

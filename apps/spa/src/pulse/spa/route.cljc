@@ -7,9 +7,10 @@
   A route says `:roles` (a set: who may open it) or `:public? true` (the page of someone who has signed out, which asks nobody to sign
   in), and **a route that says neither is a start-up error**, as the api's `check-routes!` is: the table is checked when this namespace
   loads. A route may say `:start` and `:stop`, the events to dispatch when the person comes to it and leaves it, and `:update`, those
-  to dispatch when the parameters of the page change and the page is the same; `:page-params` names the parameters of its path that
-  make it another page when they change (the id of a patient: the chart of one patient is not the chart of another). The routes here
-  are the pages the workspace has: **a page that is not here yet is not linked to** (each step of the phase adds its own)."
+  to dispatch when the parameters of the page change and the page is the same, and `:refresh`, those to dispatch every time the beat
+  of the workspace comes while the page is open and the tab is seen (`pulse.spa.watch`); `:page-params` names the parameters of its
+  path that make it another page when they change (the id of a patient: the chart of one patient is not the chart of another). The
+  routes here are the pages the workspace has: **a page that is not here yet is not linked to** (each step of the phase adds its own)."
   (:require [clojure.string :as str]
             [malli.core :as m]
             [pulse.fhir.reference :as reference]
@@ -32,6 +33,11 @@
   "What the panel can be narrowed to, by the `show` of its address: with active alerts, away from normal, normal."
   #{:alerts :away :normal})
 
+(def alert-filters
+  "What the inbox of alerts can be narrowed to, by the `show` of its address: the alerts that need a decision, or those that were
+  acknowledged. Both is the default."
+  #{:active :acknowledged})
+
 (def search-limit
   "The longest search the panel takes from an address: more is cut."
   100)
@@ -39,7 +45,7 @@
 (def routes
   "The pages of the workspace: `[path data]`. The data of a route is its `:name`, its `:title` (what the tab says, and what is
   announced when the person comes to it), `:roles` or `:public?`, `:page-params` (a vector of the keywords of the parameters of its
-  path that say which page of it this is), and `:start`, `:update` and `:stop`, each a vector of events."
+  path that say which page of it this is), and `:start`, `:update`, `:refresh` and `:stop`, each a vector of events."
   [["/" {:name :panel
          :title "Panel"
          :roles person/workspace-roles
@@ -52,6 +58,12 @@
                      :start [[:pulse.spa.patient/load]]
                      :update [[:pulse.spa.patient/choose]]
                      :stop [[:pulse.spa.patient/leave]]}]
+   ["/alerts" {:name :alerts
+               :title "Alerts"
+               :roles person/workspace-roles
+               :start [[:pulse.spa.inbox/load]]
+               :refresh [[:pulse.spa.inbox/check]]
+               :stop [[:pulse.spa.inbox/leave]]}]
    [signed-out-path {:name :signed-out
                      :title "Signed out"
                      :public? true}]])
@@ -59,7 +71,7 @@
 (defn problems
   "What is wrong with a table of routes, as a vector of texts: empty when it is right. Every route has a unique `:name` (a keyword),
   a `:title` and either `:roles` (a set with at least one role of the application) or `:public? true`, its `:page-params` are
-  keywords, and the events of `:start`, `:update` and `:stop` are vectors that begin with a keyword."
+  keywords, and the events of `:start`, `:update`, `:refresh` and `:stop` are vectors that begin with a keyword."
   [routes]
   (let [data (map second routes)
         names (keep :name data)
@@ -75,6 +87,7 @@
                            "says neither which roles may open it nor that it is public")
                          (when-not (events-ok? (:start route [])) "has a :start that is not a vector of events")
                          (when-not (events-ok? (:update route [])) "has an :update that is not a vector of events")
+                         (when-not (events-ok? (:refresh route [])) "has a :refresh that is not a vector of events")
                          (when-not (events-ok? (:stop route [])) "has a :stop that is not a vector of events")
                          (when-not (let [page-params (:page-params route [])]
                                      (and (vector? page-params) (every? keyword? page-params)))
@@ -203,6 +216,23 @@
                                       (and (some #{days} patient/periods) (not= days patient/default-days)) (assoc :days days)))
                  (str "?")))))
 
+(def ^:private alerts-show-schema
+  (into [:enum] (map name) (sort alert-filters)))
+
+(defn alerts-params
+  "What the inbox of alerts is narrowed to, from the `query` of its address (as `panel-params` takes it): `{:show :all|:active|:acknowledged}`.
+  **It never fails**: a `show` that is none of those is all of them."
+  [query]
+  (let [show (first-of (:show query))]
+    {:show (if (m/validate alerts-show-schema show) (keyword show) :all)}))
+
+(defn alerts-path
+  "The path of the inbox of alerts narrowed to `params` (`{:show}`), as a link holds it: `/alerts`, or `/alerts?show=active`. What is the
+  default (both) is left out, so that the inbox with nothing narrowed has the address of the inbox."
+  ([] (alerts-path nil))
+  ([{:keys [show]}]
+   (str "/alerts" (some->> (http/query-string (cond-> {} (contains? alert-filters show) (assoc :show (name show)))) (str "?")))))
+
 (defn params-of
   "The parameters of the route `route-name` from the `query` of an address and, for a route that has them, the `path` parameters."
   ([route-name query] (params-of route-name query nil))
@@ -210,6 +240,7 @@
    (case route-name
      :panel (panel-params query)
      :patient (patient-params query path)
+     :alerts (alerts-params query)
      {})))
 
 (defn from-match
@@ -267,3 +298,12 @@
      :stop (if changed? (vec (:stop (data (:name from)))) [])
      :start (if (and changed? allowed) (with-params (:start route-data)) [])
      :update (if (and (not changed?) allowed (not= (:params from) (:params to))) (with-params (:update route-data)) [])}))
+
+(defn refresh-events
+  "The events that the beat of the workspace dispatches for the page the person is on, `here` (`{:name :params}`): the `:refresh` of its
+  route, given the parameters of the page, or none for a route that has none, for one the person may not open and for where the
+  workspace is not yet (`nil`)."
+  [here person]
+  (if (and here (allowed? (:name here) person))
+    (mapv #(conj % (:params here)) (:refresh (data (:name here))))
+    []))

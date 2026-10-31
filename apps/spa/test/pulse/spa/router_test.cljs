@@ -59,7 +59,44 @@
                (is (= "Panel · Pulse" (.-title document)))
                (is (= [[:frame] [:frame] [:looked-for "main h1"]] @seen)))))
 
+(defn- focused!
+  "Does what the effect `::router/focus` does for `selector`."
+  [selector]
+  ((registrar/get-handler :fx ::router/focus) selector))
+
+(defn- a-control [tag]
+  (fn [seen]
+    #js {:tagName tag
+         :setAttribute (fn [attribute value] (swap! seen conj [:attribute attribute value]))
+         :focus (fn [] (swap! seen conj [:focus]))}))
+
+(deftest the-focus-goes-to-what-the-selector-finds-once-the-page-is-drawn
+  (on-a-page a-heading
+             (fn [seen _]
+               (focused! "#needs")
+               (is (= [[:frame] [:frame] [:looked-for "#needs"] [:attribute "tabindex" "-1"] [:focus]] @seen)
+                   "after two frames, the element is found, made able to take the focus if it is not a control, and given it"))))
+
+(deftest a-control-takes-the-focus-by-itself-and-is-not-taken-out-of-the-order-of-the-tab-key
+  (doseq [tag ["A" "BUTTON" "INPUT" "SELECT" "TEXTAREA"]]
+    (on-a-page (a-control tag)
+               (fn [seen _]
+                 (focused! "#ack-flag-pt-ana-R1")
+                 (is (= [[:frame] [:frame] [:looked-for "#ack-flag-pt-ana-R1"] [:focus]] @seen) tag)))))
+
+(deftest an-element-that-is-not-there-takes-no-focus-and-breaks-nothing
+  (on-a-page (constantly nil)
+             (fn [seen _]
+               (focused! "#gone")
+               (is (= [[:frame] [:frame] [:looked-for "#gone"]] @seen)))))
+
+(deftest the-heading-of-the-page-is-found-by-the-same-way
+  (on-a-page a-heading
+             (fn [seen _]
+               (arrived! {:title "Alerts · Pulse" :focus? true})
+               (is (= [[:frame] [:frame] [:looked-for "main h1"] [:attribute "tabindex" "-1"] [:focus]] @seen)))))
+
 (deftest the-effects-of-the-history-are-registered-for-the-events-that-ask-for-them
   (testing "the effects the events name exist"
-    (doseq [effect [::router/start ::router/replace ::router/arrived]]
+    (doseq [effect [::router/start ::router/replace ::router/arrived ::router/focus]]
       (is (some? (registrar/get-handler :fx effect)) (str effect)))))

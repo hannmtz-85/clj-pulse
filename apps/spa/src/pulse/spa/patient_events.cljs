@@ -8,9 +8,15 @@
   another is a change of the address that this namespace hears as `::patient/choose` (the `:update` of its route), which asks for the
   series again and for nothing else. A new *epoch* is begun by each load, retry and choice, and the deadline that was set for an
   epoch that is over does nothing: a person who chooses a period nine seconds after the chart settled must not find the deadline of
-  the first load failing the chart they asked for."
-  (:require [pulse.spa.fetch :as fetch]
+  the first load failing the chart they asked for.
+
+  After the person acknowledges an alert the summary, which holds the alerts, is asked for again (`::patient/after-ack`); the chart stays
+  as it is until the new one is back, the focus, which was on a button that is gone or busy, goes to the heading of the page, and
+  what the acknowledgements were waiting for is over, whether the summary came or not."
+  (:require [pulse.spa.ack :as ack]
+            [pulse.spa.fetch :as fetch]
             [pulse.spa.patient :as patient]
+            [pulse.spa.router :as router]
             [pulse.view.format :as fmt]
             [re-frame.core :as rf]))
 
@@ -50,6 +56,30 @@
     {:db (assoc db :chart chart)
      :fx (calls started)}))
 
+(defn- settled-acks
+  "The acknowledgements once what they were waiting for is over: the summary has been read again, or it is not going to be. Nothing is
+  waiting, and what a screen reader was told of them gives way to what the page says itself."
+  [acks]
+  (-> acks ack/clear-settling ack/hush))
+
+(defn- focus-target
+  "Where the focus goes once the summary has been read again: the button of an alert that is still among the active ones and whose
+  acknowledgement was not done, so that the person can try again, or else the heading of the page, since the button they pressed is gone."
+  [db]
+  (if-let [id (ack/first-failed (:acks db) (map :id (get-in db [:chart :summary :data :alerts])))]
+    (str "#ack-" id)
+    "main h1"))
+
+(defn- read-again
+  "`effects`, those of an answer, with what follows from the summary having been read again if that is what `task` was: the
+  acknowledgements stop waiting and the focus goes where it belongs."
+  [effects task]
+  (if (= :refresh task)
+    (-> effects
+        (update :fx conj [::router/focus (focus-target (:db effects))])
+        (update :db update :acks settled-acks))
+    effects))
+
 (rf/reg-event-fx
  ::patient/load
  [(rf/inject-cofx ::now)]
@@ -64,14 +94,16 @@
  ::patient/succeeded
  (fn [{:keys [db]} [_ gen task response]]
    (if (current? db gen)
-     (pumped db (patient/answer (:chart db) task {:result :ok :body (:body response)}) gen)
+     (-> (pumped db (patient/answer (:chart db) task {:result :ok :body (:body response)}) gen)
+         (read-again task))
      {})))
 
 (rf/reg-event-fx
  ::patient/failed
  (fn [{:keys [db]} [_ gen task failure]]
    (if (current? db gen)
-     (pumped db (patient/answer (:chart db) task {:result :failed :kind (:kind failure)}) gen)
+     (-> (pumped db (patient/answer (:chart db) task {:result :failed :kind (:kind failure)}) gen)
+         (read-again task))
      {})))
 
 (rf/reg-event-fx
@@ -81,8 +113,21 @@
    ;; epoch that is over (the person chose another period since) is not the deadline of what is loading now
    (if (and (current? db gen) (= ep (epoch db)))
      (let [expired (patient/expire (:chart db))]
-       {:db (assoc db :chart (dissoc expired :cancelled))
-        :fx (cancels (:cancelled expired))})
+       (cond-> {:db (assoc db :chart (dissoc expired :cancelled))
+                :fx (cancels (:cancelled expired))}
+         (patient/refreshing? (:chart db)) (read-again :refresh)))
+     {})))
+
+(rf/reg-event-fx
+ ::patient/after-ack
+ (fn [{:keys [db]} _]
+   ;; the alerts are in the summary: it is asked for again, and the chart stays as it is until the new one is back
+   (if-let [chart (:chart db)]
+     (let [gen (generation db)
+           ep (inc (epoch db))
+           [refreshing started] (patient/pump (patient/refresh chart) gen)]
+       {:db (assoc db :chart refreshing :chart-epoch ep)
+        :fx (conj (calls started) (deadline gen ep))})
      {})))
 
 (rf/reg-event-fx
@@ -116,5 +161,8 @@
 (rf/reg-event-fx
  ::patient/leave
  (fn [{:keys [db]} _]
-   {:db (-> db (assoc :chart-generation (inc (generation db))) (dissoc :chart))
+   {:db (-> db
+            (assoc :chart-generation (inc (generation db)))
+            (dissoc :chart)
+            (update :acks settled-acks))
     :fx (cancels (sort-by str (get-in db [:chart :inflight])))}))

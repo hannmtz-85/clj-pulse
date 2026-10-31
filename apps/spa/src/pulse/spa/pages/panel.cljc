@@ -184,9 +184,9 @@
 
 (defn page
   "The workspace around the panel. `options` are those of `content`, and `:person` (who is signed in), `:me` (what the api said of
-  them: see `pulse.spa.person/display`), `:links` (`:panel`, where the page is, for the sidebar) and `:handlers` (`:sign-out`, which
-  puts \"Sign out\" in the menu of the person, and `:search`, a function of the text typed in the box, which puts the box in the
-  header)."
-  [state params {:keys [person me links handlers] :as options}]
-  (shell/frame {:current :panel :person person :me me :links links :handlers handlers :search-value (:q params)}
+  them: see `pulse.spa.person/display`), `:alert-count` (how many alerts need a decision: see `pulse.spa.pages.shell/nav`), `:links`
+  (`:panel` and `:alerts`, where the pages are, for the sidebar) and `:handlers` (`:sign-out`, which puts \"Sign out\" in the menu of
+  the person, and `:search`, a function of the text typed in the box, which puts the box in the header)."
+  [state params {:keys [person me links handlers alert-count] :as options}]
+  (shell/frame {:current :panel :person person :me me :links links :handlers handlers :search-value (:q params) :alert-count alert-count}
                (content state params (assoc options :admin? (person/admin? person)))))

@@ -42,22 +42,29 @@
   (is (= [] (route/problems route/routes)))
   (is (= route/routes (route/check! route/routes)))
   (testing "the pages the workspace has so far"
-    (is (= [:panel :patient :signed-out] (map (comp :name second) route/routes)))
-    (is (= ["/" "/patients/:id" "/signed-out"] (map first route/routes))))
+    (is (= [:panel :patient :alerts :signed-out] (map (comp :name second) route/routes)))
+    (is (= ["/" "/patients/:id" "/alerts" "/signed-out"] (map first route/routes))))
   (testing "the panel is for the clinic's people and for nobody else"
     (is (= person/workspace-roles (:roles (route/data :panel))))
     (is (not (:public? (route/data :panel)))))
   (testing "and so is the chart of a patient, which is a page for each patient"
     (is (= person/workspace-roles (:roles (route/data :patient))))
     (is (not (:public? (route/data :patient))))
-    (is (= [:id] (:page-params (route/data :patient))))))
+    (is (= [:id] (:page-params (route/data :patient)))))
+  (testing "and so is the inbox of alerts, which looks again at what it shows when the beat of the workspace comes"
+    (is (= person/workspace-roles (:roles (route/data :alerts))))
+    (is (not (:public? (route/data :alerts))))
+    (is (= [[:pulse.spa.inbox/load]] (:start (route/data :alerts))))
+    (is (= [[:pulse.spa.inbox/check]] (:refresh (route/data :alerts))))
+    (is (= [[:pulse.spa.inbox/leave]] (:stop (route/data :alerts))))
+    (is (nil? (:page-params (route/data :alerts))) "it is one page, whatever it is narrowed to")))
 
 (deftest a-route-that-says-neither-who-may-open-it-nor-that-it-is-public-is-an-error
   (let [route-with (fn [data] [["/x" (merge {:name :x :title "X"} data)]])]
     (testing "it says who, or that it is public"
       (is (= [] (route/problems (route-with {:roles #{:practitioner}}))))
       (is (= [] (route/problems (route-with {:public? true}))))
-      (is (= [] (route/problems (route-with {:roles #{:practitioner} :page-params [:id] :update [[:a/b]]})))))
+      (is (= [] (route/problems (route-with {:roles #{:practitioner} :page-params [:id] :update [[:a/b]] :refresh [[:a/c]]})))))
     (testing "and nothing else is right"
       (doseq [[label [data message]] {"neither" [{} "says neither which roles may open it nor that it is public"]
                                       "no roles" [{:roles #{}} "says neither which roles may open it nor that it is public"]
@@ -74,6 +81,8 @@
                                       "a :stop that is not a vector of events" [{:roles #{:practitioner} :stop :a} "has a :stop that is not a vector of events"]
                                       "an :update that is not a vector of events" [{:roles #{:practitioner} :update :a} "has an :update that is not a vector of events"]
                                       "an :update with an event that does not begin with a keyword" [{:roles #{:practitioner} :update [[1]]} "has an :update that is not a vector of events"]
+                                      "a :refresh that is not a vector of events" [{:roles #{:practitioner} :refresh :a} "has a :refresh that is not a vector of events"]
+                                      "a :refresh with an event that does not begin with a keyword" [{:roles #{:practitioner} :refresh [["a"]]} "has a :refresh that is not a vector of events"]
                                       "page parameters that are not a vector" [{:roles #{:practitioner} :page-params :id} "has :page-params that are not a vector of keywords"]
                                       "page parameters that are not keywords" [{:roles #{:practitioner} :page-params ["id"]} "has :page-params that are not a vector of keywords"]
                                       "an event that does not begin with a keyword" [{:roles #{:practitioner} :start [["a"]]} "has a :start that is not a vector of events"]}
@@ -96,7 +105,8 @@
   (is (some? (r/match-by-name route/router :panel)))
   (is (= "/" (:path (r/match-by-name route/router :panel))))
   (is (= "/signed-out" (:path (r/match-by-name route/router :signed-out))))
-  (is (= "/patients/pt-ana" (:path (r/match-by-name route/router :patient {:id "pt-ana"})))))
+  (is (= "/patients/pt-ana" (:path (r/match-by-name route/router :patient {:id "pt-ana"}))))
+  (is (= "/alerts" (:path (r/match-by-name route/router :alerts)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Matching
@@ -107,14 +117,17 @@
   (is (= :signed-out (:name (route/match-path "/signed-out/"))) "a path may end in one slash")
   (is (= :patient (:name (route/match-path "/patients/pt-ana"))))
   (is (= :patient (:name (route/match-path "/patients/pt-ana/"))) "and so may the chart of a patient")
+  (is (= :alerts (:name (route/match-path "/alerts"))))
+  (is (= :alerts (:name (route/match-path "/alerts/"))) "and the inbox")
   (testing "and no other, though it looks like one"
-    (doseq [path ["/panel" "/patients" "/patients/" "/patients//" "/patients/pt-ana/summary" "/patients/pt-ana//" "/alerts" "//" "/x/" ""
+    (doseq [path ["/panel" "/patients" "/patients/" "/patients//" "/patients/pt-ana/summary" "/patients/pt-ana//" "/alerts//" "/alerts/x" "/Alerts" "//" "/x/" ""
                   "signed-out" "/signed-out//" "/ " nil 5 :panel]]
       (is (nil? (route/match-path path)) (pr-str path)))))
 
 (deftest the-title-of-the-tab-is-the-title-of-the-page
   (is (= "Panel · Pulse" (route/title :panel)))
   (is (= "Patient chart · Pulse" (route/title :patient)))
+  (is (= "Alerts · Pulse" (route/title :alerts)))
   (is (= "Signed out · Pulse" (route/title :signed-out)))
   (is (= "Page not found · Pulse" (route/title :not-found)))
   (is (= "Workspace · Pulse" (route/title :nowhere)) "for a name there is no page of"))
@@ -372,3 +385,86 @@
 
 (deftest a-page-with-no-update-has-none-whatever-changes
   (is (= [] (:update (route/transition {:name :panel :params {:show :all :q ""}} {:name :panel :params {:show :away :q "x"}} rivera)))))
+
+;; ---------------------------------------------------------------------------
+;; The inbox of alerts
+
+(def ^:private inbox-here {:name :alerts :params {:show :all}})
+
+(deftest the-inbox-is-both-the-alerts-that-need-a-decision-and-those-acknowledged-unless-the-address-narrows-it
+  (is (= #{:active :acknowledged} route/alert-filters))
+  (is (= {:show :all} (route/alerts-params nil)))
+  (is (= {:show :all} (route/alerts-params {})))
+  (is (= {:show :active} (route/alerts-params {:show "active"})))
+  (is (= {:show :acknowledged} (route/alerts-params {:show "acknowledged"}))))
+
+(deftest an-address-of-the-inbox-written-by-hand-still-gets-the-inbox
+  (testing "a filter that is none is all of them"
+    (doseq [show ["" "ACTIVE" "all" "active " "inactive" "nonsense" "<script>" "0" nil [] {} 5 :active true]]
+      (is (= {:show :all} (route/alerts-params {:show show})) (pr-str show))))
+  (testing "a parameter that came twice is its first"
+    (is (= {:show :active} (route/alerts-params {:show ["active" "acknowledged"]})))
+    (is (= {:show :all} (route/alerts-params {:show ["nonsense" "active"]})) "the first, whatever it is"))
+  (testing "what else the address says is not read"
+    (is (= {:show :active} (route/alerts-params {:show "active" :q "ana" :measurement "glucose"})))))
+
+(deftest the-address-of-the-inbox-leaves-out-what-is-the-default
+  (is (= "/alerts" (route/alerts-path)))
+  (is (= "/alerts" (route/alerts-path nil)))
+  (is (= "/alerts" (route/alerts-path {})))
+  (is (= "/alerts" (route/alerts-path {:show :all})))
+  (is (= "/alerts?show=active" (route/alerts-path {:show :active})))
+  (is (= "/alerts?show=acknowledged" (route/alerts-path {:show :acknowledged})))
+  (testing "what is not a filter is left out"
+    (doseq [show [:nonsense "active" nil 5 :alerts]]
+      (is (= "/alerts" (route/alerts-path {:show show})) (pr-str show)))))
+
+(deftest the-address-of-the-inbox-and-the-parameters-it-is-read-from-go-round
+  (doseq [params [{:show :all} {:show :active} {:show :acknowledged}]
+          :let [path (route/alerts-path params)
+                query (second (str/split path #"\?" 2))
+                parsed (into {} (for [pair (when query (str/split query #"&"))
+                                      :let [[k v] (str/split pair #"=" 2)]]
+                                  [(keyword k) v]))]]
+    (is (= params (route/alerts-params parsed)) path)))
+
+(deftest the-inbox-the-workspace-is-on-is-read-from-what-the-history-says
+  (let [match (fn [path query] (assoc (r/match-by-path route/router path) :query-params query))]
+    (is (= {:name :alerts :params {:show :all}} (route/from-match (match "/alerts" {}))))
+    (is (= {:name :alerts :params {:show :active}} (route/from-match (match "/alerts" {:show "active"}))))
+    (is (= {:name :alerts :params {:show :all}} (route/from-match (match "/alerts" {:show "junk"}))) "a hand-written address is the inbox")))
+
+(deftest the-inbox-is-for-the-clinic-and-nobody-else
+  (is (true? (route/allowed? :alerts rivera)))
+  (is (true? (route/allowed? :alerts sam)))
+  (is (false? (route/allowed? :alerts ana)))
+  (is (false? (route/allowed? :alerts nil))))
+
+(deftest coming-to-the-inbox-starts-it-and-leaving-it-stops-it
+  (is (= {:page-change? true :stop [] :start [[:pulse.spa.inbox/load {:show :all}]] :update []}
+         (route/transition nil inbox-here rivera)) "the first page the person comes to")
+  (is (= {:page-change? true :stop [[:pulse.spa.panel/leave]] :start [[:pulse.spa.inbox/load {:show :active}]] :update []}
+         (route/transition {:name :panel :params {:show :all :q ""}} {:name :alerts :params {:show :active}} sam)))
+  (is (= {:page-change? true :stop [[:pulse.spa.inbox/leave]] :start [[:pulse.spa.panel/load {:show :all :q ""}]] :update []}
+         (route/transition inbox-here {:name :panel :params {:show :all :q ""}} rivera)))
+  (is (= {:page-change? true :stop [[:pulse.spa.inbox/leave]] :start [[:pulse.spa.patient/load {:id "pt-ana" :measurement nil :days 14}]] :update []}
+         (route/transition inbox-here ana-chart rivera)) "the name of the patient in an alert leads to their chart"))
+
+(deftest narrowing-the-inbox-is-the-same-page-and-loads-nothing-again
+  (doseq [to [{:name :alerts :params {:show :active}} {:name :alerts :params {:show :acknowledged}} {:name :alerts :params {:show :all}}]]
+    (is (= {:page-change? false :stop [] :start [] :update []} (route/transition inbox-here to rivera)) (pr-str to))))
+
+(deftest an-inbox-the-person-may-not-open-starts-nothing
+  (is (= {:page-change? true :stop [] :start [] :update []} (route/transition nil inbox-here ana))))
+
+(deftest the-beat-asks-the-page-the-person-is-on-to-look-again-if-it-has-something-to-look-at
+  (testing "the inbox does, and is given the parameters of the page"
+    (is (= [[:pulse.spa.inbox/check {:show :all}]] (route/refresh-events inbox-here rivera)))
+    (is (= [[:pulse.spa.inbox/check {:show :active}]] (route/refresh-events {:name :alerts :params {:show :active}} sam))))
+  (testing "a page with nothing to look at again does not"
+    (doseq [here [{:name :panel :params {:show :all :q ""}} ana-chart {:name :signed-out :params {}} {:name :not-found :params {}}]]
+      (is (= [] (route/refresh-events here rivera)) (pr-str here))))
+  (testing "nor does a page the person may not open, or no page yet"
+    (is (= [] (route/refresh-events inbox-here ana)))
+    (is (= [] (route/refresh-events inbox-here nil)))
+    (is (= [] (route/refresh-events nil rivera)))))

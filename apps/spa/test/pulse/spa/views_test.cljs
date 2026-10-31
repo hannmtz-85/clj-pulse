@@ -6,6 +6,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame.test :as rf-test]
+            [pulse.spa.test.inbox-fixtures :as ifx]
             [pulse.spa.test.panel-fixtures :as fx]
             [pulse.spa.test.patient-fixtures :as pfx]
             [pulse.spa.views :as views]
@@ -105,3 +106,60 @@
    (let [html (server/render-to-string [views/root])]
      (is (str/includes? html "href=\"/patients/pt-ana\""))
      (is (str/includes? html "href=\"/patients/pt-noah\"")))))
+
+(deftest the-inbox-is-the-page-of-its-route
+  (rf-test/run-test-sync
+   (let [here {:name :alerts :params {:show :all}}]
+     (testing "the inbox that is open"
+       (let [text (shown {:status :signed-in :person rivera :route here :inbox (ifx/settled)})]
+         (is (says? text "Alerts"))
+         (is (says? text "Needs a decision"))
+         (is (says? text "BP stage 2 · Ana García"))
+         (is (says? text "Acknowledge"))
+         (is (says? text "Glucose out of range · Liam Chen"))
+         (is (says? text "Elena Rivera"))))
+     (testing "before it has begun it is the wait inside the workspace, with nobody named"
+       (let [text (shown {:status :signed-in :person rivera :route here})]
+         (is (says? text "Loading the alerts"))
+         (is (not (says? text "Ana García")))))
+     (testing "the administrator's"
+       (is (says? (shown {:status :signed-in :person sam :route here :inbox (ifx/settled)}) "readings of the clinic")))
+     (testing "a person whose role does not open it"
+       (is (says? (shown {:status :signed-in :person ana :route here}) "You cannot open that page"))))))
+
+(deftest what-the-address-narrows-the-inbox-to-is-in-the-page
+  (rf-test/run-test-sync
+   (let [html (fn [show]
+                (reset! db/app-db {:status :signed-in :person rivera :route {:name :alerts :params {:show show}} :inbox (ifx/settled)})
+                (server/render-to-string [views/root]))]
+     (is (str/includes? (html :active) "Needs a decision"))
+     (is (not (str/includes? (html :active) "Glucose out of range")))
+     (is (str/includes? (html :acknowledged) "Glucose out of range"))
+     (is (not (str/includes? (html :acknowledged) "Needs a decision")))
+     (is (str/includes? (html :all) "href=\"/alerts?show=acknowledged\"") "the pills are links that keep the address of the inbox"))))
+
+(deftest the-count-of-the-alerts-is-in-the-sidebar-of-every-page
+  (rf-test/run-test-sync
+   (doseq [[label state] {"the panel" {:route {:name :panel :params {:show :all :q ""}} :panel (fx/settled)}
+                          "the chart" {:route {:name :patient :params {:id "pt-ana" :measurement nil :days 14}} :chart (pfx/settled-ana)}
+                          "the inbox" {:route {:name :alerts :params {:show :all}} :inbox (ifx/settled)}
+                          "a page that is none" {:route {:name :not-found :params {}}}}
+           :let [base (merge {:status :signed-in :person rivera} state)
+                 html (fn [watch] (reset! db/app-db (assoc base :watch watch)) (server/render-to-string [views/root]))]]
+     (testing label
+       (is (str/includes? (html {:count {:state :loaded :total 3}}) "aria-label=\"Alerts, 3 active\""))
+       (is (str/includes? (html {:count {:state :failed :kind :timeout}}) "aria-label=\"Alerts, could not be read\"") "never a badge that went away")
+       (is (str/includes? (html {:count {:state :loaded :total 0}}) "aria-label=\"Alerts\"") "nothing for zero")
+       (is (str/includes? (html nil) "aria-label=\"Alerts\"") "nor before it is known")
+       (is (str/includes? (html nil) "href=\"/alerts\"") "and the way to the inbox")))))
+
+(deftest the-chart-of-a-patient-can-acknowledge-and-leads-to-the-inbox
+  (rf-test/run-test-sync
+   (reset! db/app-db {:status :signed-in :person rivera :route {:name :patient :params {:id "pt-ana" :measurement nil :days 14}} :chart (pfx/settled-ana)})
+   (let [html (server/render-to-string [views/root])]
+     (is (str/includes? html "Acknowledge"))
+     (is (str/includes? html "id=\"ack-flag-pt-ana-R1\""))
+     (is (str/includes? html "All alerts")))
+   (testing "and the button is busy while the command is on its way"
+     (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :sending :label "BP stage 2 · Ana García"}}})
+     (is (re-find #"<button[^>]*disabled[^>]*id=\"ack-flag-pt-ana-R1\"|<button[^>]*id=\"ack-flag-pt-ana-R1\"[^>]*disabled" (server/render-to-string [views/root]))))))

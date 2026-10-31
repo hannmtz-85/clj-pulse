@@ -13,10 +13,12 @@
   shown so that it breaks where it has to (`wrap-anywhere`, which also lets the box that holds it shrink) and never makes the page scroll sideways.
 
   A control that has nothing to lead to is not there: a pill is there only when `:chart` is among the `links` (a function from
-  `{:measurement :days}` to an address), a breadcrumb back to the panel only when `:panel` is, and a button to try again only when
-  `:retry` is among the `handlers`. The buttons to acknowledge an alert and to confirm, move or cancel an appointment are not here
-  until there are pages for them (the next steps of the phase)."
+  `{:measurement :days}` to an address), a breadcrumb back to the panel only when `:panel` is, the link to all the alerts only when
+  `:alerts` is, the button that acknowledges an alert only when `:acknowledge` is among the `handlers` (or the `links`, for the mock-up,
+  which has no handlers), and a button to try again only when `:retry` is among the `handlers`. The buttons to confirm, move or cancel an
+  appointment are not here until there is a page for them (the next step of the phase)."
   (:require [clojure.string :as str]
+            [pulse.spa.pages.parts :as parts :refer [retry-button wrapped]]
             [pulse.spa.pages.shell :as shell]
             [pulse.spa.patient :as patient]
             [pulse.spa.person :as person]
@@ -27,15 +29,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; What is said of what could not be loaded
-
-(defn- retry-button [handlers]
-  (when-let [retry (:retry handlers)]
-    (c/button {:variant :outline :size :lg :icon :refresh-cw :on-click retry} "Try again")))
-
-(defn- wrapped
-  "`text`, written by someone else, in a box that breaks it wherever it must: a word with no spaces in it does not push the page wide."
-  [text]
-  [:span {:class "wrap-anywhere"} text])
 
 (defn- not-loaded
   "The message that stands where a part of the page should be when it could not be loaded, as the panel and the portal say it. The button
@@ -76,24 +69,38 @@
 ;; The alerts
 
 (defn- alert-block
-  "An active alert of the patient, as a message in the colour of its tone: when it was raised and the rule that raised it, and the
-  readings behind it."
-  [{:keys [text tone since-phrase description evidence]} handlers]
-  (c/alert {:tone tone :title (wrapped text) :actions (when (= :failed (:state evidence)) (retry-button handlers))}
-           (when (or since-phrase description)
-             [:p {:class "wrap-anywhere"} (str/join " " (keep identity [(when since-phrase (str "Raised " since-phrase ".")) description]))])
-           (case (:state evidence)
-             :loaded (when (seq (:lines evidence))
-                       [:p {:class "mt-1"} (str "The latest readings: " (str/join "; " (:lines evidence)) ".")])
-             :failed [:p {:class "mt-1"} "The readings behind it could not be loaded."]
-             nil)))
+  "An active alert of the patient, as a message in the colour of its tone: when it was raised and the rule that raised it, the readings
+  behind it, and the buttons to acknowledge it and to see all the alerts. `ack` is the state of its acknowledgement (see
+  `pulse.spa.ack`), nil when there is none."
+  [{:keys [id label text tone since-phrase description evidence]} ack {:keys [links handlers] :as options}]
+  (apply c/alert
+         {:id (str "alert-" id)
+          :tone tone
+          :title (wrapped text)
+          :actions (parts/actions (parts/acknowledge-button id label ack options)
+                                  (when-let [all (:alerts links)]
+                                    (c/button {:variant :outline :size :sm :href all} "All alerts"))
+                                  (when (= :failed (:state evidence)) (retry-button handlers :sm)))}
+         (remove nil?
+                 [(parts/raised-line since-phrase description)
+                  (case (:state evidence)
+                    :loaded (when (seq (:lines evidence))
+                              [:p {:class "mt-1"} (str "The latest readings: " (str/join "; " (:lines evidence)) ".")])
+                    :failed [:p {:class "mt-1"} "The readings behind it could not be loaded."]
+                    nil)
+                  (parts/failure-message ack)])))
 
-(defn- alerts-section [{:keys [state items]} handlers]
+(defn- alerts-section
+  "The active alerts of the patient. When the summary could not be read again after one was acknowledged, what is shown is what was
+  read before, and a message says so above it."
+  [{:keys [state items stale]} acks {:keys [handlers] :as options}]
   (case state
     :loading (c/skeleton {:class "h-16 w-full"})
     :lost (not-loaded "The alerts could not be loaded" handlers)
-    (for [item items]
-      (alert-block item handlers))))
+    (list (when stale (parts/not-loaded "The alerts could not be updated" "What you see may be out of date." handlers))
+          ;; each block is keyed by its alert: when the list changes, React must not hand the button that has the focus to another alert
+          (for [item items]
+            (with-meta (alert-block item (get acks (:id item)) options) {:key (:id item)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The latest readings
@@ -242,9 +249,11 @@
 
 (defn content
   "The chart of a patient as a page: `state` is the state of the chart (see `pulse.spa.patient`; nil before it begins to load), and `options` are `:admin?` (the
-  administrator sees every patient), `:links` (`:panel`, the address of the panel; `:chart`, a function from `{:measurement :days}` to
-  the address of this chart narrowed to them) and `:handlers` (`:retry`)."
-  [state {:keys [admin? links handlers]}]
+  administrator sees every patient), `:links` (`:panel`, the address of the panel; `:alerts`, the address of the inbox; `:chart`, a
+  function from `{:measurement :days}` to the address of this chart narrowed to them), `:handlers` (`:retry`, `:acknowledge`), `:acks`
+  (the state of the acknowledgements, by the id of the alert; see `pulse.spa.ack`) and `:said` (what a screen reader was last told of
+  them)."
+  [state {:keys [admin? links handlers acks said] :as options}]
   (let [state (or state patient/loading)
         m (patient/model state)
         now (:now state)]
@@ -252,10 +261,10 @@
       (gone admin? links)
       [:div {:class "space-y-6"}
        (header m links)
-       [:p {:class "sr-only" :role "status"} (:live m)]
+       [:p {:class "sr-only" :role "status"} (or said (:live m))]
        (when (= :failed (:patient m)) (not-loaded "The patient could not be loaded" handlers))
        (conditions-row (:conditions m) handlers)
-       (alerts-section (:alerts m) handlers)
+       (alerts-section (:alerts m) acks options)
        (vitals-section (:vitals m) now handlers)
        [:div {:class "grid items-start gap-6 xl:grid-cols-3"}
         [:div {:class "space-y-6 xl:col-span-2"}
@@ -267,9 +276,9 @@
 
 (defn page
   "The workspace around the chart of a patient. `options` are those of `content`, and `:person` (who is signed in), `:me` (what the api
-  said of them: see `pulse.spa.person/display`), `:links` (`:panel`, where the page is for the sidebar and the way back) and
-  `:handlers` (`:sign-out`, which puts \"Sign out\" in the menu of the person). There is no search box: it would have nothing to search
-  here."
-  [state {:keys [person me links handlers] :as options}]
-  (shell/frame {:current :panel :person person :me me :links links :handlers handlers}
+  said of them: see `pulse.spa.person/display`), `:alert-count` (how many alerts need a decision: see `pulse.spa.pages.shell/nav`),
+  `:links` (`:panel` and `:alerts`, where the pages are for the sidebar, and the way back) and `:handlers` (`:sign-out`, which puts
+  \"Sign out\" in the menu of the person). There is no search box: it would have nothing to search here."
+  [state {:keys [person me links handlers alert-count] :as options}]
+  (shell/frame {:current :panel :person person :me me :links links :handlers handlers :alert-count alert-count}
                (content state (assoc options :admin? (person/admin? person)))))

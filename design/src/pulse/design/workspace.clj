@@ -10,6 +10,8 @@
             [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
             [pulse.fhir.appointment :as appointment]
+            [pulse.spa.inbox :as inbox]
+            [pulse.spa.pages.alerts :as alerts-page]
             [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.patient :as patient-page]
             [pulse.spa.panel :as panel]
@@ -184,16 +186,18 @@
      :inflight #{}}))
 
 (defn- chart-links
-  "Where the buttons and the pills of the chart lead in the mock-ups: the panel, and, for the pills, nowhere (the mock-up does not make
-  them work)."
+  "Where the buttons and the pills of the chart lead in the mock-ups: the panel, the inbox of alerts (where the button that acknowledges an
+  alert leads too, since the mock-up does not make it work) and, for the pills, nowhere."
   []
   {:panel (link "workspace-panel.html")
+   :alerts (link "workspace-alerts.html")
+   :acknowledge (constantly (link "workspace-alerts.html"))
    :chart (constantly "#")})
 
 (defn patient
   "The page function of the chart of `patient-id`. The page is the one the workspace serves (`pulse.spa.pages.patient`), made from
-  the cohort; the search box and the buttons of the next steps (to acknowledge an alert, to confirm, move or cancel an appointment)
-  are not on it until the workspace has them."
+  the cohort; the search box and the buttons of the next step (to confirm, move or cancel an appointment) are not on it until the
+  workspace has them."
   [patient-id]
   (fn [_context]
     (page {:title (str "Chart of " (:name (data/patient patient-id))) :current :panel :search? false}
@@ -202,43 +206,43 @@
 ;; ---------------------------------------------------------------------------
 ;; The inbox of alerts
 
-(defn- active-alert [{:keys [id tone text since-phrase description evidence patient]}]
-  (c/alert {:id id :tone tone :title (str text " · " (:name patient))
-            :actions (list (c/button {:size :sm :icon :check :href "#"} "Acknowledge")
-                           (c/button {:variant :outline :size :sm :href (chart-link (:id patient))} "Open the chart"))}
-           [:p (str "Raised " since-phrase ". " description)]
-           [:p {:class "mt-2 font-medium"} "The readings behind it"]
-           (into [:ul {:class "list-disc pl-5"}] (for [line evidence] [:li line]))))
+(defn inbox-state
+  "What the inbox of the workspace is a function of when it has loaded: the state `pulse.spa.inbox` keeps, made from what the api answers
+  (the alerts that need a decision and those that were acknowledged, the patients, and the latest readings behind each active alert), from
+  the cohort at the moment of the mock-ups, for the practitioner `practitioner-id` (or every patient, for nil)."
+  [practitioner-id]
+  (let [active (data/alert-page practitioner-id {:limit inbox/list-limit})]
+    {:now data/now-text
+     :active (loaded active)
+     :acknowledged (loaded (data/alert-page practitioner-id {:status "inactive" :limit inbox/list-limit}))
+     :patients (loaded (data/patient-list practitioner-id {:limit panel/list-limit}))
+     :evidence (into {}
+                     (for [alert (:items active)
+                           :let [kind (alerts/measurement (:text alert))
+                                 id (inbox/patient-id (:patient alert))]
+                           :when (and kind id)]
+                       [[id kind] (loaded (data/series id kind alerts/evidence-count))]))
+     :latest {}
+     :adopt? false
+     :queue []
+     :inflight #{}}))
 
-(defn- acknowledged-alert [{:keys [text since-phrase until-phrase patient]}]
-  (c/list-row
-   {:leading (c/icon-disc {:icon :check :variant :muted})
-    :trailing-wraps? true
-    :trailing (list (c/badge {:variant :outline} "Acknowledged")
-                    (c/button {:variant :ghost :size :sm :href (chart-link (:id patient))} "Open the chart"))}
-   [:p {:class "font-medium"} (str text " · " (:name patient))]
-   [:p {:class "text-muted"} (str "Raised " since-phrase ", acknowledged " until-phrase)]))
+(def inbox-links
+  "Where the buttons of the inbox lead in the mock-ups, which have every page: the chart of each patient there is one of, and the pills
+  and the button that acknowledges an alert, which the mock-up does not make work."
+  {:panel (link "workspace-panel.html")
+   :alerts (link "workspace-alerts.html")
+   :filter (constantly "#")
+   :acknowledge (constantly "#")
+   :patient chart-link})
 
 (defn alerts
-  "The alert inbox of a practitioner: what needs a decision, with the readings behind it and the way to acknowledge it,
-  and what has been acknowledged."
+  "The alert inbox of a practitioner: what needs a decision, with the readings behind it and the way to acknowledge it, and what has been
+  acknowledged. The page is the one the workspace serves (`pulse.spa.pages.alerts`), made from the cohort. The box to search the patients
+  is not on it: it would have nothing to search here."
   [_context]
-  (let [cards (alerts-of practitioner-id)
-        active (filter :active? cards)
-        acknowledged (remove :active? cards)]
-    (page {:title "Alerts" :current :alerts}
-          [:div {:class "space-y-6"}
-           (c/page-header {:title "Alerts" :description "Raised by the rules from the readings of your patients."})
-           (c/pill-nav {:label "Show"
-                        :items [{:href "#" :label "Active" :count (count active)}
-                                {:href "#" :label "Acknowledged" :count (count acknowledged)}
-                                {:href "#" :label "All" :count (count cards) :current? true}]})
-           [:section {:aria-labelledby "needs"}
-            [:div {:class "mb-3"} (section-heading "needs" "Needs a decision")]
-            (into [:div {:class "space-y-4"}] (map active-alert active))]
-           [:section {:aria-labelledby "done"}
-            [:div {:class "mb-3"} (section-heading "done" "Acknowledged")]
-            (c/card {:flush? true} (c/list-group {:aria-label "Acknowledged alerts"} (map acknowledged-alert acknowledged)))]])))
+  (page {:title "Alerts" :current :alerts :search? false}
+        (alerts-page/content (inbox-state practitioner-id) {:show :all :admin? false :links inbox-links})))
 
 ;; ---------------------------------------------------------------------------
 ;; Appointments

@@ -294,12 +294,15 @@
 (defn- a-chart? [file]
   (str/starts-with? file "workspace-patient"))
 
+(defn- has-nothing-to-search? [file]
+  (or (a-chart? file) (= "workspace-alerts.html" file)))
+
 (deftest every-page-of-the-workspace-has-the-search-and-the-menu-of-the-person
   (doseq [{:keys [file group]} mockups
           :when (= "Clinical workspace" group)
           :let [doc (frame-of file)]]
-    (if (a-chart? file)
-      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient has nothing to search, and a box that searched nothing is a control with nothing to do"))
+    (if (has-nothing-to-search? file)
+      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient and the inbox of alerts have nothing to search, and a box that searched nothing is a control with nothing to do"))
       (is (some? (hx/by-id doc "search")) file))
     (is (= 1 (count (hx/select doc #(str/starts-with? (str (:aria-label (hx/attributes %))) "Account menu of")))) file)))
 
