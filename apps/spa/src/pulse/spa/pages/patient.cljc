@@ -160,6 +160,13 @@
                         (phone-only (charts/line-chart (assoc common :id (str "chart-" (name kind) "-narrow") :width 318 :height 260
                                                               :max-ticks 3 :thresholds? false :bands? false))))}))))
 
+(defn no-readings
+  "What the card of the chart says when the patient has no reading at all."
+  []
+  (c/card {:title "Readings"}
+          (c/empty-state {:icon :activity :title "No readings yet"}
+                         "When the patient records one, or a device sends one, you will see it here.")))
+
 (defn- chart-card
   "The chart of one measurement over a period, or what is said instead: that the patient has no reading, that it is on its way, or
   that it could not be loaded."
@@ -168,10 +175,7 @@
         chart-link (:chart links)
         pills (when (and chart-link kind) (choices m chart-link))]
     (cond
-      no-readings?
-      (c/card {:title "Readings"}
-              (c/empty-state {:icon :activity :title "No readings yet"}
-                             "When the patient records one, or a device sends one, you will see it here."))
+      no-readings? (no-readings)
 
       (and (nil? series) (nil? (:offered m)))
       (c/card {:title "Readings" :subtitle (str "Last " days " days")}
@@ -242,7 +246,10 @@
 ;; ---------------------------------------------------------------------------
 ;; The page
 
-(defn- gone [admin? links]
+(defn gone
+  "What the page of a chart says when the patient cannot be shown: the api refuses them (they are not in the practitioner's panel) or
+  there is no such patient. It says that it may be either, since a practitioner is told the same in both cases."
+  [admin? links]
   (c/card (c/empty-state {:icon :search
                           :title "We cannot find that patient"
                           :heading :h1

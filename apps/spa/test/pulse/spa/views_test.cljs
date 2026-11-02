@@ -147,8 +147,8 @@
            :let [base (merge {:status :signed-in :person rivera} state)
                  html (fn [watch] (reset! db/app-db (assoc base :watch watch)) (server/render-to-string [views/root]))]]
      (testing label
-       (is (str/includes? (html {:count {:state :loaded :total 3}}) "aria-label=\"Alerts, 3 active\""))
-       (is (str/includes? (html {:count {:state :failed :kind :timeout}}) "aria-label=\"Alerts, could not be read\"") "never a badge that went away")
+       (is (str/includes? (html {:count {:state :loaded :total 3}}) "aria-label=\"Alerts 3 active\""))
+       (is (str/includes? (html {:count {:state :failed :kind :timeout}}) "aria-label=\"Alerts ? could not be read\"") "never a badge that went away")
        (is (str/includes? (html {:count {:state :loaded :total 0}}) "aria-label=\"Alerts\"") "nothing for zero")
        (is (str/includes? (html nil) "aria-label=\"Alerts\"") "nor before it is known")
        (is (str/includes? (html nil) "href=\"/alerts\"") "and the way to the inbox")))))
@@ -163,3 +163,47 @@
    (testing "and the button is busy while the command is on its way"
      (swap! db/app-db assoc :acks {:alerts {"flag-pt-ana-R1" {:state :sending :label "BP stage 2 · Ana García"}}})
      (is (re-find #"<button[^>]*disabled[^>]*id=\"ack-flag-pt-ana-R1\"|<button[^>]*id=\"ack-flag-pt-ana-R1\"[^>]*disabled" (server/render-to-string [views/root]))))))
+
+(deftest a-sign-in-that-takes-too-long-says-so-and-offers-to-try-again
+  (rf-test/run-test-sync
+   (testing "when the patience has run out and the identity provider has not answered"
+     (let [text (shown {:status :starting :slow-start? true})]
+       (is (says? text "This is taking longer than usual"))
+       (is (says? text "Try again"))))
+   (testing "not before"
+     (let [text (shown {:status :starting})]
+       (is (says? text "Signing in"))
+       (is (not (says? text "taking longer")))
+       (is (not (says? text "Try again")))))
+   (testing "and not for a person who is in, whose wait for the history is a moment"
+     (let [text (shown {:status :signed-in :person rivera :slow-start? true})]
+       (is (says? text "Signing in"))
+       (is (not (says? text "taking longer")))))))
+
+(deftest what-react-keeps-for-a-boundary-says-whether-what-is-under-it-threw
+  (is (true? (views/crashed? (views/crash-state (js/Error. "boom")))))
+  (is (false? (views/crashed? nil)) "before React has any state for it")
+  (is (false? (views/crashed? #js {})))
+  (is (false? (views/crashed? #js {"crashed" false})))
+  (testing "the state is read by a name that the compiler does not rename"
+    (is (= ["crashed"] (vec (js/Object.keys (views/crash-state nil)))))
+    (is (true? (aget (views/crash-state nil) "crashed")))))
+
+(deftest a-page-that-cannot-be-drawn-is-a-page-that-says-so-with-the-ways-out
+  (let [html (server/render-to-string [views/crashed])
+        text (str/replace (str/replace html #"<[^>]*>" " ") #"\s+" " ")]
+    (is (says? text "Something went wrong"))
+    (is (says? text "The workspace could not show this page."))
+    (is (says? text "Reload the page"))
+    (is (says? text "Go to the panel"))
+    (is (says? text "Sign out"))
+    (is (= 1 (count (re-seq #"<h1" html))) "one heading")))
+
+(deftest the-workspace-with-its-boundary-is-the-workspace-while-nothing-threw
+  (rf-test/run-test-sync
+   (reset! db/app-db {:status :signed-in :person rivera :route {:name :panel :params {:show :all :q ""}} :panel (fx/settled)})
+   (let [guarded (server/render-to-string [views/app])
+         bare (server/render-to-string [views/root])]
+     (is (str/includes? guarded "Ana García"))
+     (is (not (str/includes? guarded "Something went wrong")))
+     (is (= bare guarded) "the boundary adds nothing to the page"))))

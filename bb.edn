@@ -155,6 +155,10 @@
   spa:serve {:doc "Serve the release of the clinical workspace on 127.0.0.1:3000 with its Content-Security-Policy: bb spa:serve [dev | test] (run bb spa:build first)"
              :task (apply shell "clojure" "-M:dev" "-m" "pulse.spa.main" *command-line-args*)}
 
+  spa:journey {:doc "The acceptance of the clinical workspace in headless Chrome or Edge, with the real Keycloak and api: bb spa:journey [--no-build] [--shots dir] [--only sections]. Makes the release, starts the api (bb dev lite) and the server of the release itself, and stops them: it needs bb up (Keycloak) and the ports 3000, 3300, 4000 and 5000 free"
+               :requires ([spa-journey])
+               :task (spa-journey/run! *command-line-args*)}
+
   spa:test {:doc "Run the tests of the clinical workspace on Node (shadow-cljs :node-test); a build with any warning fails"
             :requires ([spa])
             :task (spa/test!)}}}

@@ -75,8 +75,43 @@
    (rf/dispatch [::events/start])
    (is (= :starting (subs/status (state) nil)))
    (is (nil? (subs/person (state) nil)))
-   (is (= [[::auth/init {:on-success [::events/signed-in] :on-failure [::events/sign-in-failed]}]] @asked)
-       "and says which events the answer is given to, and asks nothing else")))
+   (is (= [[::auth/init {:on-success [::events/signed-in] :on-failure [::events/sign-in-failed]}]
+           [:dispatch-later {:ms 10000 :dispatch [::events/start-slow]}]]
+          @asked)
+       "and says which events the answer is given to, and how long to wait for it: nothing else is asked")))
+
+(deftest a-sign-in-that-takes-too-long-says-so
+  (rf-test/run-test-sync
+   (note-the-effects!)
+   (rf/dispatch [::events/start])
+   (is (false? (subs/slow-start? (state) nil)) "not at first")
+   (rf/dispatch [::events/start-slow])
+   (is (true? (subs/slow-start? (state) nil)))
+   (is (= :starting (subs/status (state) nil)) "it is still waiting: the page offers to try again, and that is the person's")
+   (is (= 10000 events/start-patience-ms))))
+
+(deftest a-sign-in-that-was-answered-in-time-is-not-slow
+  (doseq [[label answer] {"let in" [::events/signed-in claims]
+                          "refused" [::events/signed-in (claims-with-roles "patient")]
+                          "failed" [::events/sign-in-failed]}]
+    (rf-test/run-test-sync
+     (note-the-effects!)
+     (rf/dispatch [::events/start])
+     (rf/dispatch answer)
+     (let [before (state)]
+       (rf/dispatch [::events/start-slow])
+       (testing label
+         (is (= before (state)) "the patience that runs out afterwards changes nothing")
+         (is (false? (subs/slow-start? (state) nil))))))))
+
+(deftest starting-again-is-not-slow-until-the-patience-runs-out-again
+  (rf-test/run-test-sync
+   (note-the-effects!)
+   (rf/dispatch [::events/start])
+   (rf/dispatch [::events/start-slow])
+   (rf/dispatch [::events/start])
+   (is (= {:status :starting} (state)))
+   (is (false? (subs/slow-start? (state) nil)))))
 
 (deftest starting-again-forgets-who-was-there
   (rf-test/run-test-sync
@@ -299,3 +334,12 @@
    (rf/dispatch [::events/signed-in claims])
    ((:on-unauthorized (#'fetch/live-env)))
    (is (= :unauthorized (subs/status (state) nil)) "the event it names is one that exists, and is the one that says so")))
+
+(deftest a-person-who-is-let-in-after-the-wait-was-slow-is-not-waiting-any-more
+  (rf-test/run-test-sync
+   (note-the-effects!)
+   (rf/dispatch [::events/start])
+   (rf/dispatch [::events/start-slow])
+   (rf/dispatch [::events/signed-in claims])
+   (is (= :signed-in (subs/status (state) nil)))
+   (is (false? (subs/slow-start? (state) nil)) "the flag is still in the state, and means nothing once the status is another")))

@@ -315,3 +315,21 @@
     (let [s (chart/sparkline {:points []})]
       (is (empty? (hx/by-tag s :path)))
       (is (empty? (hx/by-tag s :circle))))))
+
+(deftest the-legend-is-a-list-in-the-caption-and-the-table-has-a-target-a-finger-can-hit
+  (let [fig (chart/line-chart {:id "bp" :title "Pressure" :description "A month" :x-label str
+                               :series [{:label "Systolic" :unit "mmHg" :points [[1 120] [2 130]]}
+                                        {:label "Diastolic" :unit "mmHg" :points [[1 80] [2 85]]}]})
+        caption (first (hx/by-tag fig :figcaption))]
+    (testing "a list item is the child of a list, and the list is the content of the caption"
+      (is (= [:ul] (map hx/tag (filter hx/element? (hx/child-nodes caption)))))
+      (is (= 2 (count (hx/by-tag (first (hx/by-tag caption :ul)) :li))))
+      (is (empty? (filter #(= :li (hx/tag %)) (filter hx/element? (hx/child-nodes caption))))))
+    (testing "the words that open the table are a target of 24 px at least, which a line of this type is not"
+      (is (hx/has-class? (first (hx/by-tag fig :summary)) "min-h-6")))))
+(deftest a-legend-entry-has-the-unit-only-when-the-series-has-one
+  (let [fig (chart/line-chart {:id "x" :title "Two series" :description "With and without a unit" :x-label str
+                               :series [{:label "With" :unit "mmHg" :points [[1 1] [2 2]]}
+                                        {:label "Without" :points [[1 3] [2 4]]}]})
+        entries (hx/by-tag (first (hx/by-tag fig :figcaption)) :li)]
+    (is (= ["With (mmHg)" "Without"] (map hx/words entries)) "no empty parentheses for a series that has no unit")))

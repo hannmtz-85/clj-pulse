@@ -259,5 +259,5 @@
 (deftest the-workspace-around-the-chart-has-the-alerts-in-the-navigation-with-their-count
   (let [tree (page/page (fx/settled-ana) {:person rivera :alert-count 3 :links links :handlers {:sign-out (fn [])}})
         nav (first (hx/select tree #(= "Workspace" (:aria-label (hx/attributes %)))))]
-    (is (= ["Panel" "Alerts3"] (map words (hx/by-tag nav :a))))
+    (is (= ["Panel" "Alerts 3"] (map words (hx/by-tag nav :a))))
     (is (= "Panel" (words (first (hx/select nav #(= "page" (:aria-current (hx/attributes %))))))) "the chart is a page of the panel")))

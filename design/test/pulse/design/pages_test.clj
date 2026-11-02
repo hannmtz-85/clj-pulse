@@ -296,17 +296,18 @@
   (str/starts-with? file "workspace-patient"))
 
 (defn- has-nothing-to-search?
-  "The pages that have nothing to search: a chart, the inbox, the appointments with the dialogs over them, and the jobs."
+  "The pages that have nothing to search: a chart, the inbox, the appointments with the dialogs over them, the jobs, and the states,
+  which are pieces of all of them."
   [file]
   (or (a-chart? file) (contains? #{"workspace-alerts.html" "workspace-appointments.html" "workspace-confirm.html" "workspace-reschedule.html"
-                                   "workspace-cancel-appointment.html" "workspace-jobs.html"} file)))
+                                   "workspace-cancel-appointment.html" "workspace-jobs.html" "workspace-states.html"} file)))
 
 (deftest every-page-of-the-workspace-has-the-search-and-the-menu-of-the-person
   (doseq [{:keys [file group]} mockups
           :when (= "Clinical workspace" group)
           :let [doc (frame-of file)]]
     (if (has-nothing-to-search? file)
-      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient, the inbox, the appointments and the jobs have nothing to search, and a box that searched nothing is a control with nothing to do"))
+      (is (nil? (hx/by-id doc "search")) (str file ": the chart of a patient, the inbox, the appointments, the jobs and the states have nothing to search, and a box that searched nothing is a control with nothing to do"))
       (is (some? (hx/by-id doc "search")) file))
     (is (= 1 (count (hx/select doc #(str/starts-with? (str (:aria-label (hx/attributes %))) "Account menu of")))) file)))
 

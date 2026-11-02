@@ -12,6 +12,10 @@
             [pulse.spa.inbox :as inbox]
             [pulse.spa.pages.alerts :as alerts-page]
             [pulse.spa.pages.appointments :as appointments-page]
+            [pulse.spa.pages.jobs :as jobs-page]
+            [pulse.spa.pages.panel :as panel-page]
+            [pulse.spa.pages.patient :as patient-page]
+            [pulse.spa.pages.start :as start]
             [pulse.spa.patient :as patient]
             [pulse.ui.test.hiccup :as hx]))
 
@@ -103,7 +107,7 @@
 (deftest the-sidebar-counts-the-alerts-that-are-active-for-the-panel
   (let [nav (by-label (workspace/panel context) "Workspace")
         alerts (second (hx/by-tag nav :a))]
-    (is (= ["Panel" "Alerts, 2 active" "Appointments"] (map #(:aria-label (hx/attributes %)) (hx/by-tag nav :a))))
+    (is (= ["Panel" "Alerts 2 active" "Appointments"] (map #(:aria-label (hx/attributes %)) (hx/by-tag nav :a))))
     (is (= "2" (hx/words (first (hx/select alerts #(hx/has-class? % "tabular-nums"))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -425,7 +429,7 @@
 (deftest the-administrator-has-the-jobs-in-the-sidebar-and-every-active-alert-in-its-count
   (let [nav (by-label (workspace/jobs context) "Workspace")
         links (hx/by-tag nav :a)]
-    (is (= ["Panel" "Alerts, 3 active" "Appointments" "Jobs"] (map #(:aria-label (hx/attributes %)) links)))
+    (is (= ["Panel" "Alerts 3 active" "Appointments" "Jobs"] (map #(:aria-label (hx/attributes %)) links)))
     (is (= [nil nil nil "page"] (map #(:aria-current (hx/attributes %)) links)))
     (is (= ["Administration"] (map hx/words (hx/select nav #(= :p (hx/tag %))))))
     (is (str/includes? (hx/words (first (hx/by-tag (workspace/jobs context) :aside))) "Clinic administrator"))))
@@ -433,28 +437,86 @@
 ;; ---------------------------------------------------------------------------
 ;; What goes wrong
 
-(deftest the-workspace-says-what-it-does-when-there-is-nothing-or-something-goes-wrong
+(defn- captions
+  "What the specimens of a group are called, in order."
+  [group]
+  (map #(hx/words (first (hx/by-tag % :p)))
+       (hx/select group #(contains? (hx/attributes %) :data-specimen))))
+
+(deftest the-page-of-the-states-has-groups-that-a-person-meets-in-order
   (let [doc (workspace/states context)
-        main (main-of doc)
-        cards (hx/select main #(and (= :section (hx/tag %)) (hx/has-class? % "shadow-card")))]
-    (is (= ["A panel with no patients" "An inbox with no alerts" "While the panel loads" "A chart that cannot be opened"
-            "A patient that does not exist" "A list that could not be loaded"]
-           (map #(hx/words (first (hx/by-tag % :h2))) cards)))
+        groups ["before" "not-there" "nothing" "loading" "lost" "partial"]]
+    (is (= ["Empty states and errors"] (map hx/words (hx/by-tag doc :h1))) "one heading, since each piece gives its own an h3")
+    (is (= ["Before the workspace is open" "A page that is not there, or not the person's" "Nothing to show" "While a page loads"
+            "Some of it could not be loaded" "A chart with a section that is not available"]
+           (map #(hx/words (first (hx/by-tag (section-of doc %) :h2))) groups)))
+    (is (= ["Waiting for the identity provider" "A wait that does not end" "A sign-in that could not be made"
+            "A person the workspace is not for" "A sign-in the api did not accept" "Someone who has signed out"
+            "A page the workspace could not draw"]
+           (captions (section-of doc "before"))))
+    (is (= ["An address that is no page" "A page for another role" "A chart that cannot be opened"
+            "A chart that cannot be opened, for the administrator" "The jobs, for a person who is not the administrator"]
+           (captions (section-of doc "not-there"))))
+    (is (= ["A panel with no patients" "A panel for the administrator, with no patients" "A filter or a search that finds nobody"
+            "An inbox with no alerts" "A patient with no readings" "No jobs"]
+           (captions (section-of doc "nothing"))))
+    (is (= ["The panel" "The inbox" "The jobs"] (captions (section-of doc "loading"))))
+    (is (= 8 (count (captions (section-of doc "lost")))))))
+
+(deftest every-piece-says-what-the-workspace-says-in-that-state
+  (let [doc (workspace/states context)
+        says (fn [group & texts] (let [words (hx/words (section-of doc group))] (every? #(str/includes? words %) texts)))]
+    (testing "before the workspace is open"
+      (is (says "before" "Signing in" "This is taking longer than usual" "The sign-in service has not answered yet."
+                "We could not sign you in" "This workspace is for the clinic" "Go to the patient portal"
+                "Your sign-in was not accepted" "Sign in again" "You have signed out" "Something went wrong" "Reload the page")))
+    (testing "a page that is not there says so and leads back"
+      (is (says "not-there" "We cannot find that page" "You cannot open that page" "We cannot find that patient"
+                "They are not in your panel, or there is no such patient." "There is no such patient."
+                "You cannot see the jobs" "Only the clinic's administrator can."))
+      (is (= (repeat 5 "../workspace-panel.html") (map href (buttons (section-of doc "not-there"))))
+          "every piece leads back to the panel")
+      (is (= ["Go to the panel" "Go to the panel" "Go to the panel" "Go to the panel" "Back to the panel"]
+             (map hx/words (buttons (section-of doc "not-there"))))))
     (testing "an empty state says what is missing and what to do"
-      (is (str/includes? (hx/words (first cards)) "No patients in your panel yet"))
-      (is (str/includes? (hx/words (second cards)) "Nothing needs a decision right now."))
-      (is (= "../workspace-panel.html" (href (first (buttons (nth cards 3))))))
-      (is (= "../workspace-panel.html" (href (first (buttons (nth cards 4)))))))
-    (testing "while it loads, a spinner with a name and shapes that are hidden from a screen reader"
-      (let [loading (nth cards 2)]
-        (is (= "status" (:role (hx/attributes (first (hx/select loading #(= :span (hx/tag %))))))))
-        (is (str/includes? (hx/words loading) "Loading the panel"))
-        (is (= 3 (count (hx/select loading #(hx/has-class? % "skeleton")))))
-        (is (every? #(= "true" (:aria-hidden (hx/attributes %))) (hx/select loading #(hx/has-class? % "skeleton"))))))
-    (testing "a section that is not available is named, and the other sections are there"
+      (is (says "nothing" "You have no patients yet" "Patients appear here when you are their doctor."
+                "There are no patients yet" "Patients appear here when they are added to the clinic's records."
+                "No patients match" "Show all patients" "No alerts" "Nothing needs a decision right now."
+                "See acknowledged alerts" "No readings yet" "No jobs" "The scheduler has no jobs.")))
+    (testing "while it loads, grey shapes that are hidden from a screen reader, and the words for it"
+      (let [loading (section-of doc "loading")
+            shapes (hx/select loading #(hx/has-class? % "skeleton"))]
+        (is (seq shapes))
+        (is (every? #(= "true" (:aria-hidden (hx/attributes %))) shapes))
+        (is (says "loading" "Loading the alerts" "Loading the jobs"))))
+    (testing "what could not be loaded is a message in its place, with what is up to date and a way to try again"
+      (is (says "lost" "Your panel could not be loaded" "2 patients could not be loaded" "Some figures could not be loaded"
+                "We could not check for new alerts" "The names of the patients could not be loaded"
+                "The alerts have changed" "Show the changes" "We could not update the list" "The jobs could not be loaded"
+                "The problem is on our side, not yours."))
+      (is (<= 7 (count (filter #(= "Try again" (hx/words %)) (buttons (section-of doc "lost"))))))
+      (is (not (str/includes? (hx/words (section-of doc "lost")) "No jobs")) "and never shown as empty"))
+    (testing "a section of a chart that is not available is named, and the other sections are there"
       (let [partial (section-of doc "partial")]
-        (is (str/includes? (hx/words partial) "Medication is not available right now"))
-        (is (= 3 (count (hx/select partial #(hx/has-class? % "text-4xl")))))))))
+        (is (str/includes? (hx/words partial) "The medication could not be loaded"))
+        (is (str/includes? (hx/words partial) "Ana García"))
+        (is (str/includes? (hx/words partial) "Allergies"))
+        (is (str/includes? (hx/words partial) "Appointments"))
+        (is (not (str/includes? (hx/words partial) "None.")) "a medication that could not be loaded is not 'None.'")))))
+
+(deftest the-pieces-are-the-ones-the-workspace-serves
+  (let [doc (workspace/states context)
+        text (words-of-main doc)]
+    (doseq [served [(hx/words (start/crashed-card {:handlers {:reload (fn [])}}))
+                    (hx/words (start/not-allowed-card {}))
+                    (hx/words (patient-page/no-readings))
+                    (hx/words (jobs-page/forbidden {}))
+                    (hx/words (panel-page/no-match {}))]]
+      (is (str/includes? text served) served))))
+
+(deftest the-buttons-of-the-states-do-nothing-by-themselves
+  (let [html (hx/html (workspace/states context))]
+    (is (not (re-find #"on-click|onclick|fn@|\$fn" html)) "a function of the workspace is not written into a file")))
 
 ;; ---------------------------------------------------------------------------
 ;; The sidebar of every page

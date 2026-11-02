@@ -15,7 +15,8 @@
             [pulse.spa.route :as route]
             [pulse.spa.settings :as settings]
             [pulse.spa.subs :as subs]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            [reagent.core :as reagent]))
 
 (defn- reload [] (.reload js/location))
 
@@ -155,7 +156,8 @@
   (let [status @(rf/subscribe [::subs/status])
         person @(rf/subscribe [::subs/person])
         me @(rf/subscribe [::subs/me])
-        here @(rf/subscribe [::subs/route])]
+        here @(rf/subscribe [::subs/route])
+        slow? @(rf/subscribe [::subs/slow-start?])]
     (hiccup/->reagent
      (case status
        :signed-in (workspace person me here)
@@ -163,4 +165,49 @@
        :unauthorized (start/unauthorized {:links {:sign-in "/"}})
        :signed-out (start/signed-out {:links {:sign-in "/"}})
        :failed (start/failed {:retry reload})
-       (start/starting)))))
+       (start/starting {:slow? slow? :handlers {:retry reload}})))))
+
+;; ---------------------------------------------------------------------------
+;; When a page cannot be drawn
+
+(defn- go-to-the-panel
+  "Loads the panel afresh. It is not a link of the router, which would keep the workspace that failed."
+  []
+  (set! (.-href js/location) "/"))
+
+(defn crashed
+  "What the person is shown when drawing a page threw: they are told so, with the ways out (see `pulse.spa.pages.start/crashed`)."
+  []
+  (hiccup/->reagent (start/crashed {:handlers {:reload reload :panel go-to-the-panel :sign-out sign-out}})))
+
+(defn crash-state
+  "The state React keeps for a boundary after `error` was thrown while drawing what is under it. The key is a string, which the
+  compiler does not rename."
+  [_error]
+  (js-obj "crashed" true))
+
+(defn crashed?
+  "Whether the state React keeps for a boundary (nil before it has any) says that what is under it threw."
+  [^js state]
+  (boolean (and state (aget state "crashed"))))
+
+(defn- log-crash [_this error ^js info]
+  (js/console.error "The workspace could not draw a page:" error (when info (.-componentStack info))))
+
+(def boundary
+  "A component that draws what is under it, and, if drawing it throws, the page `crashed` instead: React unmounts everything under an
+  error that nothing catches, which leaves a white page. Only an error in drawing is caught here (those of events and of the effects are
+  the machines'), and the cause goes to the console."
+  (reagent/create-class
+   {:display-name "Boundary"
+    :get-derived-state-from-error crash-state
+    :component-did-catch log-crash
+    :reagent-render (fn [child]
+                      (if (crashed? (.-state ^js (reagent/current-component)))
+                        [crashed]
+                        child))}))
+
+(defn app
+  "The workspace, with a boundary around it."
+  []
+  [boundary [root]])

@@ -4,8 +4,10 @@
   page gives a screen reader. Node has no page, so a stand-in for the document is put where the effect looks for it, and taken away after;
   the history itself (`reitit.frontend.easy`) is held to the browser, where the acceptance walks it."
   (:require [clojure.test :refer [deftest is testing]]
+            [pulse.spa.route :as route]
             [pulse.spa.router :as router]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar])
+  (:import [goog Uri]))
 
 (defn- arrived!
   "Does what the effect `::router/arrived` does for `value`."
@@ -100,3 +102,53 @@
   (testing "the effects the events name exist"
     (doseq [effect [::router/start ::router/replace ::router/arrived ::router/focus]]
       (is (some? (registrar/get-handler :fx effect)) (str effect)))))
+
+;; ---------------------------------------------------------------------------
+;; Which clicks are the router's
+
+(defn- a-link
+  "A stand-in for an anchor that has `href`."
+  [href]
+  #js {:getAttribute (fn [attribute] (when (= "href" attribute) href))
+       :hasAttribute (fn [_] false)
+       :isContentEditable false})
+
+(def ^:private plain-click #js {:altKey false :ctrlKey false :metaKey false :shiftKey false :button 0})
+
+(defn- on-the-page-of-the-workspace
+  "Calls `f` with the page at `http://localhost:3000/`, which the rule of reitit compares the domain of a link with."
+  [f]
+  (let [before (aget js/globalThis "location")]
+    (aset js/globalThis "location" #js {:toString (fn [] "http://localhost:3000/")})
+    (try
+      (f)
+      (finally
+        (aset js/globalThis "location" before)))))
+
+(defn- router-takes?
+  "Whether the router takes the click on a link to `href`, which the browser would resolve against the page to `resolved`."
+  [href resolved]
+  (on-the-page-of-the-workspace
+   #(boolean (router/ignore-anchor-click? route/router plain-click (a-link href) (.parse Uri resolved)))))
+
+(deftest a-link-to-a-place-in-the-page-is-the-browsers-and-not-the-routers
+  (testing "what it takes for one"
+    (is (true? (router/in-page-link? (a-link "#main"))))
+    (is (true? (router/in-page-link? (a-link "#"))))
+    (is (false? (router/in-page-link? (a-link "/alerts"))))
+    (is (false? (router/in-page-link? (a-link "/#main"))) "an address of a page, with a place in it, is the page's")
+    (is (false? (router/in-page-link? (a-link "https://example.com/#main"))))
+    (is (false? (router/in-page-link? (a-link nil))) "an anchor with no address"))
+  (testing "so the link that skips to the content is not taken, though the browser resolves it to the address of the panel"
+    (is (false? (router-takes? "#main" "http://localhost:3000/#main"))
+        "taken, it would push /#main and prevent the scroll and the place the keyboard goes on from: the link would do nothing")
+    (is (false? (router-takes? "#main" "http://localhost:3000/patients/pt-ana#main")))))
+
+(deftest a-link-to-another-page-of-the-workspace-is-still-the-routers
+  (is (true? (router-takes? "/alerts" "http://localhost:3000/alerts")))
+  (is (true? (router-takes? "/patients/pt-ana?days=30" "http://localhost:3000/patients/pt-ana?days=30")))
+  (is (true? (router-takes? "/" "http://localhost:3000/"))))
+
+(deftest a-link-that-is-not-a-page-of-the-workspace-is-not-the-routers
+  (is (false? (router-takes? "/nothing-here" "http://localhost:3000/nothing-here")) "the page of nothing is loaded from the server, which answers it")
+  (is (false? (router-takes? "https://example.com/alerts" "https://example.com/alerts"))))

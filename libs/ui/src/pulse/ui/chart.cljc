@@ -208,7 +208,8 @@
   (let [xs (->> series (mapcat #(map first (:points %))) distinct sort)
         lookup (for [s series] (into {} (:points s)))]
     [:details {:class "mt-3 text-sm"}
-     [:summary {:class "cursor-pointer text-primary"} (or table-label "View the numbers as a table")]
+     ;; a target of 24 px at least (WCAG 2.5.8), though a line of this type is 20
+     [:summary {:class "min-h-6 cursor-pointer py-0.5 text-primary"} (or table-label "View the numbers as a table")]
      [:div {:class "mt-2 max-h-64 overflow-auto rounded-box border border-base-300" :role "region"
             :aria-label (or table-label "The numbers of the chart") :tabindex "0"}
       [:table {:class "table table-sm"}
@@ -318,8 +319,9 @@
       ;; the words of the bands and the thresholds, in the right margin
       (for [{:keys [y text] word-class :class} placed]
         [:text {:x (fmt (+ plot-r 8)) :y (fmt y) :dy "0.32em" :text-anchor "start" :class word-class} text])]
-     (into [:figcaption {:class "mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm"}]
-           (map-indexed legend-item series))
+     ;; the legend is a list in the caption: a `li` is the child of a list, and not of a caption
+     [:figcaption {:class "mt-2 text-sm"}
+      (into [:ul {:class "flex flex-wrap gap-x-5 gap-y-1"}] (map-indexed legend-item series))]
      (data-table spec)]))
 
 ;; ---------------------------------------------------------------------------

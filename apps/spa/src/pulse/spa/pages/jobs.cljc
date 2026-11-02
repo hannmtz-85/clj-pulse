@@ -77,7 +77,9 @@
              (c/list-group {:aria-label "Jobs of the scheduler"} (map job-row rows))
              (c/empty-state {:icon :timer :title "No jobs"} "The scheduler has no jobs.")))))
 
-(defn- forbidden [links]
+(defn forbidden
+  "What the page of the jobs says to a person the api does not let see them: the jobs are the administrator's."
+  [links]
   (c/card (c/empty-state {:icon :lock
                           :title "You cannot see the jobs"
                           :actions (when-let [panel (:panel links)]

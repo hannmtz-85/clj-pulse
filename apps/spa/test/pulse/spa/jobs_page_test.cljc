@@ -227,5 +227,5 @@
         current (first (hx/select nav #(= "page" (:aria-current (hx/attributes %)))))]
     (is (empty? (hx/by-tag tree :input)) "a box that searched nothing here would be a control with nothing to do")
     (is (= "Jobs" (words current)))
-    (is (= ["Panel" "Alerts2" "Appointments" "Jobs"] (map words (hx/by-tag nav :a))))
+    (is (= ["Panel" "Alerts 2" "Appointments" "Jobs"] (map words (hx/by-tag nav :a))))
     (is (says? nav "Administration") "the group that is the administrator's")))

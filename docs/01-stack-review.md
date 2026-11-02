@@ -84,7 +84,7 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | Components | none | hiccup 2.0.0 and `libs/ui` (`.cljc`) | Add | One set of presentational functions for the server (Hiccup 2) and the SPA (Reagent) |
 | Login theme tests | none | FreeMarker 2.3.32 (the `:test` alias only) | Add | The version Keycloak 26.0.0 ships: the tests fill in the templates of the login theme with the real engine, configured as Keycloak configures it, and read the pages back as HTML ([ADR-0026](adr/0026-design-system-as-data-tokens-theme-components-and-contrast-by-test.md)) |
 | Charts | none | Chart.js 4.5.1 (SPA) and server-side SVG (web) | Add | |
-| Dev utilities | none | re-frame-10x 1.12.3, day8.re-frame/test 0.1.7, portal 0.68.1 | Add | |
+| Dev utilities | none | re-frame-10x 1.12.3, day8.re-frame/test 0.1.7, portal 0.68.1, axe-core 4.14.0 (npm, MPL-2.0, only in `apps/spa` for the journey: it is not bundled in the release) | Add | The journey of the workspace runs axe-core in a real browser on every page and state, as a second opinion that is not our own rules |
 
 ### 3.4 Infrastructure
 

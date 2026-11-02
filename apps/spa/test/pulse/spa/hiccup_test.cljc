@@ -55,7 +55,7 @@
                       :series [{:label "Systolic" :unit "mmHg" :points [[1 120] [2 126] [3 131] [4 160]]}]})
    (layout/workspace-shell {:current :panel
                             :nav [{:items [{:id :panel :href "/" :label "Panel" :icon :layout-dashboard}
-                                           {:id :alerts :href "/alerts" :label "Alerts" :icon :bell :count 2 :count-label "2 active"}]}]
+                                           {:id :alerts :href "/alerts" :label "Alerts" :icon :bell :count 2 :count-label "active"}]}]
                             :search {:id "search" :name "q" :label "Search patients"}
                             :user {:name "Elena Rivera" :items []}}
                            [:h1 "Panel"]

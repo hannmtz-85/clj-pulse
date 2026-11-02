@@ -21,7 +21,7 @@
 (defn- mount []
   (when-not @root-ref
     (reset! root-ref (rdc/create-root (js/document.getElementById "app"))))
-  (rdc/render @root-ref [views/root]))
+  (rdc/render @root-ref [views/app]))
 
 (defn ^:dev/after-load reload
   "Shows the code that was just compiled, with the state it had."

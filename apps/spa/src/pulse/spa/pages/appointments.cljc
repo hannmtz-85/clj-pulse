@@ -25,7 +25,9 @@
 ;; ---------------------------------------------------------------------------
 ;; What the person is told besides the list
 
-(defn- list-notice [{:keys [id]} handlers]
+(defn list-notice
+  "What the list says besides its rows: that it could not be updated, or that the names of the patients could not be loaded (`:id` of the notice)."
+  [{:keys [id]} handlers]
   (case id
     :check-failed (parts/not-loaded "We could not update the list" "What you see may be out of date." handlers)
     :names-failed (parts/not-loaded "The names of the patients could not be loaded" "The appointments are up to date." handlers)))

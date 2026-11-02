@@ -85,7 +85,7 @@
 
 (def ^:private workspace-nav
   [{:items [{:id :panel :href "/panel" :label "Panel" :icon :layout-dashboard}
-            {:id :alerts :href "/alerts" :label "Alerts" :icon :bell :count 2 :count-label "2 active"}]}
+            {:id :alerts :href "/alerts" :label "Alerts" :icon :bell :count 2 :count-label "active"}]}
    {:heading "Administration" :items [{:id :jobs :href "/jobs" :label "Jobs" :icon :server}]}])
 
 (def ^:private workspace
@@ -111,12 +111,12 @@
 (deftest the-sidebar-has-its-links-in-groups-and-says-where-it-is
   (let [nav (nav-named workspace "Workspace")
         links (hx/by-tag nav :a)]
-    (is (= ["Panel" "Alerts2" "Jobs"] (map hx/words (hx/by-tag nav :li))) "the count is in the item")
+    (is (= ["Panel" "Alerts 2" "Jobs"] (map hx/words (hx/by-tag nav :li))) "the count is in the item, a word after the label as the screen has them")
     (is (= ["/panel" "/alerts" "/jobs"] (map #(:href (hx/attributes %)) links)))
     (is (= [nil "page" nil] (map #(:aria-current (hx/attributes %)) links)))
     (is (= [false true false] (map #(hx/has-class? % "bg-accent") links)))
     (is (= ["Panel" "Alerts" "Jobs"] (map #(:title (hx/attributes %)) links)) "on a rail the label is a tooltip")
-    (is (= ["Panel" "Alerts, 2 active" "Jobs"] (map #(:aria-label (hx/attributes %)) links))
+    (is (= ["Panel" "Alerts 2 active" "Jobs"] (map #(:aria-label (hx/attributes %)) links))
         "and what a screen reader says, with the count")
     (is (= ["Administration"] (map hx/words (hx/select nav #(= :p (hx/tag %)))))
         "a heading only for the group that has one")
@@ -272,3 +272,18 @@
   (testing "it says nothing about a demonstration of its own: the note is the page's to give"
     (is (not (str/includes? (hx/words (layout/login-shell {:title "T"} "x")) "synthetic"))))
   (is (= [] (a11y/problems (layout/document {:title "Sign in"} (layout/login-shell {:title "Sign in"} [:p "x"])) {:page? true}))))
+
+(deftest the-name-of-an-item-with-a-count-has-what-the-screen-shows-in-it
+  (let [item (fn [item] (first (hx/by-tag (nav-named (layout/workspace-shell {:nav [{:items [(merge {:id :alerts :href "/alerts" :label "Alerts" :icon :bell} item)]}]
+                                                                              :user {:name "Ana García" :items []}}
+                                                                             [:h1 "x"])
+                                                     "Workspace")
+                                          :a)))]
+    (testing "the label, the count and what the count counts, as the screen has the first two (WCAG 2.5.3: the name contains the text)"
+      (is (= "Alerts 2 active" (:aria-label (hx/attributes (item {:count 2 :count-label "active"}))))))
+    (testing "a count that could not be read is a question mark, and says so"
+      (is (= "Alerts ? could not be read" (:aria-label (hx/attributes (item {:count "?" :count-label "could not be read"}))))))
+    (testing "with no count the name is the label"
+      (is (= "Alerts" (:aria-label (hx/attributes (item {}))))))
+    (testing "and a count with nothing said of it is not read out at all"
+      (is (= "Alerts" (:aria-label (hx/attributes (item {:count 2}))))))))

@@ -37,9 +37,11 @@
 ;; The frames of the interfaces
 
 (defn- nav-count-label
-  "What a screen reader says for a navigation item that has a count: `Alerts, 3 active`."
-  [label count-label]
-  (if count-label (str label ", " count-label) label))
+  "What a screen reader says for a navigation item that has a count: `Alerts 3 active`, which is what the screen shows (the label and the
+  count) and then what the count counts. The name of a link must contain the text it shows (WCAG 2.5.3), so that a person who speaks to
+  their computer can say what they see."
+  [label count count-label]
+  (if (and (some? count) count-label) (str label " " count " " count-label) label))
 
 (defn portal-shell
   "The frame of the patient portal: a bar at the top with the navigation, from a medium screen on, and the same
@@ -97,7 +99,7 @@
                      [:li
                       [:a (cond-> {:href href
                                    :title text
-                                   :aria-label (nav-count-label text count-label)
+                                   :aria-label (nav-count-label text count count-label)
                                    :class (attrs/classes "relative flex min-h-10 items-center justify-center gap-3 rounded-field px-2 font-medium lg:justify-start lg:px-3"
                                                          (if (= id current)
                                                            "bg-accent text-accent-content"
@@ -105,6 +107,8 @@
                             (= id current) (assoc :aria-current "page"))
                        (i/icon icon {:size :md})
                        [:span {:class "hidden lg:inline"} text]
+                       ;; a space between the label and the count, as the screen has them: they are read as two words, and not as one
+                       (when count " ")
                        (when count
                          [:span {:class "ml-auto hidden rounded-full bg-tone-critical-soft px-2 text-xs font-semibold text-tone-critical-ink tabular-nums lg:inline"}
                           (str count)])

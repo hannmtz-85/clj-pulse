@@ -53,3 +53,14 @@ textarea::placeholder {
     scroll-behavior: auto !important;
   }
 }
+
+/* In forced colours (Windows high contrast) the backgrounds are dropped, and what tells the page or the filter that is current from the
+   others, a background, is gone with them. A line under it and a weight say it with no colour at all. */
+@media (forced-colors: active) {
+  [aria-current="page"] {
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+  }
+}

@@ -3,18 +3,20 @@
   and what the administrator sees besides. The practitioner is Dr. Elena Rivera, whose panel has Ana (a very high blood
   pressure), Sofía (a low oxygen saturation), Liam and Omar; the administrator is Sam Admin. Each page is a function
   from the context of the build to the document of its frame."
-  (:require [pulse.design.data :as data]
+  (:require [clojure.walk :as walk]
+            [pulse.design.data :as data]
             [pulse.design.mockup :as mockup]
-            [pulse.design.specimen :as specimen]
             [pulse.design.views :as views]
             [pulse.spa.appointment-command :as command]
             [pulse.spa.appointments :as appointments]
             [pulse.spa.inbox :as inbox]
+            [pulse.spa.jobs :as jobs]
             [pulse.spa.pages.alerts :as alerts-page]
             [pulse.spa.pages.appointments :as appointments-page]
             [pulse.spa.pages.jobs :as jobs-page]
             [pulse.spa.pages.panel :as panel-page]
             [pulse.spa.pages.patient :as patient-page]
+            [pulse.spa.pages.start :as start]
             [pulse.spa.panel :as panel]
             [pulse.spa.patient :as patient]
             [pulse.ui.component :as c]
@@ -55,7 +57,7 @@
   [admin? active-alerts]
   (cond-> [{:items [{:id :panel :href (link "workspace-panel.html") :label "Panel" :icon :layout-dashboard}
                     {:id :alerts :href (link "workspace-alerts.html") :label "Alerts" :icon :bell
-                     :count (when (pos? active-alerts) active-alerts) :count-label (str active-alerts " active")}
+                     :count (when (pos? active-alerts) active-alerts) :count-label "active"}
                     {:id :appointments :href (link "workspace-appointments.html") :label "Appointments" :icon :calendar}]}]
     admin? (conj {:heading "Administration"
                   :items [{:id :jobs :href (link "workspace-jobs.html") :label "Jobs" :icon :server}]})))
@@ -297,50 +299,122 @@
   (page {:title "Jobs" :current :jobs :admin? true :search? false}
         (jobs-page/content (jobs-state) {:links {:panel (link "workspace-panel.html")}})))
 
-(defn- vitals-grid [patient-id]
-  (let [vitals (data/vitals patient-id)]
-    (into [:div {:class "grid gap-4 md:grid-cols-3"}]
-          (for [kind data/kinds :let [reading (get vitals kind)] :when reading]
-            (specimen/vital-tile kind reading)))))
-
 ;; ---------------------------------------------------------------------------
 ;; What goes wrong
 
+(defn- as-mockup
+  "A piece of a page of the workspace, made ready to stand in a page of the mock-ups. The pages put the heading of a state at the top of
+  the page (an `h1`, since a state that is the whole page has nothing else to say), and here each piece is one of many on a page that has
+  its own `h1`, so it is an `h3`; and what the workspace gives a button to do (a function) is nothing in a file, where every button of a
+  mock-up does nothing by itself."
+  [piece]
+  (walk/postwalk (fn [node]
+                   (cond
+                     (= :h1 node) :h3
+                     (and (map? node) (some fn? (vals node))) (into {} (remove (comp fn? val)) node)
+                     :else node))
+                 piece))
+
+(defn- specimen
+  "A piece of the workspace in a state, with what the state is called above it."
+  [caption piece]
+  [:div {:class "min-w-0 space-y-2" :data-specimen "true"}
+   [:p {:class "text-sm font-medium text-muted"} caption]
+   (as-mockup piece)])
+
+(defn- group
+  "A group of pieces of the page of the states: a heading and the pieces in a grid."
+  [id title description & specimens]
+  [:section {:aria-labelledby id}
+   [:div {:class "mb-3"}
+    (section-heading id title)
+    [:p {:class "text-muted"} description]]
+   (into [:div {:class "grid items-start gap-4 xl:grid-cols-2"}] specimens)])
+
+(def ^:private states-links
+  "Where the buttons of the pieces lead: the panel, the inbox, the patient portal and the sign-in, which have a mock-up each."
+  {:panel (link "workspace-panel.html")
+   :alerts (link "workspace-alerts.html")
+   :portal (link "portal-home.html")
+   :sign-in (link "login.html")
+   :filter (constantly "#")})
+
+(defn- the-chart-with-a-section-lost
+  "The chart of Ana García as the workspace serves it when the api could not give her medication: the section is named, and the others are
+  there."
+  []
+  (let [lost (-> (patient-state "pt-ana")
+                 (update-in [:summary :data] (fn [summary] (-> summary (assoc :medications nil) (update :unavailable (fnil conj []) "medications")))))]
+    (patient-page/content lost {:admin? false :links (chart-links)})))
+
 (defn states
-  "What the workspace says when there is nothing to show or something is wrong: an empty panel and inbox, a page that is
-  loading, a chart that could not be opened, and a section of a chart that is not available."
+  "What the workspace says when there is nothing to show or something is wrong, as the workspace says it: before it is open, for a page
+  that is not there or not the person's, with nothing in a list, while a page loads, and when some of it could not be loaded. Every piece
+  is the one the workspace serves (`pulse.spa.pages.*`), in the state it is named for, and none is written for this page; the buttons do
+  nothing here, as in every mock-up. The pages of Keycloak have their own mock-up."
   [_context]
-  (page {:title "Empty states and errors" :current :panel}
-        [:div {:class "space-y-6"}
-         (c/page-header {:title "Empty states and errors" :description "What the workspace says when there is nothing to show, or when something is wrong."})
-         [:div {:class "grid gap-4 xl:grid-cols-2"}
-          (c/card {:title "A panel with no patients"}
-                  (c/empty-state {:icon :users :title "No patients in your panel yet"}
-                                 "Patients appear here when you are their general practitioner."))
-          (c/card {:title "An inbox with no alerts"}
-                  (c/empty-state {:icon :bell-off :title "No alerts"
-                                  :actions (c/button {:variant :outline :size :sm :href "#"} "See acknowledged alerts")}
-                                 "Nothing needs a decision right now. New alerts appear here as the rules raise them."))
-          (c/card {:title "While the panel loads"}
-                  [:div {:class "flex items-center gap-3"} (c/spinner {:label "Loading the panel"}) [:span {:class "text-muted"} "Loading the panel"]]
-                  [:div {:class "mt-5 space-y-3"}
-                   (c/skeleton {:class "h-10 w-full"}) (c/skeleton {:class "h-10 w-full"}) (c/skeleton {:class "h-10 w-3/4"})])
-          (c/card {:title "A chart that cannot be opened"}
-                  (c/empty-state {:icon :lock :title "You cannot open this chart"
-                                  :actions (c/button {:variant :outline :href (link "workspace-panel.html")} "Back to the panel")}
-                                 "This patient is not in your panel."))
-          (c/card {:title "A patient that does not exist"}
-                  (c/empty-state {:icon :search :title "There is no patient with that number"
-                                  :actions (c/button {:variant :outline :href (link "workspace-panel.html")} "Back to the panel")}
-                                 "Check the number and try again."))
-          (c/card {:title "A list that could not be loaded"}
-                  (c/alert {:tone :high :title "The alerts could not be loaded"
-                            :actions (c/button {:variant :outline :size :sm :icon :refresh-cw :href "#"} "Try again")}
-                           "Everything else is up to date. The problem is on our side."))]
-         [:section {:aria-labelledby "partial"}
-          [:div {:class "mb-3"} (section-heading "partial" "A chart with a section that is not available")]
-          [:div {:class "space-y-4"}
-           (c/alert {:tone :high :title "Medication is not available right now"
-                     :actions (c/button {:variant :outline :size :sm :icon :refresh-cw :href "#"} "Try again")}
-                    "The other sections are up to date. Nothing is hidden: an empty section would say it is empty.")
-           (vitals-grid "pt-ana")]]]))
+  (let [retry {:retry (fn [])}
+        sign-out {:sign-out (fn [])}
+        list-notice {:retry (fn [])}]
+    (page {:title "Empty states and errors" :current :panel :search? false}
+          [:div {:class "space-y-8"}
+           (c/page-header {:title "Empty states and errors"
+                           :description "What the workspace says when there is nothing to show, or when something is wrong. Each piece is the one the workspace serves."})
+
+           (group "before" "Before the workspace is open"
+                  "The person has not reached a page of the workspace yet. These are the cards of the sign-in's frame."
+                  (specimen "Waiting for the identity provider" (start/starting-card {}))
+                  (specimen "A wait that does not end" (start/starting-card {:slow? true :handlers retry}))
+                  (specimen "A sign-in that could not be made" (start/failed-card retry))
+                  (specimen "A person the workspace is not for"
+                            (start/refused-card {:links {:portal (:portal states-links)} :handlers sign-out}))
+                  (specimen "A sign-in the api did not accept" (start/unauthorized-card {:links {:sign-in (:sign-in states-links)}}))
+                  (specimen "Someone who has signed out" (start/signed-out-card {:links {:sign-in (:sign-in states-links)}}))
+                  (specimen "A page the workspace could not draw"
+                            (start/crashed-card {:handlers {:reload (fn []) :panel (fn []) :sign-out (fn [])}})))
+
+           (group "not-there" "A page that is not there, or not the person's"
+                  "Inside the workspace: the person is told, with the way back, and is not shown a page of refusals."
+                  (specimen "An address that is no page" (start/not-found-card {:links states-links}))
+                  (specimen "A page for another role" (start/not-allowed-card {:links states-links}))
+                  (specimen "A chart that cannot be opened" (patient-page/gone false states-links))
+                  (specimen "A chart that cannot be opened, for the administrator" (patient-page/gone true states-links))
+                  (specimen "The jobs, for a person who is not the administrator" (jobs-page/forbidden states-links)))
+
+           (group "nothing" "Nothing to show"
+                  "The page loaded, and there is nothing in it. It says so and says what to do."
+                  (specimen "A panel with no patients" (panel-page/no-patients false))
+                  (specimen "A panel for the administrator, with no patients" (panel-page/no-patients true))
+                  (specimen "A filter or a search that finds nobody" (panel-page/no-match states-links))
+                  (specimen "An inbox with no alerts"
+                            (alerts-page/nothing-to-decide (c/button {:variant :outline :size :sm :href "#"} "See acknowledged alerts")))
+                  (specimen "A patient with no readings" (patient-page/no-readings))
+                  (specimen "No jobs"
+                            (jobs-page/content {:now "2026-10-13T12:00:15Z" :list (loaded {:total 0 :items []})}
+                                               {:links states-links})))
+
+           (group "loading" "While a page loads"
+                  "Grey shapes where the content will be, and a line for a screen reader. Nothing is shown as empty before it is known."
+                  (specimen "The panel" (panel-page/waiting-table))
+                  (specimen "The inbox" (alerts-page/content (inbox/start data/now-text) {:show :all :admin? false :links states-links}))
+                  (specimen "The jobs" (jobs-page/content (jobs/start data/now-text) {:links states-links})))
+
+           (group "lost" "Some of it could not be loaded"
+                  "A message in the place of what is missing, with what else is up to date and a way to try again. A list that failed is never shown as an empty one."
+                  (specimen "The panel, when the list of patients failed" (panel-page/notice {:id :list-failed} false list-notice))
+                  (specimen "The panel, when some patients failed" (panel-page/notice {:id :rows-failed :count 2} false list-notice))
+                  (specimen "The panel, when some figures failed" (panel-page/notice {:id :figures-failed} false list-notice))
+                  (specimen "The inbox, when it could not look again" (alerts-page/notice {:id :check-failed} list-notice))
+                  (specimen "The inbox, when the names of the patients failed" (alerts-page/notice {:id :names-failed} list-notice))
+                  (specimen "The inbox, when the alerts have changed"
+                            (alerts-page/notice {:id :changed} {:show-changes (fn [])}))
+                  (specimen "The appointments, when the list could not be updated" (appointments-page/list-notice {:id :check-failed} list-notice))
+                  (specimen "The jobs, when the scheduler could not be asked"
+                            (jobs-page/content {:now "2026-10-13T12:00:15Z" :list {:state :failed :kind :server}}
+                                               {:links states-links :handlers list-notice})))
+
+           [:section {:aria-labelledby "partial"}
+            [:div {:class "mb-3"}
+             (section-heading "partial" "A chart with a section that is not available")
+             [:p {:class "text-muted"} "The medication could not be loaded. It is named, the other sections are there, and nothing is shown as empty."]]
+            (as-mockup (the-chart-with-a-section-lost))]])))

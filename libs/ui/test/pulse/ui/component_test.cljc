@@ -415,3 +415,18 @@
               (c/band-badge "high")
               (c/badge "x")]]
     (is (= [] (a11y/problems page)))))
+
+(deftest an-avatar-can-be-a-picture-of-the-initials-and-not-text
+  (let [a (c/avatar {:name "Ana García" :graphic? true})]
+    (is (= "" (hx/words a)) "there is no text of the page in it")
+    (is (= "AG" (:data-initials (hx/attributes a))) "the initials are drawn from an attribute")
+    (is (hx/has-class? a "before:content-[attr(data-initials)]"))
+    (is (= "true" (:aria-hidden (hx/attributes a))))
+    (is (hx/has-class? a "size-10"))
+    (is (not (contains? (hx/attributes a) :graphic?)) "the option is not an attribute of the page")
+    (is (not (contains? (hx/attributes a) :name))))
+  (testing "a person with no name has no initials to draw"
+    (is (= "" (:data-initials (hx/attributes (c/avatar {:name nil :graphic? true}))))))
+  (testing "the avatar that is not a picture keeps its text and has no attribute for it"
+    (is (nil? (:data-initials (hx/attributes (c/avatar {:name "Ana García"})))))
+    (is (not (hx/has-class? (c/avatar {:name "Ana García"}) "before:content-[attr(data-initials)]")))))

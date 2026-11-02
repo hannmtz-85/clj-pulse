@@ -382,5 +382,5 @@
         nav (first (hx/select tree #(= "Workspace" (:aria-label (hx/attributes %)))))
         current (first (hx/select nav #(= "page" (:aria-current (hx/attributes %)))))]
     (is (empty? (hx/by-tag tree :input)) "a box that searched nothing here would be a control with nothing to do")
-    (is (= "Alerts2" (words current)) "with the count that the navigation holds")
-    (is (= ["Panel" "Alerts2"] (map words (hx/by-tag nav :a))) "and no page that is not there")))
+    (is (= "Alerts 2" (words current)) "with the count that the navigation holds")
+    (is (= ["Panel" "Alerts 2"] (map words (hx/by-tag nav :a))) "and no page that is not there")))

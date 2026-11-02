@@ -16,6 +16,7 @@
             [pulse.spa.test.inbox-fixtures :as ifx]
             [pulse.spa.test.panel-fixtures :as fx]
             [pulse.spa.test.patient-fixtures :as pfx]
+            [pulse.spa.test.states :as states]
             [pulse.ui.chart :as chart]
             [pulse.ui.component :as c]
             [reagent.dom.server :as server]))
@@ -195,3 +196,16 @@
       (is (str/includes? html "&lt;script&gt;alert(1)&lt;/script&gt;"))
       (is (not (str/includes? html "<script")))
       (is (not (str/includes? html "<img src"))))))
+
+(deftest every-state-of-the-inventory-says-nothing-to-react
+  (doseq [[label example] (concat (for [[route by-state] states/examples
+                                        [state example] by-state]
+                                    [(str route " " (name state)) example])
+                                  (for [[kind example] states/outside]
+                                    [(str kind) example]))
+          :let [{:keys [html messages]} (rendered (hiccup/->reagent ((:page example))))]]
+    (testing label
+      (is (> (count html) 100) "it was rendered")
+      (is (= [] messages))
+      (is (not (str/includes? html "undefined")))
+      (is (not (str/includes? html "[object Object]"))))))

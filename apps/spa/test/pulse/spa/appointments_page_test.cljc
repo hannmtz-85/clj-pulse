@@ -477,7 +477,7 @@
         current (first (hx/select nav #(= "page" (:aria-current (hx/attributes %)))))]
     (is (empty? (hx/by-tag tree :input)) "a box that searched nothing here would be a control with nothing to do")
     (is (= "Appointments" (words current)))
-    (is (= ["Panel" "Alerts2" "Appointments"] (map words (hx/by-tag nav :a))) "the administrator's group is not the practitioner's")))
+    (is (= ["Panel" "Alerts 2" "Appointments"] (map words (hx/by-tag nav :a))) "the administrator's group is not the practitioner's")))
 
 (deftest the-administrator-has-the-jobs-in-the-sidebar-of-the-appointments-too
   (let [tree (page/page (fx/settled) {:person sam :links (assoc links :jobs "/jobs") :handlers {:sign-out (fn [])}})

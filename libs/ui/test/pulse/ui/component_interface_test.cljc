@@ -165,7 +165,11 @@
     (is (= :details (hx/tag m)))
     (is (every? (hx/classes m) ["dropdown" "dropdown-end"]))
     (is (= "Account menu of Ana García" (:aria-label (hx/attributes summary))))
-    (is (= "AG" (hx/words (first (hx/select summary #(hx/has-class? % "rounded-full"))))))
+    (let [picture (first (hx/select summary #(hx/has-class? % "rounded-full")))]
+      (is (= "AG" (:data-initials (hx/attributes picture))) "the initials are the picture of the person")
+      (is (= "" (hx/words picture)) "and not text of the page: the name of the menu is not what the screen says, and must not have to include them")
+      (is (hx/has-class? picture "before:content-[attr(data-initials)]"))
+      (is (= "true" (:aria-hidden (hx/attributes picture)))))
     (is (= "Ana García" (hx/words (first (hx/select summary #(hx/has-class? % "sm:inline"))))))
     (is (= ["Profile" "Sign out"] (map hx/words (hx/by-tag m :a))))
     (is (= ["/profile" "/logout"] (map #(:href (hx/attributes %)) (hx/by-tag m :a))))

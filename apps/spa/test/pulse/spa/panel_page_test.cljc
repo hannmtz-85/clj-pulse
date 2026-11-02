@@ -156,7 +156,9 @@
           :let [tree (content state)]]
     (is (= 3 (count (body-rows tree))))
     (is (= "Patients, loading" (words (first (hx/by-tag (table-of tree) :caption)))))
-    (is (every? #(= "" (words %)) (mapcat cells (body-rows tree))) "shapes, with no words")
+    (is (= (repeat 3 "Loading the patient") (map #(words (first (cells %))) (body-rows tree)))
+        "a row header has words, which only a screen reader reads: the shape that stands for the name is hidden from it")
+    (is (every? #(= "" (words %)) (mapcat (comp rest cells) (body-rows tree))) "the other cells are shapes, with no words")
     (is (every? #(= "true" (:aria-hidden (hx/attributes (first (hx/by-tag % :div))))) (mapcat cells (body-rows tree)))
         "that a screen reader does not read: the status above them says what is going on")
     (is (empty? (hx/select tree #(= "Filter the panel" (:aria-label (hx/attributes %))))) "and no filters of nothing")

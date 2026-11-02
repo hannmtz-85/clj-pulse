@@ -133,5 +133,7 @@
     :notes ["One job is running, and the last run of the reminders failed. The page shows the class of the error, never its message."
             "There is no button to start a job: the api only shows the status."]}
    {:file "workspace-states.html" :title "Empty states and errors" :group "Clinical workspace" :devices tablet-and-desk :frame workspace/states
-    :summary "An empty panel and inbox, a page that is loading, a chart that cannot be opened and a section that is not available."
-    :notes ["A section of a chart that could not be loaded is named, never shown empty: the api says which."]}])
+    :summary "What the workspace says before it is open, for a page that is not there, with nothing to show, while a page loads and when some of it could not be loaded."
+    :notes ["Every piece is the one the workspace serves, in the state it is named for; none is written for this page."
+            "What could not be loaded is named in its place, with what else is up to date and a way to try again, and is never shown as empty."
+            "A wait for the sign-in that does not end says so after ten seconds. A page that cannot be drawn says so, with the ways out."]}])

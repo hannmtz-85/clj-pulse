@@ -11,16 +11,34 @@
   the title of the tab and, when the person came to another page and did not just open the workspace, moves the focus to the heading
   of the page: a single-page application loses what loading a page gives a screen reader. `::focus` moves it to the element a selector
   finds, for the page that changed under the person's hands (an alert they acknowledged is gone from the list they were in)."
-  (:require [pulse.spa.route :as route]
+  (:require [clojure.string :as str]
+            [pulse.spa.route :as route]
             [re-frame.core :as rf]
-            [reitit.frontend.easy :as rfe]))
+            [reitit.frontend.easy :as rfe]
+            [reitit.frontend.history :as rfh]))
+
+(defn in-page-link?
+  "Whether the link `el` goes to a place in the page it is on (`#main`, the link that skips to the content) and not to another address."
+  [^js el]
+  (let [href (.getAttribute el "href")]
+    (and (string? href) (str/starts-with? href "#"))))
+
+(defn ignore-anchor-click?
+  "Whether the router takes the click on the link `el` as its own, so that the page is not loaded again: reitit's own rule (a link to an
+  address of the workspace is the router's), **except a link to a place in the page itself**, which is the browser's. The link that skips to
+  the content is one: the router would take `/#main` for the address of the panel, push it and prevent what the browser does, which is to
+  scroll to the place and to go on from there with the keyboard, and the link would do nothing."
+  [router ^js e ^js el uri]
+  (and (not (in-page-link? el))
+       (rfh/ignore-anchor-click? router e el uri)))
 
 (rf/reg-fx
  ::start
  (fn [_]
    (rfe/start! route/router
                (fn [match _history] (rf/dispatch [:pulse.spa.events/navigated (route/from-match match)]))
-               {:use-fragment false})))
+               {:use-fragment false
+                :ignore-anchor-click? ignore-anchor-click?})))
 
 (rf/reg-fx
  ::replace

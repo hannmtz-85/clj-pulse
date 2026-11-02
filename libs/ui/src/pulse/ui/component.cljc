@@ -238,14 +238,19 @@
   {:sm "size-8 text-xs" :md "size-10 text-sm" :lg "size-14 text-lg"})
 
 (defn avatar
-  "A circle with the initials of `:name`. It is hidden from a screen reader: the name is always beside it."
-  [{:keys [name size] :or {size :md} :as attributes}]
-  [:span (-> attributes
-             (attrs/owned :name :size)
-             (attrs/with-classes "inline-grid shrink-0 place-items-center rounded-full bg-accent font-semibold text-accent-content"
-               (pick avatar-sizes size "avatar size"))
-             (assoc :aria-hidden "true"))
-   (initials name)])
+  "A circle with the initials of `:name`. It is hidden from a screen reader: the name is always beside it. With `:graphic? true` the
+  initials are not text of the page but a picture that the style draws from `data-initials`: a control that is named by what it is for,
+  such as the menu of a person, has no text on the screen that its name must include (WCAG 2.5.3), and the initials are the picture of
+  the person and not a word they could say."
+  [{:keys [name size graphic?] :or {size :md} :as attributes}]
+  (let [circle (-> attributes
+                   (attrs/owned :name :size :graphic?)
+                   (attrs/with-classes "inline-grid shrink-0 place-items-center rounded-full bg-accent font-semibold text-accent-content"
+                     (pick avatar-sizes size "avatar size"))
+                   (assoc :aria-hidden "true"))]
+    (if graphic?
+      [:span (-> circle (assoc :data-initials (initials name)) (attrs/with-classes "before:content-[attr(data-initials)]"))]
+      [:span circle (initials name)])))
 
 ;; ---------------------------------------------------------------------------
 ;; Forms
@@ -568,7 +573,7 @@
                       (attrs/with-classes "dropdown dropdown-end"))
          [:summary {:class "flex cursor-pointer list-none items-center gap-2 rounded-field px-2 py-1.5 hover:bg-base-200"
                     :aria-label (str "Account menu of " name)}
-          (avatar {:name name :size :sm})
+          (avatar {:name name :size :sm :graphic? true})
           [:span {:class (attrs/classes "hidden text-sm font-medium sm:inline" name-class)} name]
           (i/icon :chevron-down {:size :sm})]
          (into [:ul {:class "menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-overlay"}]

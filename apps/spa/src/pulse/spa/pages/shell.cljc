@@ -16,7 +16,7 @@
   (let [item {:id :alerts :href href :label "Alerts" :icon :bell}]
     (cond
       (= :unknown active-alerts) (assoc item :count "?" :count-label "could not be read")
-      (and (number? active-alerts) (pos? active-alerts)) (assoc item :count active-alerts :count-label (str active-alerts " active"))
+      (and (number? active-alerts) (pos? active-alerts)) (assoc item :count active-alerts :count-label "active")
       :else item)))
 
 (defn nav

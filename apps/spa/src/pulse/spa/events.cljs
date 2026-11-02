@@ -18,11 +18,24 @@
             [pulse.spa.router :as router]
             [re-frame.core :as rf]))
 
+(def start-patience-ms
+  "How long the sign-in may take before the page says that it is taking longer than usual and offers to try again. The identity
+  provider answers in a second or two, and the calls of the workspace give up after six: a wait of ten is one that has stopped."
+  10000)
+
 (rf/reg-event-fx
  ::start
  (fn [_ _]
    {:db {:status :starting}
-    ::auth/init {:on-success [::signed-in] :on-failure [::sign-in-failed]}}))
+    ::auth/init {:on-success [::signed-in] :on-failure [::sign-in-failed]}
+    :dispatch-later {:ms start-patience-ms :dispatch [::start-slow]}}))
+
+(rf/reg-event-db
+ ::start-slow
+ (fn [db _]
+   ;; a person who was let in, or turned away, before the patience ran out is not waiting for anything
+   (cond-> db
+     (= :starting (:status db)) (assoc :slow-start? true))))
 
 (rf/reg-event-fx
  ::signed-in

@@ -9,6 +9,11 @@
   [db _]
   (:status db))
 
+(defn slow-start?
+  "Whether the sign-in has been asked for longer than the patience of the page and has not been answered."
+  [db _]
+  (boolean (and (= :starting (:status db)) (:slow-start? db))))
+
 (defn person
   "Who is signed in, or nil."
   [db _]
@@ -60,6 +65,8 @@
   (watch/nav-count (:watch db)))
 
 (rf/reg-sub ::status status)
+
+(rf/reg-sub ::slow-start? slow-start?)
 
 (rf/reg-sub ::person person)
 

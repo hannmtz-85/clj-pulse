@@ -23,7 +23,9 @@
 ;; ---------------------------------------------------------------------------
 ;; What the person is told besides the alerts
 
-(defn- notice [{:keys [id count]} handlers]
+(defn notice
+  "What the inbox says besides its alerts: that they have changed, that it could not look again, or that the names or the readings could not be loaded (`:id` of the notice, and the `:count` of the alerts)."
+  [{:keys [id count]} handlers]
   (case id
     :changed (c/alert {:tone :info
                        :title "The alerts have changed"
@@ -85,6 +87,12 @@
   (when (and (integer? total) (< (count items) total))
     [:p {:class "mt-3 text-sm text-muted"} (str "Showing the latest " (count items) " of " total " " noun ".")]))
 
+(defn nothing-to-decide
+  "What the inbox says when no alert needs a decision, with a button to the acknowledged ones when it has one (`see-acknowledged`)."
+  [see-acknowledged]
+  (c/card (c/empty-state {:icon :bell-off :title "No alerts" :actions see-acknowledged}
+                         "Nothing needs a decision right now. New alerts appear here as the rules raise them.")))
+
 (defn- needs-section
   "The alerts that need a decision: the cards, or what is said instead when they are on their way, could not be loaded or there are none."
   [{:keys [show active acknowledged]} {:keys [links handlers] :as options}]
@@ -99,8 +107,7 @@
        (if (seq items)
          ;; each card is keyed by its alert: when the list changes, React must not hand the button that has the focus to another alert
          (into [:div {:class "space-y-4"}] (map #(with-meta (active-card % options) {:key (:id %)})) items)
-         (c/card (c/empty-state {:icon :bell-off :title "No alerts" :actions see-acknowledged}
-                                "Nothing needs a decision right now. New alerts appear here as the rules raise them."))))
+         (nothing-to-decide see-acknowledged)))
      (cut-note active "alerts")]))
 
 (defn- done-section

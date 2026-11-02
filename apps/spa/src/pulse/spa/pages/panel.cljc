@@ -36,7 +36,8 @@
 
 (defn- patient-cell [{:keys [id name] :as row} links]
   (if (nil? name)
-    (skeleton "w-40")
+    ;; the cell of a row header must say something, though the shape that stands for the name is hidden from a screen reader
+    (list [:span {:class "sr-only"} "Loading the patient"] (skeleton "w-40"))
     (let [href (when-let [link (:patient links)] (link id))
           ;; the column does not break a name in the middle of it, but one that is longer than 20 rem gives way, so that it does not push
           ;; the other columns out of the screen
@@ -120,7 +121,7 @@
               {:key :next :label "Next visit" :class "hidden xl:table-cell"}]
     :rows (map #(table-row % now links) rows)}))
 
-(defn- waiting-table
+(defn waiting-table
   "The table while the list of patients is on its way: three rows of grey shapes, since how many there are is not known yet."
   []
   (table "Patients, loading" (repeat 3 {:state :loading}) nil nil))
@@ -135,7 +136,9 @@
   (c/alert {:tone :high :title title :actions (retry-button handlers)}
            (str (when rest-of-page? "The rest of the panel is up to date. ") "The problem is on our side, not yours.")))
 
-(defn- notice [{:keys [id count]} admin? handlers]
+(defn notice
+  "What the panel says besides its rows: the list, some patients or some figures could not be loaded (`:id` of the notice, and the `:count` of the patients)."
+  [{:keys [id count]} admin? handlers]
   (case id
     :list-failed (not-loaded (if admin? "The patients could not be loaded" "Your panel could not be loaded") handlers {:rest-of-page? false})
     :rows-failed (not-loaded (str (if (= 1 count) "1 patient" (str count " patients")) " could not be loaded") handlers nil)
@@ -143,6 +146,22 @@
 
 (defn- caption [admin? settled?]
   (str (if admin? "Patients of the clinic" "Patients of your panel") (when settled? ", the most urgent first")))
+
+(defn no-patients
+  "What the panel says when there is nobody in it: the practitioner has no patient yet, or the clinic has none."
+  [admin?]
+  (c/card (c/empty-state {:icon :users :title (if admin? "There are no patients yet" "You have no patients yet")}
+                         (if admin?
+                           "Patients appear here when they are added to the clinic's records."
+                           "Patients appear here when you are their doctor."))))
+
+(defn no-match
+  "What the panel says when the filter and the search find nobody, with the way to show them all (`:panel` in the `links`, or no button)."
+  [links]
+  (c/card (c/empty-state {:icon :search
+                          :title "No patients match"
+                          :actions (when-let [href (:panel links)] (c/button {:variant :outline :href href} "Show all patients"))}
+                         "Try another word, or another filter.")))
 
 (defn content
   "The panel as a page: `state` is the state of the panel (nil before it begins), `params` what it is narrowed to (`{:show :q}`), and
@@ -167,17 +186,9 @@
        (not= :loaded (get-in state [:list :state] :loading))
        (when-not (= :failed (get-in state [:list :state])) (waiting-table))
 
-       (= :no-patients empty-kind)
-       (c/card (c/empty-state {:icon :users :title (if admin? "There are no patients yet" "You have no patients yet")}
-                              (if admin?
-                                "Patients appear here when they are added to the clinic's records."
-                                "Patients appear here when you are their doctor.")))
+       (= :no-patients empty-kind) (no-patients admin?)
 
-       (= :no-match empty-kind)
-       (c/card (c/empty-state {:icon :search
-                               :title "No patients match"
-                               :actions (when-let [href (:panel links)] (c/button {:variant :outline :href href} "Show all patients"))}
-                              "Try another word, or another filter."))
+       (= :no-match empty-kind) (no-match links)
 
        :else (table (caption admin? settled?) rows now links))
      (when footer [:p {:class "text-sm text-muted"} footer])]))
