@@ -63,6 +63,8 @@ Everything binds to `127.0.0.1`: PostgreSQL 5432 (databases `keycloak` and `hapi
 
 `.github/workflows/ci.yml`: on push to `main` and on pull requests, Ubuntu, Temurin 21, Clojure CLI and Babashka, a Maven/gitlibs cache, then `bb fmt:check`, `bb lint`, `bb test`.
 
+**Known gap, to close in Phase 9.** CI runs only `bb fmt:check`, `bb lint` and `bb test`, while `bb check` also runs `bb realm:check`, `bb design:check` and `bb spa:test`. `bb.edn` nevertheless describes `bb check` as "everything CI runs": that is the inconsistency to fix. Closing it means adding those three checks to `.github/workflows/ci.yml` (or running `bb check` there) and the integration job that Phase 9 of [02-implementation-plan.md](../02-implementation-plan.md) lists ("CI: an optional integration job with services"). The plan names the integration job; the three missing checks are not listed there and are part of the same fix.
+
 ## Not built yet
 
 [02-implementation-plan.md](../02-implementation-plan.md) Phases 9 and 10:
@@ -76,5 +78,4 @@ The project was built on Windows 10 with PowerShell and Git Bash (CLAUDE.md "Wor
 
 ## Needs the author's confirmation
 
-- CI runs `fmt:check`, `lint` and `test` only, while `bb check` (described as "everything CI runs") also runs `realm:check`, `design:check` and `spa:test`. Which is intended?
 - Whether the CI workflow has run green on GitHub; the plan's Phase 1 says it had not run yet.

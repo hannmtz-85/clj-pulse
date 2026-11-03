@@ -54,7 +54,7 @@ flowchart LR
   WEB -- "code / refresh grant, end session" --> KC
   SCH -- "Bearer (rules-engine token)<br/>patients, series, readyz" --> API
   API -- "Bearer (api-service token)<br/>GET /jobs" --> SCH
-  SCH -- "Flag, Communication,<br/>Observation (simulated)" --> HAPI
+  SCH -- "writes Flag, Communication,<br/>Observation (simulated);<br/>reads Condition, Flag,<br/>Appointment, Practitioner" --> HAPI
   API -- FHIR REST --> HAPI
   API -. JWKS .-> KC
   WEB -. JWKS .-> KC
@@ -125,7 +125,7 @@ flowchart TB
     API[api: the policy enforcement point for clinical reads]
     SCH[scheduler: accepts only aud=pulse-scheduler]
   end
-  subgraph Data["Data plane, no auth of its own, 127.0.0.1 only"]
+  subgraph Data["Data plane: no authentication, 127.0.0.1 only"]
     HAPI[HAPI FHIR]
   end
   IDP[Keycloak: issues and signs tokens]
@@ -135,8 +135,8 @@ flowchart TB
   WEB -->|Bearer aud=pulse-api| API
   SCH -->|Bearer aud=pulse-api| API
   API -->|Bearer aud=pulse-scheduler| SCH
-  API --> HAPI
-  SCH -->|direct writes| HAPI
+  API -->|no credentials| HAPI
+  SCH -->|direct reads and writes, no credentials| HAPI
   IDP -.->|JWKS| API
   IDP -.->|JWKS| WEB
   IDP -.->|JWKS| SCH
@@ -148,7 +148,7 @@ What each boundary relies on:
 2. **Browser (spa) → api.** The page holds a user token in memory. The defence is that nothing else runs in the page: `script-src 'self'`, no inline script, no third-party script, exact npm versions; the api allows only the workspace's origin through CORS, never credentials mode ([ADR-0029](../adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md) point 1 and "Consequences"; [ADR-0018](../adr/0018-cors-and-security-headers.md)).
 3. **Any caller → api.** Signature (only asymmetric algorithms from an allow-list), issuer, audience `pulse-api`, expiry, `typ: Bearer`; then a pure `authorize` per route; a route without `:authz` stops start-up ([ADR-0009](../adr/0009-access-token-verification-with-nimbus-facade.md), [ADR-0011](../adr/0011-api-request-pipeline-and-errors.md), [ADR-0012](../adr/0012-authorization-by-scope.md)). The api would not accept its own service-account token, whose audience is `pulse-scheduler` ([ADR-0025](../adr/0025-job-status-through-the-api-its-own-service-account-and-a-role-for-it.md)).
 4. **api → scheduler.** The scheduler accepts only audience `pulse-scheduler`; a token meant for the api is a 401 there and the other way round ([ADR-0020](../adr/0020-scheduler-executor-and-http-surface.md)). The api's role `api-service` may read jobs, not start them.
-5. **Services → HAPI.** HAPI has no authentication of its own in this stack; it is bound to `127.0.0.1` ([ADR-0002](../adr/0002-fhir-r4-on-hapi.md)). The api is the policy enforcement point for reading records. The scheduler also writes to HAPI directly (alerts, reminders, simulated readings) and reads conditions, flags, appointments and practitioners there, so it is trusted with the FHIR server too.
+5. **Services → HAPI. HAPI has no authentication.** Neither `compose.yaml` nor `infra/hapi/application.yaml` configures any, and the FHIR HTTP client (`libs/fhir/src/pulse/fhir/client/http.clj`) sends no credentials: the api and the scheduler both read and write HAPI without them. The only protections are that HAPI binds to `127.0.0.1` (`compose.yaml`, port `127.0.0.1:8090:8080`) and that the api is the single policy enforcement point for clinical reads ([ADR-0002](../adr/0002-fhir-r4-on-hapi.md)). The scheduler bypasses the api for its own work: it writes alerts, reminders and simulated readings and reads conditions, flags, appointments and practitioners directly in HAPI (`:pulse.scheduler/fhir` in `apps/scheduler/resources/pulse/scheduler/config.edn`; ADR-0022, ADR-0023, ADR-0024), so it is trusted with the whole FHIR server. Anything that can reach port 8090 can read and change every record. **In a real deployment, closing this is the first thing to do**: isolate HAPI on a network only the api and the scheduler can reach, or put authentication in front of it (production hardening is X-50).
 6. **Keycloak.** Tokens last 5 minutes; the SSO session 30 minutes idle and 10 hours at most (`tools/realm.clj`). Verification is stateless: a token stays valid up to 5 minutes after sign-out (X-08).
 
 ## Request pipelines
@@ -169,8 +169,3 @@ Locally everything runs from the developer's machine ([build-and-tooling.md](bui
 - `bb spa` (development, hot reload, no CSP) or `bb spa:build` + `bb spa:serve` (the release with its policy).
 
 **Not built yet (Phase 9):** Dockerfiles per app, `docker compose --profile apps up`, nginx for the SPA, the issuer/back-channel split inside Docker (the configuration already separates `:issuer` from `:jwks-uri` and token URI, ADR-0003 and ADR-0009), and an integration job in CI ([02-implementation-plan.md](../02-implementation-plan.md) Phase 9). There is no Dockerfile and no `apps` profile in `compose.yaml` today.
-
-## Needs the author's confirmation
-
-- The plan's §3 diagram shows the scheduler talking only to the api; the code and ADR-0022/0023/0024 have it also writing to HAPI directly. The diagram above follows the code.
-- HAPI's lack of authentication is inferred from `compose.yaml`/`infra/hapi` having none configured and ADR-0002's wording; I did not find an explicit statement "HAPI is unauthenticated".

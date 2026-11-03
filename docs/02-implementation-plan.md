@@ -70,21 +70,26 @@ A patient records (or a device sends) blood pressure, glucose, SpO₂ and weight
  ┌───────────┐   ┌───────────┐   ┌─────────────┐
  │ web :3300 │   │ spa :3000 │   │ scheduler   │    login (code + PKCE) / client credentials
  │ patient   │   │ clinician │   │ :5000       │ ──────────────────────────────┐
- └─────┬─────┘   └─────┬─────┘   └──────┬──────┘                               ▼
-       │ Bearer        │ Bearer         │ Bearer                    ┌───────────────────────┐
-       │ (user)        │ (user)         │ (service)                 │ Keycloak 26.0.0 :8080 │
-       └───────────────┴───────┬────────┘                           │ realm "pulse"         │
-                               ▼                                    └───────────▲───────────┘
-                     ┌──────────────────┐     validates JWT (JWKS)              │
-                     │ api :4000        │ ──────────────────────────────────────┘
-                     │ clinical gateway │
-                     └────────┬─────────┘
-                              │ FHIR R4 (internal network)
-                              ▼
-                     ┌──────────────────┐        ┌─────────────────┐
-                     │ HAPI FHIR :8090  │ ─────► │ PostgreSQL :5432│
-                     └──────────────────┘        └─────────────────┘
+ └─────┬─────┘   └─────┬─────┘   └──┬───────┬──┘                               ▼
+       │ Bearer        │ Bearer     │ Bearer│                       ┌───────────────────────┐
+       │ (user)        │ (user)     │ (svc) │ FHIR, no token        │ Keycloak 26.0.0 :8080 │
+       └───────────────┴───────┬────┘       │                       │ realm "pulse"         │
+                               ▼            │                       └───────────▲───────────┘
+                     ┌──────────────────┐   │ validates JWT (JWKS)              │
+                     │ api :4000        │ ──┼───────────────────────────────────┘
+                     │ clinical gateway │   │
+                     └────────┬─────────┘   │
+                              │ FHIR R4     │ writes Flag, Communication,
+                              │ (internal   │ simulated Observation;
+                              │ network)    │ reads Condition, Flag,
+                              │             │ Appointment, Practitioner
+                              ▼             ▼
+                     ┌─────────────────────────┐        ┌─────────────────┐
+                     │ HAPI FHIR :8090         │ ─────► │ PostgreSQL :5432│
+                     └─────────────────────────┘        └─────────────────┘
 ```
+
+The scheduler takes two paths: it reads patients and readings through the api with its own token, and it writes alerts, simulated readings and reminders, and reads conditions, directly in HAPI ([ADR-0022](adr/0022-rules-engine-rules-as-data-alerts-raised-once.md), [ADR-0023](adr/0023-device-simulator-core-async-pipeline-to-a-fhir-transaction.md), [ADR-0024](adr/0024-appointment-reminders-a-communication-sent-once-from-what-fhir-holds.md); `:pulse.scheduler/fhir` in `apps/scheduler/resources/pulse/scheduler/config.edn`).
 
 | Service | Host port | Notes |
 |---|---|---|

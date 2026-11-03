@@ -94,3 +94,4 @@ From ADR-0017: public client `pulse-docs`, code + PKCE S256, scope `openid`, con
 - Stateless verification: a token stays valid up to 5 minutes after sign-out; no introspection, revocation list, `azp` allow-list, `jti` replay check or sender constraint (X-08).
 - No back-channel logout for the portal (X-91): a sign-out elsewhere is seen at the next renewal.
 - Keycloak 26.0.0 has known vulnerabilities; local use only (plan §8 "Risks").
+- Tokens protect the api and the scheduler, not the FHIR server: **HAPI has no authentication**, and the api and the scheduler call it without credentials. Its only protections are the `127.0.0.1` binding and the api being the single policy enforcement point (ADR-0002). In a real deployment this is the first gap to close, with network isolation or authentication in front of HAPI ([architecture.md](architecture.md#trust-boundaries), point 5).

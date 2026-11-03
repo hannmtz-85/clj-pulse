@@ -15,7 +15,7 @@ The README states about **4,180 tests** (3,014 on the JVM and 1,170 on Node) and
 | `bb test:it` | `^:integration` tests against the running stack (`bb up`) | Real Keycloak and HAPI; the portal's needs port 3300 free |
 | `bb web:journey` | `apps/web/journey.mjs`, headless Chrome/Edge over CDP, no dependencies | Needs `bb up` and `bb dev lite` |
 | `bb spa:journey` | `apps/spa/journey.mjs` via `tools/spa_journey.clj` | Builds the release, starts its own api and server on 3000/3300/4000/5000, runs eight sections, stops what it started |
-| `bb check` | `fmt:check`, `lint`, `realm:check`, `design:check`, `test`, `spa:test` | Described in `bb.edn` as "everything CI runs" |
+| `bb check` | `fmt:check`, `lint`, `realm:check`, `design:check`, `test`, `spa:test` | Described in `bb.edn` as "everything CI runs", which is not true yet (see "CI" below) |
 
 Libraries: Kaocha, `clojure.test`, test.check (properties), matcher-combinators, `day8.re-frame/test` (Node), axe-core 4.14.0 (journey only), FreeMarker 2.3.32 (`:test` alias only).
 
@@ -61,8 +61,11 @@ From the plan and CLAUDE.md:
 - A coverage threshold is set from the measured mean and spread, not a round number.
 - Mutation analysis cannot see layout: a 100-letter name pushing columns off screen was found by looking.
 
+## CI
+
+**Known gap, to close in Phase 9.** CI runs only `bb fmt:check`, `bb lint` and `bb test`, while `bb check` also runs `bb realm:check`, `bb design:check` and `bb spa:test`. `bb.edn` nevertheless describes `bb check` as "everything CI runs": that is the inconsistency to fix. Closing it means adding those three checks to `.github/workflows/ci.yml` (or running `bb check` there) and the integration job that Phase 9 of [02-implementation-plan.md](../02-implementation-plan.md) lists ("CI: an optional integration job with services"). The plan names the integration job; the three missing checks are not listed there and are part of the same fix. No browser journey runs in CI (X-110).
+
 ## Needs the author's confirmation
 
-- `bb.edn` describes `bb check` as "everything CI runs", but `.github/workflows/ci.yml` runs only `bb fmt:check`, `bb lint` and `bb test` (not `realm:check`, `design:check` or `spa:test`). The plan (Phase 1) also says the workflow had not been run because there was no remote at the time. Whether CI runs and what it should include needs the author's confirmation.
+- Whether the CI workflow has run green on GitHub; the plan (Phase 1) says it had not run yet because there was no remote at the time.
 - The test counts are the README's, not re-counted.
-- No browser journey runs in CI (X-110); integration tests in CI are Phase 9.

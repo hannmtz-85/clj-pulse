@@ -52,6 +52,12 @@ From `pulse.api.authz/rules`:
 
 For an appointment, "their panel" means the appointments the practitioner takes part in ([ADR-0015](../adr/0015-appointments-lifecycle-and-panel.md)).
 
+## Why the administrator cannot record a reading
+
+The rule follows Annex A of [02-implementation-plan.md](../02-implementation-plan.md), whose row "Record an observation" says **No** for `clinic-admin`. The code transcribes it: the action `:observation/record` in `pulse.api.authz/rules` (`apps/api/src/pulse/api/authz.clj`) lists `:patient :own`, `:practitioner :panel` and `:rules-engine :all`, and no `clinic-admin`. The repository records no reason beyond the matrix itself.
+
+*Design rationale inferred from Annex A:* the administrator is an operational and oversight role ("sees every patient and operational status", in the realm): they can read every record but do not produce clinical data. Readings come from the patient, about themselves (`:own`), or from the practitioner, for the patients on their panel (`:panel`). [ADR-0014](../adr/0014-recording-and-reading-observations.md) fits this: the performer of a reading is the caller's own FHIR resource, and the administrator's account has none (no `fhirUser`).
+
 ## The service accounts
 
 - **The scheduler** (`pulse-scheduler`, role `rules-engine`) lists patients by identifier and reads their readings through the api, to run the alert rules. It writes alerts, reminders and simulated readings straight into the FHIR server, not through the api ([ADR-0022](../adr/0022-rules-engine-rules-as-data-alerts-raised-once.md), [ADR-0023](../adr/0023-device-simulator-core-async-pipeline-to-a-fhir-transaction.md), [ADR-0024](../adr/0024-appointment-reminders-a-communication-sent-once-from-what-fhir-holds.md)).
@@ -77,6 +83,5 @@ From [ADR-0012](../adr/0012-authorization-by-scope.md):
 
 ## Needs the author's confirmation
 
-- Annex A of the plan says the rules engine may record observations "(simulator, `dev` only)". The api grants `rules-engine` the `:observation/record` action with scope `:all`, but the simulator writes to FHIR directly and not through the api ([ADR-0023](../adr/0023-device-simulator-core-async-pipeline-to-a-fhir-transaction.md)). I found no caller that uses that permission; whether it should stay is the author's call.
-- `pulse.api.authz/rules` has an `:alert/write` action for `rules-engine`, but no api route uses it (the engine writes alerts to FHIR itself). It looks like a leftover of Annex A ("Creates and updates `Flag`").
-- The administrator has no permission to record a reading (`:observation/record` lists no `clinic-admin`). That matches Annex A ("No"), but it is worth being ready to explain.
+- Annex A of the plan says the rules engine may record observations "(simulator, `dev` only)". The api grants `rules-engine` the `:observation/record` action with scope `:all`, but the simulator writes to FHIR directly and not through the api ([ADR-0023](../adr/0023-device-simulator-core-async-pipeline-to-a-fhir-transaction.md)), and no caller uses that permission. **Decision: left as it is; it is a leftover of Annex A.**
+- `pulse.api.authz/rules` has an `:alert/write` action for `rules-engine`, but no api route uses it (the engine writes alerts to FHIR itself). **Decision: left as it is; it is a leftover of Annex A** ("Creates and updates `Flag`").
