@@ -60,6 +60,7 @@ Clojure 1.12 · Ring, Reitit, malli, Integrant · Hiccup + htmx · ClojureScript
 
 ## Documentation
 
+- [Documentation index](docs/index.md): a functional description of each app for a non-technical reader, and the technical documentation (architecture, identity, FHIR model, each app, design system, testing, tooling and the decisions).
 - [Architecture decision records](docs/adr/): why each important choice was made.
 - [Stack review](docs/01-stack-review.md): what was kept, upgraded, replaced and why.
 - [Implementation plan](docs/02-implementation-plan.md): concept, architecture and phases 0-10.
