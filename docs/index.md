@@ -1,6 +1,6 @@
 # Pulse documentation
 
-Remote patient monitoring and appointment coordination on FHIR R4, with Keycloak single sign-on. All data is synthetic; this is not a medical device. **Phases 0 to 8 are done; Phase 9 (packaging, integration and end-to-end tests) and Phase 10 (polish and publication) are not built yet** ([02-implementation-plan.md](02-implementation-plan.md)).
+Remote patient monitoring and appointment coordination on FHIR R4, with Keycloak single sign-on. All data is synthetic; this is not a medical device. **Phases 0 to 9 are done; Phase 10 (polish and publication) is not built yet** ([02-implementation-plan.md](02-implementation-plan.md)).
 
 ## Functional (for a non-technical reader)
 

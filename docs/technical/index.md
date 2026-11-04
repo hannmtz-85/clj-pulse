@@ -13,7 +13,7 @@
 | [spa.md](spa.md) | The clinical workspace: re-frame layers, the `:http` effect, routing, the page machines, the release and its policy |
 | [design-system.md](design-system.md) | Tokens, contrast by test, shared components, `libs/view`, generated mock-ups, the Keycloak theme |
 | [testing-strategy.md](testing-strategy.md) | Runners, fakes and contract tests, properties, accessibility, browser journeys, mutation analysis |
-| [build-and-tooling.md](build-and-tooling.md) | Monorepo layout, Babashka tasks, configuration, local stack, CI, what Phase 9 will add |
+| [build-and-tooling.md](build-and-tooling.md) | Monorepo layout, Babashka tasks, configuration, local stack, the images and the compose profile `apps`, CI |
 | [decisions.md](decisions.md) | Context, choice, alternatives and consequences of each ADR, and the gotchas |
 
-**State:** Phases 0 to 8 are built. Phase 9 (Dockerfiles, `docker compose --profile apps up`, integration tests in CI) and Phase 10 (publication) are not ([../02-implementation-plan.md](../02-implementation-plan.md)).
+**State:** Phases 0 to 9 are built (Phase 9: the images, the compose profile `apps`, `bb smoke` and the integration workflow). Phase 10 (publication) is not ([../02-implementation-plan.md](../02-implementation-plan.md)).

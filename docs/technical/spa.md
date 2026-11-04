@@ -15,6 +15,7 @@ shadow-cljs 3.5.7 (`:deps true`, pinned in `deps.edn` and `package.json`), Reage
 | Pages (`.cljc`, pure hiccup) | `pages/shell`, `start`, `panel`, `patient`, `alerts`, `appointments`, `jobs`, `parts` | Called by the views **and** by `design` to build the mock-ups |
 | Adapter | `hiccup/->reagent` | The only place that knows `libs/ui` was written for a server: `:key` by position on every child sequence, React's attribute spellings (`:tabindex` → `:tab-index`) |
 | Release server (JVM) | `config`, `system`, `main`, `handler`, `files`, `security` | `bb spa:serve` |
+| nginx configuration (JVM, a generator) | `nginx` | `bb spa:nginx` writes `infra/spa/nginx.conf` from `security` and `files`; the container serves the release with it ([ADR-0030](../adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)) |
 
 Rules that hold everywhere: **the token never enters the `db`**; **a view never dispatches while it renders** (loading is the route's `:start`); **no optimistic updates** (a command is sent, the api answers, the part is read again); **a control with nothing to lead to is not drawn**; **a part that failed is a message, never an empty list**.
 
@@ -59,6 +60,7 @@ Every id a page writes is made by `command/dom-id` (a dot becomes an underscore)
 - `pulse.spa.files`: GET/HEAD only; plain segments after percent-decoding; known types; a name with an extension is that file or a 404; anything else is `index.html`; hashed names are `immutable` for a year, the rest `no-cache` with 304.
 - `pulse.spa.security/policy`: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' <api> <Keycloak>; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `Referrer-Policy: same-origin`, HSTS for https. The origins come from `API_BASE_URL` and `KEYCLOAK_ISSUER` and must match the build's `goog-define`s (`pulse.spa.settings`), which a test holds to the server's and the realm's.
 - The dev server (`bb spa`) has **no** CSP (its client needs `eval` and a WebSocket); the policy is checked on the release.
+- In the container (`bb apps`, Phase 9) the release is served by `nginx-unprivileged`, whose configuration `pulse.spa.nginx` makes from the same data: the headers and the policy once at the level of the server, the kinds of file and their charsets, the rules that decide what a path is (regular expressions in the order nginx tries them), the hashed script kept for a year and the rest asked about, and the problems of a 404 and a 405. The Ring server and nginx answer one table of 45 requests alike; where they cannot is written in the generated file (nginx resolves `.` and `..` itself, a bad percent-encoding is a 400, and a problem has no `instance`). The page and the policy are for the addresses the realm registers, so other addresses are another file (`bb spa:nginx --api-base-url ...`).
 
 ## Tests
 

@@ -1,4 +1,4 @@
-{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/ui/src" "libs/view/src" "apps/web/src" "apps/spa/src" "design/src"]
+{:paths ["tools" "libs/fhir/src" "libs/fhir/resources" "libs/platform/src" "libs/ui/src" "libs/view/src" "apps/web/src" "apps/spa/src" "design/src"]
  :deps {metosin/malli {:mvn/version "0.20.3"}}
  :tasks
  {:requires ([babashka.process :refer [shell]])
@@ -113,19 +113,19 @@
       :task (do (shell "docker" "compose" "up" "-d" "--wait" "--wait-timeout" "420")
                 (stack/wait-http! "HAPI FHIR" "http://localhost:8090/actuator/health" 300))}
 
-  down {:doc "Stop the stack (data is kept)"
-        :task (shell "docker" "compose" "down")}
+  down {:doc "Stop the stack and the applications, if they are up (data is kept)"
+        :task (shell "docker" "compose" "--profile" "*" "down")}
 
   reset {:doc "DESTROY the stack's data (volumes) and start again from a clean state"
          :depends [env:init]
-         :task (do (shell "docker" "compose" "down" "--volumes")
+         :task (do (shell "docker" "compose" "--profile" "*" "down" "--volumes")
                    (run 'up))}
 
-  logs {:doc "Follow the logs; optionally of one service: bb logs keycloak"
-        :task (apply shell "docker" "compose" "logs" "--follow" "--tail" "100" *command-line-args*)}
+  logs {:doc "Follow the logs; optionally of one service, an application among them: bb logs keycloak"
+        :task (apply shell "docker" "compose" "--profile" "*" "logs" "--follow" "--tail" "100" *command-line-args*)}
 
-  ps {:doc "Show the state of the stack"
-      :task (shell "docker" "compose" "ps")}
+  ps {:doc "Show the state of the stack and of the applications"
+      :task (shell "docker" "compose" "--profile" "*" "ps")}
 
   ;; --- the apps ------------------------------------------------------------
   dev {:doc "Run the api, the scheduler and the patient portal in one JVM: bb dev [dev | lite]. `lite` uses an in-memory FHIR server instead of HAPI (Keycloak is still needed: bb up). The scheduler simulates devices (SCHEDULER_SIMULATOR=false stops that) and sends the reminders of appointments (SCHEDULER_REMINDERS=false stops that)"
@@ -161,4 +161,23 @@
 
   spa:test {:doc "Run the tests of the clinical workspace on Node (shadow-cljs :node-test); a build with any warning fails"
             :requires ([spa])
-            :task (spa/test!)}}}
+            :task (spa/test!)}
+
+  ;; --- packaging (ADR-0030) -------------------------------------------------
+  spa:nginx {:doc "Write infra/spa/nginx.conf, the configuration of nginx for the release of the workspace, from the headers and the names of its Ring server: bb spa:nginx [check] [--api-base-url address] [--issuer address] [--base-url address]. `check` only compares"
+             :task (apply shell "clojure" "-M:dev" "-m" "pulse.spa.nginx" *command-line-args*)}
+
+  apps {:doc "Build the images of the four applications, one at a time, and start them with the infrastructure (the profile apps, ADR-0030): the workspace on 3000, the portal on 3300 and the api on 4000, with nothing else on those ports. The first build takes several minutes; a change in one app builds only that one"
+        :depends [env:init realm:build]
+        :task (do (doseq [service ["api" "scheduler" "web" "spa"]]
+                    (shell "docker" "compose" "--profile" "apps" "build" service))
+                  (shell "docker" "compose" "--profile" "apps" "up" "-d" "--wait" "--wait-timeout" "420"))}
+
+  smoke {:doc "Ask the four applications in their containers what only they can answer: healthy and not killed, the issuer of a token asked at the back channel, nginx against the table of requests, the scheduler at work and, in a real browser, a patient and a practitioner signing in (ADR-0030): bb smoke [--timeout-seconds N] [--no-browser]. Needs bb up, bb seed and bb apps"
+         :requires ([smoke])
+         :task (smoke/run! *command-line-args*)}
+
+  build {:doc "Make the jars of the JVM apps in target/, compiled ahead of time: bb build [api | scheduler | web ...]; all three when none is named. Each takes a few minutes. Run one with java -jar target/api.jar -m pulse.api.main"
+         :requires ([build-plan])
+         :task (doseq [app (build-plan/parse-apps *command-line-args*)]
+                 (shell "clojure" "-T:build" "uber" ":app" (str ":" app)))}}}

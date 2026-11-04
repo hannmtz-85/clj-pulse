@@ -74,4 +74,4 @@ From ADR-0024:
 
 ## Needs the author's confirmation
 
-- The rule interval for a deployment ("every five minutes") comes from ADR-0022; no deployment profile exists yet (Phase 9).
+- The rule interval for a deployment ("every five minutes") comes from ADR-0022. The containers of Phase 9 keep the development interval (every 30 seconds, with the simulator and the reminders on, because that is what the demonstration shows); `SCHEDULER_EVALUATE_EVERY_MS` and `SCHEDULER_SIMULATOR` change them. There is no production profile (X-50).

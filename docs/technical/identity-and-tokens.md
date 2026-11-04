@@ -40,7 +40,7 @@ From ADR-0009:
 - Claims: `iss` exact, `aud` must include the configured audience, `exp`/`nbf` with 30 s leeway, optional `typ` (`Bearer` keeps ID and refresh tokens out).
 - `verify` returns `{:ok claims}` or `{:error {:type ...}}` and never throws for a bad token. `errors` maps a type to a status and RFC 6750 code; `challenge` renders `WWW-Authenticate`. A bad token is 401 `invalid_token`; **no key set at all is 503**, so clients do not loop re-signing in.
 - JWKS policy: lazy TTL cache of 5 minutes, refetch on unknown `kid` (key rotation), rate limiting (window 10 s), the last good set served up to an hour when a fetch fails, HTTP timeouts of 2 s. Nimbus's default refresh-ahead thread is switched off.
-- The issuer and the JWKS URI are separate settings, because Keycloak writes `iss` from its configured hostname whatever address it is reached at (needed by the Docker profile of Phase 9).
+- The issuer and the JWKS URI are separate settings, because Keycloak writes `iss` from its configured hostname whatever address it is reached at (which the Docker profile of Phase 9 needs: inside the compose network the services ask `keycloak:8080` for keys and tokens, and the tokens still say `iss` `http://localhost:8080/realms/pulse`; `bb smoke` checks it from inside the containers).
 - Measured: about 160 µs per verification warm (p99 365 µs).
 
 Each service configures its own audience: the api `pulse-api`, the scheduler `pulse-scheduler`. The portal has two verifiers: the access token (`pulse-api`, `typ` Bearer) and the ID token (`pulse-web`, `typ` ID) (CLAUDE.md, apps/web).

@@ -165,6 +165,13 @@
 - **Rejected:** a BFF for the workspace too (the project shows four OAuth flows on purpose, and a SPA with a public client is the common case), `oidc-client-ts` or our own flow, **Chart.js** (which the plan listed), separate ClojureScript pages, a panel endpoint now (X-79), hash routing (it would share the hash with `response_mode=fragment`), optimistic updates and client caches, a date library, code splitting now (X-114).
 - **Consequence:** the token is reachable by any script in the page, so the CSP and the absence of third-party scripts are the defence; `bb check` grows by the Node tests.
 
+## Packaging
+
+### The apps as containers: compiled jars, two Dockerfiles, nginx for the workspace · [ADR-0030](../adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)
+- **Choice:** an uberjar for each JVM app made by tools.build and **compiled ahead of time** (a spike measured 33 to 43 s to the first request without it and 6 to 10 s with it); two multi-stage Dockerfiles, one for the three JVM apps (`ARG APP`) and one for the workspace, which builds its release inside the image; the workspace served by `nginx-unprivileged` with a configuration **generated from the data of the Ring server** (headers, policy, kinds of file, names) and held to it by one table of requests; the compose profile `apps` in the same file, with the services behind the Keycloak back channel (`keycloak:8080`) while the issuer stays `localhost:8080`; `bb smoke` against the running containers; `ci.yml` running `bb check` and an optional `integration.yml` that runs the stack, the journeys and the containers.
+- **Rejected:** serving the workspace with our own Ring server in a JVM image (one more JVM to serve six static files, although it has one implementation of the rules), a Dockerfile per app (the same three quarters written three times), uncompiled jars, Jib or buildpacks, one container for the three apps (it hides that the scheduler is a client of the api), a distroless runtime (no `wget` for the health checks), and a second compose file instead of a profile.
+- **Consequence:** two servers for the workspace that agree because of a generator and a table, and that differ in a few documented places; the first build of the images takes minutes; the containers write to HAPI, so the contract tests of `bb test:it` must run before them or after a reset. The risk of the phase, that a token asked at the back channel would carry the wrong issuer, did not happen.
+
 ## Smaller decisions recorded outside ADRs
 
 | Decision | Source |
@@ -261,6 +268,18 @@ From `CLAUDE.md` (the sections "Gotchas learned the hard way" of each part), the
 - An assertion on the whole text of a page is satisfied by the `sr-only` live region repeating the message.
 - A system test with a job on its real schedule can have the job fire in the middle (a week's interval for jobs run by hand).
 - Kaocha's exit code is its number of failures; a mutation is judged by it.
+
+### Docker and nginx
+- `docker compose --profile apps stop` (and `down`) act on the infrastructure as well: a service with no profile is part of every selection. Name the services to stop only the applications.
+- The containers write to HAPI (simulator, alerts, the portal's journey) and the contract tests compare HAPI with the cohort as seeded: run `bb test:it` first, or `bb reset` and `bb seed` after.
+- An `add_header` in an nginx location replaces all those of the server, so the headers are written once at the level of the server (`always`, for the errors), and `Cache-Control` and `Allow` are `map`s on `$status` (an empty value is no header).
+- A `return` with a body takes its `Content-Type` from the extension of the path asked for: the named locations of the problems have `types {}`.
+- nginx always sets the charset of `text/html`: listing it in `charset_types` is a warning of `nginx -t`.
+- nginx matches regular expressions in the order they are written, and tries `location /` last; `merge_slashes off` keeps `//` as an empty segment.
+- `clojure -T:build` has only the `:paths` of the alias on its classpath, not the project's.
+- A compiled jar holds sources and classes, and the classes win because they are newer; `compile-clj` compiles every library the main namespace loads.
+- A BusyBox `wget` exits 1 on a 503 and prints no body; a script given to `docker compose exec -T sh` by standard input has no quoting to get wrong.
+- clj-yaml is on Clojars, and reads the key `on` of a workflow as `true`.
 
 ### The workstation
 - Cheshire's pretty printer emits CRLF on Windows (the realm renderer normalizes to LF).

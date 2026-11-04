@@ -1,0 +1,96 @@
+name: Integration
+
+# What `bb check` cannot do (ADR-0030): the integration tests against the real Keycloak and HAPI, the acceptance journeys in a real
+# browser, and the four applications in their containers. It needs the whole stack, which takes several minutes to start and many more
+# to build, so it is not required to merge: by hand, once a week and when main changes.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/spa/package-lock.json
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: latest
+          bb: latest
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: deps-${{ hashFiles('**/deps.edn') }}
+          restore-keys: deps-
+
+      - name: Install the npm packages of the clinical workspace (the journey uses axe-core)
+        run: npm ci --prefix apps/spa
+
+      # PostgreSQL, Keycloak with the realm and HAPI FHIR; `bb up` makes the .env with random secrets
+      - name: Start the stack
+        run: bb up
+
+      - name: Load the demo cohort
+        run: bb seed
+
+      # The apps run in the JVM of the test itself, against the real Keycloak and HAPI. The portal's test needs the port 3300 free, and the
+      # contract tests compare HAPI with the demo cohort as it was seeded: this has to come before anything writes to HAPI, as the simulator
+      # and the journey of the containers do (the alerts, the readings and the requests for a visit they leave stay until `bb reset`)
+      - name: Integration tests
+        run: bb test:it
+
+      # Makes the release, starts the api and the server of the release itself on the ports 3000, 3300, 4000 and 5000, and stops them
+      - name: Journey of the clinical workspace
+        run: bb spa:journey
+
+      # The four applications as images, one at a time, and started with the infrastructure
+      - name: Build the images and start the applications
+        run: bb apps
+
+      - name: Smoke test of the containers
+        run: bb smoke
+
+      - name: Journey of the patient portal, against the container
+        run: bb web:journey
+
+      - name: Logs of the containers
+        if: failure()
+        run: docker compose --profile "*" logs --no-color --timestamps > containers.log
+
+      - uses: actions/upload-artifact@v7.0.2
+        if: failure()
+        with:
+          name: logs
+          path: |
+            containers.log
+            apps/spa/target/journey/*.log
+          if-no-files-found: ignore
+
+      - name: Stop
+        if: always()
+        run: bb down

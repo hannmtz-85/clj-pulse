@@ -11,7 +11,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -19,6 +19,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+
+      # Node 22 is what the project asks for (bb doctor): the tests of the clinical workspace run on it
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/spa/package-lock.json
 
       - uses: DeLaGuardo/setup-clojure@13.7.0
         with:
@@ -33,11 +40,10 @@ jobs:
           key: deps-${{ hashFiles('**/deps.edn') }}
           restore-keys: deps-
 
-      - name: Format
-        run: bb fmt:check
+      - name: Install the npm packages of the clinical workspace
+        run: npm ci --prefix apps/spa
 
-      - name: Lint
-        run: bb lint
-
-      - name: Test
-        run: bb test
+      # What the documentation says CI runs: the format, the lint, the committed realm and design files, the tests on the JVM and
+      # the tests of the clinical workspace on Node (ADR-0030)
+      - name: Check
+        run: bb check

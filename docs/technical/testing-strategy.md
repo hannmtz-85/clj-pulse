@@ -63,9 +63,18 @@ From the plan and CLAUDE.md:
 
 ## CI
 
-**Known gap, to close in Phase 9.** CI runs only `bb fmt:check`, `bb lint` and `bb test`, while `bb check` also runs `bb realm:check`, `bb design:check` and `bb spa:test`. `bb.edn` nevertheless describes `bb check` as "everything CI runs": that is the inconsistency to fix. Closing it means adding those three checks to `.github/workflows/ci.yml` (or running `bb check` there) and the integration job that Phase 9 of [02-implementation-plan.md](../02-implementation-plan.md) lists ("CI: an optional integration job with services"). The plan names the integration job; the three missing checks are not listed there and are part of the same fix. No browser journey runs in CI (X-110).
+`ci.yml` runs `bb check` on every push to `main` and every pull request: the format, the lint, the committed realm and design files, the tests on the JVM and the tests of the clinical workspace on Node. (Until Phase 9 it ran only the format, the lint and the JVM tests, which was less than `bb.edn` said `bb check` was.)
+
+`integration.yml` is not required to merge: by hand, once a week and on a push to `main`, it starts the stack, seeds it and runs `bb test:it`, `bb spa:journey`, the images and `bb smoke`, and `bb web:journey` against the portal's container (X-110). Phase 9 added these checks to the ones above ([ADR-0030](../adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)):
+
+- `docker-rules-test` reads `compose.yaml`, the Dockerfiles and `.dockerignore` as data and holds them to rules (the services of the profile are the four apps, published on `127.0.0.1` only, a user that is not root and a read-only file system, a health check and a limit of memory each, the heap inside the limit, every variable one that the app's configuration reads, secrets only from `.env`, images pinned by a tag, every `COPY` a path that exists and that `.dockerignore` lets through). Four rules were broken on purpose and ten assertions failed.
+- `pulse.spa.nginx-test`: the committed `nginx.conf` is what the generator makes, it is made of the data of the Ring server (headers, policy, kinds of file, the pattern of a name with a hash), and the regular expressions that decide what a path is give the answer the Ring server gives (a property over 600 random paths).
+- `spa-requests-test` and the table of 45 requests that both servers must answer alike: the Ring server in the unit tests, the container in `bb smoke`. Applied to the portal instead of the workspace, all 45 rows fail, which shows the check can fail.
+- `smoke-checks-test`, `build-plan-test` and `workflows-test`: the verdicts of `bb smoke`, what a jar must hold, and what can be read of the two workflows.
+- `bb smoke` (24 checks, about a minute with the jobs already run): the four containers are healthy and were not killed or restarted; the tokens that the api and the scheduler ask at `keycloak:8080` say `iss` `localhost:8080`; the api accepts the tokens of people and asks the scheduler with its own; nginx answers the table; the scheduler's three jobs have run and an alert is in the practitioner's inbox; and, in a real browser, a patient signs in at the portal and a practitioner at the workspace with no violation of the policy and nothing in the console. `bb web:journey` passes its 62 checks against the container.
+- `bb spa:journey` is not run against the containers: it must never look at somebody else's api (it acknowledges an alert), so it starts its own, and the containers' simulator would also move the data it needs fixed.
 
 ## Needs the author's confirmation
 
-- Whether the CI workflow has run green on GitHub; the plan (Phase 1) says it had not run yet because there was no remote at the time.
+- Whether the two workflows have run green on GitHub: `ci.yml` now runs `bb check` and `integration.yml` is new; neither can run anywhere else.
 - The test counts are the README's, not re-counted.

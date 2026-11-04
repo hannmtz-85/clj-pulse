@@ -16,7 +16,7 @@ A portfolio project: four applications of different kinds share one identity pro
 
 ## Status
 
-**Phases 0 to 8 are done.** About 4,180 tests (3,014 on the JVM and 1,170 on Node), 29 architecture decision records, and two acceptance journeys in a real browser against the real Keycloak: the patient portal's (62 checks) and the clinical workspace's (225 checks, with axe-core).
+**Phases 0 to 9 are done.** About 4,280 tests (3,109 on the JVM and 1,170 on Node), 30 architecture decision records, two acceptance journeys in a real browser against the real Keycloak (the patient portal's, 62 checks, and the clinical workspace's, 225 checks, with axe-core) and a smoke test of the four applications running in their containers (24 checks).
 
 | Part | State |
 |---|---|
@@ -27,6 +27,7 @@ A portfolio project: four applications of different kinds share one identity pro
 | Design system: tokens with measured contrast, shared components, mock-ups and the Keycloak login theme | Done |
 | `web`, the patient portal: its own PKCE sign-in, server-side sessions, readings, appointments, record and profile | Done |
 | `spa`, the clinical workspace in ClojureScript (shadow-cljs, Reagent 2, re-frame, keycloak-js) | Done: sign-in with PKCE, a token that renews when a call needs it, a role gate, sign-out the panel of patients (the most urgent first, with filters and a search that live in the address), the chart of a patient (the alerts with the rule that raised each, the latest readings, a chart with its thresholds, the record and the appointments), the inbox of alerts (acknowledged from the inbox or from the chart, with the count in the navigation read again every 30 seconds and a list that never moves under the hand), the appointments (confirm, reschedule and cancel in dialogs that have their own address, with the lifecycle checked before the api is asked and the api's own words beside the fields) and the jobs of the scheduler for the administrator; every page has its states (loading, empty, partly or wholly not loaded, not found, refused) and the routes are held to them by a test, a page that cannot be drawn is a page and not a white one, and its accessibility and its acceptance are checked in a real browser (`bb spa:journey`: axe-core on every page and state, the keyboard, four widths in both schemes) |
+| Packaging: a jar compiled ahead of time for each JVM app, two Dockerfiles, the workspace served by nginx with a configuration made from the data of its Ring server, the compose profile `apps`, `bb smoke` against the containers, CI that runs `bb check` and an optional integration workflow | Done |
 
 Progress is tracked in [docs/02-implementation-plan.md](docs/02-implementation-plan.md).
 
@@ -40,6 +41,18 @@ bb up
 bb seed
 bb dev
 ```
+
+To run the four applications as containers instead (the workspace on 3000, the portal on 3300, the api on 4000; needs about 4 GB of RAM free for everything, and those ports free):
+
+```
+bb doctor
+bb up
+bb seed
+bb apps
+bb smoke
+```
+
+`bb apps` builds the four images one at a time (the first time takes about ten minutes, then one) and starts them behind the compose profile `apps`; `bb smoke` checks that they are healthy, that they accept each other's tokens and that a patient and a practitioner can sign in. Stop everything with `bb down`.
 
 Open <http://localhost:4000/docs/> (Swagger UI): Authorize signs you in as a demo user, and the same request is answered differently for a patient, a practitioner and the administrator. Open <http://localhost:3300> for the patient portal and sign in as `ana.garcia@pulse.test`; the password is `DEMO_USER_PASSWORD` in the `.env` that `bb up` creates. Within a minute the simulated devices raise alerts, which Dr. Rivera finds in `GET /api/alerts`.
 

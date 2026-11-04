@@ -1,7 +1,28 @@
-# Local development stack: PostgreSQL + Keycloak 26.0.0 + HAPI FHIR (R4).
+# Local development stack: PostgreSQL + Keycloak 26.0.0 + HAPI FHIR (R4), and, with the profile `apps`, the four applications
+# (ADR-0030): `bb apps`, or `docker compose --profile apps up`.
 # Copy .env.example to .env first (`bb env:init` does it and generates random secrets).
 # Everything binds to 127.0.0.1 only.
 name: pulse
+
+# What the four applications have in common: nothing to write to but a temporary directory, no capability, no way to get more than
+# the user they run as has. `profiles` keeps them out of `bb up`, which starts the infrastructure the tests and `bb dev` use.
+x-app: &app
+  profiles: [apps]
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+# The identity provider as the services reach it inside the network. What a browser follows (the authorization and end-session
+# addresses) and the issuer, which is the iss of every token, stay at localhost:8080: Keycloak writes the issuer from its hostname
+# whatever address it is asked at, and the realm registers localhost addresses (ADR-0003, ADR-0009).
+x-keycloak-back-channel: &keycloak-back-channel
+  KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/pulse/protocol/openid-connect/certs
+  KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/pulse/protocol/openid-connect/token
 
 services:
   postgres:
@@ -93,6 +114,116 @@ services:
     ports:
       - "127.0.0.1:8090:8080"
     mem_limit: 1200m
+
+  # --- the applications (profile `apps`) --------------------------------------------------------------------------------------
+  # They listen on 0.0.0.0 inside the network and are published on 127.0.0.1 only. A service is ready when what it needs is: the api
+  # when Keycloak's keys and HAPI answer, the scheduler and the portal when the api does, so `depends_on` orders the start by what
+  # each needs. The heap of each is half of what its container may use, a little more: the rest is the JVM itself.
+  api:
+    <<: *app
+    build:
+      context: .
+      dockerfile: infra/docker/jvm.Dockerfile
+      args:
+        APP: api
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      hapi:
+        # HAPI has no health check (see above): the api's /readyz says when it answers
+        condition: service_started
+    environment:
+      <<: *keycloak-back-channel
+      API_HOST: 0.0.0.0
+      FHIR_BASE_URL: http://hapi:8080/fhir
+      SCHEDULER_BASE_URL: http://scheduler:5000
+      API_CLIENT_SECRET: ${API_CLIENT_SECRET:?run "bb env:init" first}
+      JAVA_OPTS: -Xmx256m
+    ports:
+      - "127.0.0.1:4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4000/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 448m
+
+  # Not published: the administrator reaches the scheduler through the api (GET /api/admin/jobs)
+  scheduler:
+    <<: *app
+    build:
+      context: .
+      dockerfile: infra/docker/jvm.Dockerfile
+      args:
+        APP: scheduler
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      hapi:
+        condition: service_started
+      api:
+        condition: service_healthy
+    environment:
+      <<: *keycloak-back-channel
+      SCHEDULER_HOST: 0.0.0.0
+      API_BASE_URL: http://api:4000
+      FHIR_BASE_URL: http://hapi:8080/fhir
+      SCHEDULER_CLIENT_SECRET: ${SCHEDULER_CLIENT_SECRET:?run "bb env:init" first}
+      # The devices of the demo cohort are simulated and the reminders are sent: that is what makes the demonstration live
+      SCHEDULER_SIMULATOR: ${SCHEDULER_SIMULATOR:-true}
+      SCHEDULER_REMINDERS: ${SCHEDULER_REMINDERS:-true}
+      JAVA_OPTS: -Xmx192m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5000/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 384m
+
+  web:
+    <<: *app
+    build:
+      context: .
+      dockerfile: infra/docker/jvm.Dockerfile
+      args:
+        APP: web
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      <<: *keycloak-back-channel
+      WEB_HOST: 0.0.0.0
+      API_BASE_URL: http://api:4000
+      WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:?run "bb env:init" first}
+      JAVA_OPTS: -Xmx192m
+    ports:
+      - "127.0.0.1:3300:3300"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3300/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 384m
+
+  # nginx serves the files of the release. The page calls the api and Keycloak from the browser, so it needs neither to start.
+  spa:
+    <<: *app
+    build:
+      context: .
+      dockerfile: infra/docker/spa.Dockerfile
+    ports:
+      - "127.0.0.1:3000:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    mem_limit: 64m
 
 volumes:
   pg-data:

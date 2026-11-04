@@ -36,7 +36,7 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | JDK | Temurin 21.0.3 (installed) | Clojure supports LTS 8, 11, 17, 21 and 25 | **Keep 21** | shadow-cljs 3 needs ≥ 21; the Ring Jetty adapter needs ≥ 17 |
 | Clojure CLI | not installed | 1.12.6.1673 | Install | `clj-msi` (§8). **Done in Phase 0** |
 | Babashka | none | 1.13.226 (winget) | Add | Cross-platform tasks and data scripts. **Done in Phase 0** |
-| tools.build | none | v0.10.14 (git dependency) | Add | Uberjars |
+| tools.build | none | 0.10.14 (`io.github.clojure/tools.build` on Maven Central, as an alias `:build`; no git dependency) | Add | The uberjars of the api, the scheduler and the portal, compiled ahead of time (ADR-0030). **Done in Phase 9** |
 | clj-kondo | npm 2020.11.7 | 2026.08.04 | Replace | `deps.edn` alias (no npm); Calva already bundles it for the editor |
 | zprint-clj | 0.8.0 | none | Replace | cljfmt 0.16.6, the community-standard formatter |
 | Tests | none | Kaocha 1.91.1392 + test.check 1.1.3 + matcher-combinators 3.11.0 | Add | ⚠ Kaocha has had no release since 2024-05 (stable); alternative: Cognitect test-runner |
@@ -95,6 +95,8 @@ The stack was **right in spirit but out of date**. Ring + Reitit + Reagent/re-fr
 | Custom legacy password-hash provider | 16 MB JAR | none | **Remove** | Keycloak's default PBKDF2; the custom `passwordPolicy` goes away |
 | FHIR server | none | HAPI FHIR JPA Starter `hapiproject/hapi:v8.12.0-2` (2026-10-02) | Add | §7 |
 | Docker Compose | Hostname v1 options, `KEYCLOAK_ADMIN*`, no healthchecks | none | Rewrite | `KC_BOOTSTRAP_ADMIN_*` (the KC 26 mechanism; the account is temporary), hostname v2, `--import-realm` |
+| Images of the applications (Phase 9, [ADR-0030](adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)) | none | builder `clojure:temurin-21-tools-deps-1.12.6.1673-bookworm-slim`; JVM runtime `eclipse-temurin:21.0.13_9-jre-alpine-3.24`; Node `node:22.23.4-bookworm-slim` (copied into the workspace's builder); web server `nginxinc/nginx-unprivileged:1.30.6-alpine3.24` (tags read from Docker Hub on 2026-11-04, all pulled) | Add | Pinned by tag, not by digest (X-145). Alpine's musl: nothing in the dependencies has native code, and the four applications start on it. nginx rather than our Ring server for the workspace, with its configuration generated from the Ring server's data |
+| clj-yaml | none | 1.0.30 (Clojars, `:test` only) | Add | Reads `compose.yaml` and the workflows as data, so the rules of the images are tests |
 
 ## 4. Problems found by `/init` and how each is resolved
 

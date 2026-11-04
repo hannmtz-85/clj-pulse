@@ -1,0 +1,27 @@
+# What the Docker builds leave out of their context (ADR-0030). Every image is built from the root of the repository, so this keeps
+# out what must never be in a layer (secrets, the history) and what is big or made by a build (installed packages, output), which the
+# image makes again for itself.
+
+# Secrets and history
+.git
+.env
+.env.*
+!.env.example
+
+# Made by a build or installed by a package manager
+**/node_modules
+**/target
+**/.cpcache
+**/.shadow-cljs
+design/dist
+
+# Not part of any image
+docs
+.github
+.vscode
+.idea
+**/.clj-kondo
+**/.lsp
+**/.calva
+**/.nrepl-port
+**/*.log

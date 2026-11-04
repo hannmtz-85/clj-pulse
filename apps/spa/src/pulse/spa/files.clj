@@ -24,8 +24,9 @@
    "woff2" "font/woff2"
    "txt" "text/plain; charset=utf-8"})
 
-(def ^:private hashed
-  "A name that the build made from the content of the file (`main.7A1F2C09.js`): it never changes what it holds, so it may be kept."
+(def hashed
+  "A name that the build made from the content of the file (`main.7A1F2C09.js`): it never changes what it holds, so it may be kept.
+  The configuration of nginx for the release (`pulse.spa.nginx`) is made from this pattern as well."
   #"^[A-Za-z0-9_-]+\.[0-9A-Fa-f]{8,}\.js$")
 
 (defn plain-name?

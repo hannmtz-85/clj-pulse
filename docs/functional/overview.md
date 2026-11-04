@@ -55,7 +55,7 @@ There are also two **service accounts**, which are programs rather than people: 
 
 ## Scope: what is built
 
-As of the last commit on the branch, **Phases 0 to 8 of the plan are done** (plan, status line; [README.md](../../README.md) "Status"):
+As of the last commit on the branch, **Phases 0 to 9 of the plan are done** (plan, status line; [README.md](../../README.md) "Status"):
 
 - The local infrastructure (PostgreSQL, Keycloak 26.0.0, HAPI FHIR) and the synthetic cohort.
 - The `api` with its endpoints, authorization rules and documentation page.
@@ -63,12 +63,12 @@ As of the last commit on the branch, **Phases 0 to 8 of the plan are done** (pla
 - The design system and the mock-ups, which the owner approved, and the themed sign-in page.
 - The patient portal (`web`) and its acceptance in a real browser (62 checks).
 - The clinical workspace (`spa`) and its acceptance in a real browser (225 checks, with an automated accessibility checker).
+- **Packaging** (Phase 9): a Docker image for each app and one command (`bb apps`) that starts the four applications with the infrastructure, a check of the running containers (`bb smoke`: 24 checks, a patient and a practitioner signing in through a real browser among them), and a second workflow in GitHub Actions that runs the integration tests, the browser journeys and the containers. Everything still binds to the developer's own machine; the data is the synthetic cohort.
 
 ## Not built yet
 
 From [02-implementation-plan.md](../02-implementation-plan.md) §6:
 
-- **Phase 9 · Packaging, integration and end-to-end tests** (not started): a Docker image for each app, `docker compose --profile apps up` starting everything, integration tests in CI. Today the apps run from a developer's machine with `bb dev`, `bb web` and `bb spa:serve`; there is no Dockerfile in the repository.
 - **Phase 10 · Polish and publication** (not started): the final README, a licence check of the third-party notices, a secret scan, a tagged release.
 
 ## Deliberately out of scope
