@@ -65,7 +65,7 @@ From the plan and CLAUDE.md:
 
 `ci.yml` runs `bb check` on every push to `main` and every pull request: the format, the lint, the committed realm and design files, the tests on the JVM and the tests of the clinical workspace on Node. (Until Phase 9 it ran only the format, the lint and the JVM tests, which was less than `bb.edn` said `bb check` was.)
 
-`integration.yml` is not required to merge: by hand, once a week and on a push to `main`, it starts the stack, seeds it and runs `bb test:it`, `bb spa:journey`, the images and `bb smoke`, and `bb web:journey` against the portal's container (X-110). Phase 9 added these checks to the ones above ([ADR-0030](../adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)):
+`integration.yml` is not required to merge: by hand, once a week and on a push to `main`, it starts the stack, seeds it and runs `bb test:it`, `bb spa:journey`, the images and `bb smoke`, and `bb web:journey` against the portal's container (X-110). It was green end to end on GitHub on 2026-11-04, on the third push of the day: the first two failed only at the journey of the workspace, which ran on Linux for the first time and found a defect of the workspace and two mistakes of its own script ([ADR-0029](../adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md), update of 2026-11-04). Phase 9 added these checks to the ones above ([ADR-0030](../adr/0030-packaging-the-apps-compiled-uberjars-two-dockerfiles-nginx-for-the-workspace-and-a-compose-profile.md)):
 
 - `docker-rules-test` reads `compose.yaml`, the Dockerfiles and `.dockerignore` as data and holds them to rules (the services of the profile are the four apps, published on `127.0.0.1` only, a user that is not root and a read-only file system, a health check and a limit of memory each, the heap inside the limit, every variable one that the app's configuration reads, secrets only from `.env`, images pinned by a tag, every `COPY` a path that exists and that `.dockerignore` lets through). Four rules were broken on purpose and ten assertions failed.
 - `pulse.spa.nginx-test`: the committed `nginx.conf` is what the generator makes, it is made of the data of the Ring server (headers, policy, kinds of file, the pattern of a name with a hash), and the regular expressions that decide what a path is give the answer the Ring server gives (a property over 600 random paths).
@@ -76,5 +76,4 @@ From the plan and CLAUDE.md:
 
 ## Needs the author's confirmation
 
-- Whether the two workflows have run green on GitHub: `ci.yml` now runs `bb check` and `integration.yml` is new; neither can run anywhere else.
 - The test counts are the README's, not re-counted.

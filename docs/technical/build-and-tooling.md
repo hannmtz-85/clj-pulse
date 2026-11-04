@@ -75,7 +75,7 @@ Everything binds to `127.0.0.1`: PostgreSQL 5432 (databases `keycloak` and `hapi
 
 `.github/workflows/ci.yml`: on push to `main` and on pull requests, Ubuntu, Temurin 21, Node 22, Clojure CLI and Babashka, a Maven/gitlibs cache, `npm ci` in `apps/spa`, then `bb check`: the format, the lint, the committed realm and design files, the tests on the JVM and the tests of the workspace on Node. (Until Phase 9 it ran only `bb fmt:check`, `bb lint` and `bb test`, which was less than `bb.edn` said `bb check` was; ADR-0030 closed that gap.)
 
-`.github/workflows/integration.yml` is not required to merge: it runs by hand, once a week and on a push to `main`. It starts the stack (`bb up`), seeds it, and runs `bb test:it`, `bb spa:journey`, `bb apps`, `bb smoke` and `bb web:journey` against the containers, keeps the logs of the containers as an artifact when something fails, and stops the stack at the end. `tools/test/workflows_test.clj` holds what can be known of both files without running them (pinned actions, the triggers, the order of the steps). Neither workflow can run outside GitHub: the first run there confirms them.
+`.github/workflows/integration.yml` is not required to merge: it runs by hand, once a week and on a push to `main`. It starts the stack (`bb up`), seeds it, and runs `bb test:it`, `bb spa:journey`, `bb apps`, `bb smoke` and `bb web:journey` against the containers, keeps the logs of the containers as an artifact when something fails, and stops the stack at the end. `tools/test/workflows_test.clj` holds what can be known of both files without running them (pinned actions, the triggers, the order of the steps). Both ran on GitHub on 2026-11-04: `ci.yml` was green on the three pushes of the day, and `integration.yml` was green end to end on the third, in 9 min 47 s. The first two runs failed only at the journey of the workspace, which ran on Linux for the first time and found a defect of the workspace and two mistakes of its own script ([ADR-0029](../adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md), update of 2026-11-04). A step that fails no longer makes the ones after it skip when what they need is there.
 
 ## Not built yet
 
@@ -86,7 +86,3 @@ Everything binds to `127.0.0.1`: PostgreSQL 5432 (databases `keycloak` and `hapi
 ## Windows workstation notes
 
 The project was built on Windows 10 with PowerShell and Git Bash (CLAUDE.md "Workstation"): the Clojure CLI is the `clj-msi` build (deps.clj); shadow-cljs needs `powershell` on the `PATH` (the `bb spa*` tasks add it); Git Bash rewrites paths starting with `/` (`MSYS_NO_PATHCONV=1`); the project path contains a space; Docker Desktop is capped at 6 GB; free RAM was the main constraint, which is why the `lite` profile and the one-JVM development system exist ([01-stack-review.md](../01-stack-review.md) §8).
-
-## Needs the author's confirmation
-
-- Whether the two workflows have run green on GitHub: `ci.yml` now runs `bb check` and `integration.yml` is new, and neither can run anywhere else.
