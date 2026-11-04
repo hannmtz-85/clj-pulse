@@ -56,6 +56,7 @@ jobs:
         run: bb up
 
       - name: Load the demo cohort
+        id: seed
         run: bb seed
 
       # The apps run in the JVM of the test itself, against the real Keycloak and HAPI. The portal's test needs the port 3300 free, and the
@@ -64,18 +65,26 @@ jobs:
       - name: Integration tests
         run: bb test:it
 
+      # What follows runs even when a test or a journey before it failed, so that one run says everything that is wrong and not only the
+      # first thing; but not when there is no stack, and a smoke test of containers that were not started would only repeat the failure of
+      # `bb apps`, so it is left out then.
       # Makes the release, starts the api and the server of the release itself on the ports 3000, 3300, 4000 and 5000, and stops them
       - name: Journey of the clinical workspace
+        if: ${{ !cancelled() && steps.seed.conclusion == 'success' }}
         run: bb spa:journey
 
       # The four applications as images, one at a time, and started with the infrastructure
       - name: Build the images and start the applications
+        id: apps
+        if: ${{ !cancelled() && steps.seed.conclusion == 'success' }}
         run: bb apps
 
       - name: Smoke test of the containers
+        if: ${{ !cancelled() && steps.apps.conclusion == 'success' }}
         run: bb smoke
 
       - name: Journey of the patient portal, against the container
+        if: ${{ !cancelled() && steps.apps.conclusion == 'success' }}
         run: bb web:journey
 
       - name: Logs of the containers

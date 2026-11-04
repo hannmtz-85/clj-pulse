@@ -60,11 +60,13 @@
   the heading of the alerts that need a decision, or the button of an alert whose acknowledgement was not done."
   [db inbox gen]
   (let [adopt? (inbox/adopt-now? inbox)
-        [inbox started] (inbox/pump (cond-> inbox adopt? inbox/adopt) gen)]
+        [inbox started] (inbox/pump (cond-> inbox adopt? inbox/adopt) gen)
+        hush (when adopt? (ack/hush-later (:acks db)))]
     {:db (cond-> (assoc db :inbox inbox)
-           adopt? (update :acks settled-acks))
+           adopt? (update :acks ack/clear-settling))
      :fx (cond-> (calls started)
-           adopt? (conj [::router/focus (inbox/focus-target inbox (:acks db))]))}))
+           adopt? (conj [::router/focus (inbox/focus-target inbox (:acks db))])
+           hush (conj hush))}))
 
 (defn- looking
   "The state and effects of the inbox begun to look again, `inbox` being the inbox as it must be for that."
@@ -110,11 +112,13 @@
      (let [adopt? (boolean (get-in db [:inbox :adopt?]))
            expired (inbox/expire (:inbox db))
            ;; the look that the person asked for shows what it found, even if some of it did not come
-           inbox (cond-> (dissoc expired :cancelled) adopt? inbox/adopt)]
+           inbox (cond-> (dissoc expired :cancelled) adopt? inbox/adopt)
+           hush (when adopt? (ack/hush-later (:acks db)))]
        {:db (cond-> (assoc db :inbox inbox)
-              adopt? (update :acks settled-acks))
+              adopt? (update :acks ack/clear-settling))
         :fx (cond-> (cancels (:cancelled expired))
-              adopt? (conj [::router/focus (inbox/focus-target inbox (:acks db))]))})
+              adopt? (conj [::router/focus (inbox/focus-target inbox (:acks db))])
+              hush (conj hush))})
      {})))
 
 (rf/reg-event-fx

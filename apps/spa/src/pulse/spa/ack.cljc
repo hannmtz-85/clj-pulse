@@ -121,6 +121,25 @@
   [acks]
   (dissoc acks :said))
 
+(def said-for-ms
+  "How long what a screen reader was told of an acknowledgement stays on the page once the page has been read again. A page that is
+  read again at once (the api is next door, as on a fast machine) would otherwise give way to its own words before the words of the
+  command were drawn, and nobody would be told: found by the journey on a runner of GitHub, where the summary was back within a frame."
+  1500)
+
+(defn hush-said
+  "`acks` without `said`, when that is still what was last said to a screen reader: something said since is not taken away."
+  [acks said]
+  (if (and (some? said) (= said (:said acks)))
+    (dissoc acks :said)
+    acks))
+
+(defn hush-later
+  "The effect that takes away, after `said-for-ms`, what `acks` last said to a screen reader, or nil when nothing was said."
+  [acks]
+  (when-let [said (:said acks)]
+    [:dispatch-later {:ms said-for-ms :dispatch [:pulse.spa.ack/hush said]}]))
+
 (defn entries
   "The state of each alert in `acks`, by id: what the page shows with the alert."
   [acks]

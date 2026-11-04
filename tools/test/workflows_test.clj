@@ -67,6 +67,19 @@
       (let [last-step (last (steps integration :integration))]
         (is (= "bb down" (str/trim (:run last-step))))
         (is (= "always()" (:if last-step)))))
+    (testing "and a step that fails does not hide the ones after it: one run says everything that is wrong"
+      (let [step (fn [command] (first (filter #(= command (str/trim (str (:run %)))) (steps integration :integration))))]
+        (testing "so long as there is a stack to run them on"
+          (doseq [command ["bb spa:journey" "bb apps"]]
+            (is (= "${{ !cancelled() && steps.seed.conclusion == 'success' }}" (:if (step command))) command))
+          (is (= "seed" (:id (step "bb seed")))))
+        (testing "and what only makes sense when the containers were started is left out when they were not"
+          (doseq [command ["bb smoke" "bb web:journey"]]
+            (is (= "${{ !cancelled() && steps.apps.conclusion == 'success' }}" (:if (step command))) command))
+          (is (= "apps" (:id (step "bb apps")))))
+        (testing "while the stack itself and its first tests stop the run when they fail, as a step does"
+          (doseq [command ["bb up" "bb seed" "bb test:it"]]
+            (is (nil? (:if (step command))) command)))))
     (testing "and when it fails, the logs of the containers are kept"
       (let [with-if (filter #(= "failure()" (:if %)) (steps integration :integration))]
         (is (some #(str/includes? (str (:run %)) "docker compose --profile \"*\" logs") with-if))

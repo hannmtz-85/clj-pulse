@@ -72,12 +72,15 @@
 
 (defn- read-again
   "`effects`, those of an answer, with what follows from the summary having been read again if that is what `task` was: the
-  acknowledgements stop waiting and the focus goes where it belongs."
+  acknowledgements stop waiting and the focus goes where it belongs. What a screen reader was told stays a moment longer
+  (`ack/hush-later`): the summary can be back before the words of the command have been drawn."
   [effects task]
   (if (= :refresh task)
-    (-> effects
-        (update :fx conj [::router/focus (focus-target (:db effects))])
-        (update :db update :acks settled-acks))
+    (let [hush (ack/hush-later (get-in effects [:db :acks]))]
+      (cond-> (-> effects
+                  (update :fx conj [::router/focus (focus-target (:db effects))])
+                  (update :db update :acks ack/clear-settling))
+        hush (update :fx conj hush)))
     effects))
 
 (rf/reg-event-fx

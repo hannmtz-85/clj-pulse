@@ -6,6 +6,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame.test :as rf-test]
+            [pulse.spa.ack :as ack]
+            [pulse.spa.ack-events]
             [pulse.spa.auth :as auth]
             [pulse.spa.events :as events]
             [pulse.spa.fetch :as fetch]
@@ -62,6 +64,11 @@
   (set (for [[effect value] @asked :when (= ::fetch/cancel effect)] (:id value))))
 
 (defn- deadlines [] (vec (for [[effect value] @asked :when (= :dispatch-later effect)] value)))
+
+(defn- hushes
+  "What was set to be taken away from a screen reader, and when."
+  []
+  (vec (for [[effect value] @asked :when (and (= :dispatch-later effect) (= :pulse.spa.ack/hush (first (:dispatch value))))] value)))
 
 (defn- signed-in! []
   (rf/dispatch [::events/start])
@@ -490,7 +497,10 @@
      (rf/dispatch (conj (:on-success call) {:status 200 :body (assoc fx/ana-summary :alerts []) :request-id "r"})))
    (is (= [] (get-in (state) [:chart :summary :data :alerts])))
    (is (= {} (get-in (state) [:chart :evidence])) "the readings behind an alert that is gone are gone too")
-   (is (= {:alerts {}} (:acks (state))) "nothing waits for the summary any more, and what was said gives way to the page")
+   (is (= {:alerts {} :said "Said."} (:acks (state))) "nothing waits for the summary any more; what was said stays a moment, so that it is drawn")
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "Said."]}] (hushes)) "and then it gives way to the page")
+   (rf/dispatch [:pulse.spa.ack/hush "Said."])
+   (is (= {:alerts {}} (:acks (state))))
    (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))
    (is (true? (patient/settled? (:chart (state)))))))
 
@@ -504,7 +514,8 @@
      (rf/dispatch (conj (:on-failure call) {:kind :timeout :request-id "r"})))
    (is (= :timeout (get-in (state) [:chart :refresh-failed])))
    (is (= (fx/loaded fx/ana-summary) (get-in (state) [:chart :summary])) "what was read before is still there")
-   (is (= {:alerts {}} (:acks (state))))
+   (is (= {:alerts {} :said "Said."} (:acks (state))) "the wait is over; what was said stays a moment")
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "Said."]}] (hushes)))
    (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))
 
 (deftest a-summary-that-is-not-back-by-its-deadline-has-failed-to-be-read-again
@@ -516,7 +527,8 @@
    (rf/dispatch [:pulse.spa.patient/deadline 1 2])
    (is (= :timeout (get-in (state) [:chart :refresh-failed])))
    (is (= #{[:chart :refresh]} (cancelled)) "its call is stopped")
-   (is (= {:alerts {}} (:acks (state))))
+   (is (= {:alerts {} :said "Said."} (:acks (state))))
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "Said."]}] (hushes)))
    (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))
 
 (deftest the-deadline-of-a-chart-that-was-not-being-read-again-moves-nothing
@@ -572,5 +584,5 @@
      (is (= [] (filter #(= ::router/focus (first %)) @asked)) "and the focus is not moved")
      (testing "until the summary itself comes"
        (rf/dispatch (conj (:on-success summary-call) {:status 200 :body fx/ana-summary :request-id "r"}))
-       (is (= {:alerts {}} (:acks (state))))
+       (is (= {:alerts {} :said "Said."} (:acks (state))))
        (is (= [[::router/focus "main h1"]] (filter #(= ::router/focus (first %)) @asked)))))))

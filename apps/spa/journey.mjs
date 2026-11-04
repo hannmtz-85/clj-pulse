@@ -174,8 +174,17 @@ async function practitioner() {
     check("the person in the sidebar is who the api says they are", /Elena Rivera/.test(await page.evaluate("document.querySelector('aside').innerText")) && /Internal medicine/.test(await page.evaluate("document.querySelector('aside').innerText")));
     const names = await patientNames(page);
     check("the panel is the four patients of Dr. Rivera and nobody else's", json([...names].sort()) === json([...panelOf].sort()) && !notHers.test(await page.text()), json(names));
-    // who is first depends on the hour of the day (the glucose of Liam that rules raise an alert for is in the last 24 hours from 21:00): what does not is who is last
-    check("the patient with nothing wrong is last, and the first has something that is", names[names.length - 1] === "Omar Haddad" && names[0] !== "Omar Haddad", json(names));
+    // who is first depends on the hour of the day (the glucose of Liam that rules raise an alert for is in the last 24 hours from 21:00), and
+    // so does who comes last (at 21:48 the order was Liam, Ana, Omar and Sofía, and Omar had been last in the afternoon): so the order is read from the page, from the
+    // status of each row, and what must hold at any hour is that the worst is first and that none comes after one that is better
+    const severity = { Normal: 0, Low: 1, Elevated: 1, "Very low": 2, High: 2, Fever: 2, "Very high": 3, "High fever": 3 };
+    const rows = await page.evaluate(`[...document.querySelectorAll('main table tbody tr')].map((tr) => ({
+      name: ((tr.querySelector('th .font-medium') || tr.querySelector('th') || {}).textContent || '').trim(),
+      status: ((tr.querySelector('td') || {}).textContent || '').trim() }))`);
+    const worse = rows.map((r) => severity[r.status]);
+    check("the panel is in order of urgency: the worst status first and the best last, and the first has something wrong",
+      rows.length === names.length && worse.every((s) => s !== undefined) && worse.every((s, i) => i === 0 || worse[i - 1] >= s) && worse[0] > 0,
+      json(rows));
     await clean(page, "the panel");
     await noTokenAnywhere(page, "the panel");
 

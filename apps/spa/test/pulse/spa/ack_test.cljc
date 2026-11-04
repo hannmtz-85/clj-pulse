@@ -45,6 +45,19 @@
     (is (false? (ack/busy? nil "a")))
     (is (false? (ack/busy? {} "a")))))
 
+(deftest what-was-said-is-taken-away-later-and-only-if-it-is-still-what-was-said
+  (is (= {:alerts {}} (ack/hush-said {:alerts {} :said "x"} "x")))
+  (is (= {:alerts {} :said "y"} (ack/hush-said {:alerts {} :said "y"} "x")) "something said since is not taken away")
+  (is (= {:alerts {}} (ack/hush-said {:alerts {}} "x")) "nothing said is nothing to take away")
+  (is (nil? (ack/hush-said nil "x")))
+  (is (= {:said "x"} (ack/hush-said {:said "x"} nil)) "and nothing is not what was said")
+  (testing "the effect that does it, once the words have had time to be drawn"
+    (is (= [:dispatch-later {:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "x"]}] (ack/hush-later {:said "x" :alerts {}})))
+    (is (nil? (ack/hush-later {:alerts {}})) "nothing was said")
+    (is (nil? (ack/hush-later {:said nil})))
+    (is (nil? (ack/hush-later nil)))
+    (is (<= 1000 ack/said-for-ms 5000) "long enough for a few frames and for a screen reader to start, short enough to be gone when the person acts again")))
+
 (deftest what-is-said-to-a-screen-reader-is-the-last-thing-said
   (let [begun (ack/begin {:said "before"} "a" label)]
     (is (not (contains? begun :said)) "beginning is a new thing, and what was said before is over"))

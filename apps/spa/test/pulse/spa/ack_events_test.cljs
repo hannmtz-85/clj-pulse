@@ -58,6 +58,11 @@
 
 (defn- focused [] (vec (for [[effect value] @asked :when (= ::router/focus effect)] value)))
 
+(defn- hushes
+  "What was set to be taken away from a screen reader, and when: the `:dispatch-later` that hush the words of a command."
+  []
+  (vec (for [[effect value] @asked :when (and (= :dispatch-later effect) (= :pulse.spa.ack/hush (first (:dispatch value))))] value)))
+
 (def ^:private rivera {"sub" "r1" "preferred_username" "dr.rivera@pulse.test" "name" "Elena Rivera" "realm_access" {"roles" ["practitioner"]}})
 
 (def ^:private label "BP stage 2 · Ana García")
@@ -171,10 +176,14 @@
      (answer-inbox! active-call fx/active-without-ana)
      (answer-inbox! acknowledged-call fx/acknowledged-with-ana))
    (let [shown (subs/inbox (state) nil)
-         m (inbox/model shown {:acks (:alerts (subs/acks (state) nil)) :said (:said (subs/acks (state) nil))} false)]
+         model-now (fn [] (inbox/model shown {:acks (:alerts (subs/acks (state) nil)) :said (:said (subs/acks (state) nil))} false))
+         m (model-now)]
      (is (= ["flag-pt-sofia-R2"] (map :id (get-in m [:active :items]))) "Ana's alert is not among those that need a decision")
      (is (= ["flag-pt-ana-R1" "flag-pt-liam-R3"] (map :id (get-in m [:acknowledged :items]))) "it is among those that were acknowledged")
-     (is (= "1 alert needs a decision" (:live m)) "the words of the page again, in place of the words of the command"))
+     (is (= "BP stage 2 · Ana García: Alert acknowledged." (:live m)) "the words of the command are still the words of the page: the lists can be back before they were drawn")
+     (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."]}] (hushes)) "and they are taken away after a while")
+     (rf/dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."])
+     (is (= "1 alert needs a decision" (:live (model-now))) "and then the page says its own words again"))
    (is (= ["#needs"] (focused)) "the focus is on the heading, since the button that had it is gone")
    (is (nil? (get-in (state) [:acks :alerts ana-id])) "nothing waits")
    (is (nil? (get-in (state) [:acks :said])))
@@ -264,7 +273,11 @@
    (let [m (inbox/model (subs/inbox (state) nil) {:acks (:alerts (subs/acks (state) nil))} false)]
      (is (= ["flag-pt-sofia-R2"] (map :id (get-in m [:active :items]))) "the alert is among the acknowledged ones, and its card is gone")
      (is (= ["#needs"] (focused)) "and the focus is on the heading")
-     (is (nil? (get-in (state) [:acks :said]))))))
+     (is (str/includes? (get-in (state) [:acks :said]) "We could not confirm") "what was said stays a moment")
+     (let [told (get-in (state) [:acks :said])]
+       (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush told]}] (hushes)))
+       (rf/dispatch [:pulse.spa.ack/hush told])
+       (is (nil? (get-in (state) [:acks :said])))))))
 
 (deftest if-it-did-not-the-alert-stays-with-its-message-and-a-free-button
   (rf-test/run-test-sync
@@ -319,7 +332,23 @@
      (is (not (contains? (:alerts m) :stale))))
    (is (= ["main h1"] (focused)))
    (is (nil? (get-in (state) [:acks :alerts ana-id])))
+   (is (= "BP stage 2 · Ana García: Alert acknowledged." (get-in (state) [:acks :said])) "what a screen reader was told stays: the summary can be back before it was drawn")
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."]}] (hushes)))
+   (rf/dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."])
    (is (nil? (get-in (state) [:acks :said])))))
+
+(deftest words-that-were-hushed-late-do-not-take-away-what-was-said-since
+  (rf-test/run-test-sync
+   (on-the-loaded-chart!)
+   (swap! db/app-db assoc :acks {:alerts {} :said "Said later."})
+   (rf/dispatch [:pulse.spa.ack/hush "Said before."])
+   (is (= "Said later." (get-in (state) [:acks :said])) "the timer of the first words does not silence the second")
+   (rf/dispatch [:pulse.spa.ack/hush "Said later."])
+   (is (nil? (get-in (state) [:acks :said])))
+   (testing "and with nothing in the state at all it does nothing"
+     (swap! db/app-db dissoc :acks)
+     (rf/dispatch [:pulse.spa.ack/hush "Anything."])
+     (is (not (contains? (state) :acks))))))
 
 (deftest a-summary-that-could-not-be-read-again-ends-the-wait-and-says-so
   (rf-test/run-test-sync

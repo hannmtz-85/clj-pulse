@@ -71,6 +71,11 @@
 
 (defn- focused [] (vec (for [[effect value] @asked :when (= ::router/focus effect)] value)))
 
+(defn- hushes
+  "What was set to be taken away from a screen reader, and when."
+  []
+  (vec (for [[effect value] @asked :when (and (= :dispatch-later effect) (= :pulse.spa.ack/hush (first (:dispatch value))))] value)))
+
 (def ^:private rivera {"sub" "r1" "preferred_username" "dr.rivera@pulse.test" "name" "Elena Rivera" "realm_access" {"roles" ["practitioner"]}})
 
 (def ^:private inbox-route {:name :alerts :params {:show :all}})
@@ -450,7 +455,11 @@
        (is (false? (:adopt? shown)))
        (is (= "1 alert needs a decision" (:live (inbox/model shown {} false)))))
      (is (= ["#needs"] (focused)) "and the focus is on the heading, since the button that had it is gone")
-     (is (= {:alerts {}} (subs/acks (state) nil)) "what the acknowledgement waited for is over, and what was said gives way to the page"))))
+     (is (= {:alerts {} :said "BP stage 2 · Ana García: Alert acknowledged."} (subs/acks (state) nil))
+         "what the acknowledgement waited for is over, and what was said stays a moment, so that it is drawn before the page says its own words")
+     (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."]}] (hushes)))
+     (rf/dispatch [:pulse.spa.ack/hush "BP stage 2 · Ana García: Alert acknowledged."])
+     (is (= {:alerts {}} (subs/acks (state) nil)) "and then it gives way to the page"))))
 
 (deftest a-look-that-was-begun-before-the-command-is-stopped-by-the-one-after-it
   (rf-test/run-test-sync
@@ -486,6 +495,9 @@
      (is (false? (:adopt? shown))))
    (is (= #{[:inbox [:check :acknowledged]]} (cancelled)))
    (is (= ["#needs"] (focused)))
+   (is (= {:alerts {} :said "x"} (subs/acks (state) nil)) "the wait is over; what was said stays a moment")
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "x"]}] (hushes)))
+   (rf/dispatch [:pulse.spa.ack/hush "x"])
    (is (= {:alerts {}} (subs/acks (state) nil)))))
 
 (deftest if-no-look-comes-by-the-deadline-the-person-is-told-so-and-the-button-is-free
@@ -497,7 +509,8 @@
    (let [shown (subs/inbox (state) nil)]
      (is (= (:active (fx/settled)) (:active shown)))
      (is (true? (inbox/check-failed? shown))))
-   (is (= {:alerts {}} (subs/acks (state) nil)))))
+   (is (= {:alerts {} :said "x"} (subs/acks (state) nil)))
+   (is (= [{:ms ack/said-for-ms :dispatch [:pulse.spa.ack/hush "x"]}] (hushes)))))
 
 (deftest the-state-the-views-read
   (rf-test/run-test-sync

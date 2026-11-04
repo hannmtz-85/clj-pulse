@@ -67,6 +67,13 @@
  (fn [{:keys [db]} [_ id _response]]
    (ended db id :done)))
 
+(rf/reg-event-db
+ ::ack/hush
+ (fn [db [_ said]]
+   ;; what a screen reader was told stays a moment after the page has been read again (`ack/said-for-ms`), so that it is drawn before the
+   ;; page says its own words; then it gives way, unless something else has been said since
+   (cond-> db (:acks db) (update :acks ack/hush-said said))))
+
 (rf/reg-event-fx
  ::ack/refused
  (fn [{:keys [db]} [_ id failure]]
