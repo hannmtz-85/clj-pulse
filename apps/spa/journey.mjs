@@ -174,17 +174,22 @@ async function practitioner() {
     check("the person in the sidebar is who the api says they are", /Elena Rivera/.test(await page.evaluate("document.querySelector('aside').innerText")) && /Internal medicine/.test(await page.evaluate("document.querySelector('aside').innerText")));
     const names = await patientNames(page);
     check("the panel is the four patients of Dr. Rivera and nobody else's", json([...names].sort()) === json([...panelOf].sort()) && !notHers.test(await page.text()), json(names));
-    // who is first depends on the hour of the day (the glucose of Liam that rules raise an alert for is in the last 24 hours from 21:00), and
-    // so does who comes last (at 21:48 the order was Liam, Ana, Omar and Sofía, and Omar had been last in the afternoon): so the order is read from the page, from the
-    // status of each row, and what must hold at any hour is that the worst is first and that none comes after one that is better
+    // The panel is put in order of urgency once, when it has settled; until then its rows are in the order of the list, by family name
+    // (Chen, García, Haddad, Rossi), and the statuses of the rows are already drawn. A runner of GitHub showed that twice, when this read
+    // the page as soon as the four names were on it. So the order is read from the page, from the status of each row, once it is the one
+    // that must hold whatever the readings are: the worst first, none after one that is better, and the first has something wrong.
     const severity = { Normal: 0, Low: 1, Elevated: 1, "Very low": 2, High: 2, Fever: 2, "Very high": 3, "High fever": 3 };
-    const rows = await page.evaluate(`[...document.querySelectorAll('main table tbody tr')].map((tr) => ({
+    const statusOfRows = () => page.evaluate(`[...document.querySelectorAll('main table tbody tr')].map((tr) => ({
       name: ((tr.querySelector('th .font-medium') || tr.querySelector('th') || {}).textContent || '').trim(),
       status: ((tr.querySelector('td') || {}).textContent || '').trim() }))`);
-    const worse = rows.map((r) => severity[r.status]);
-    check("the panel is in order of urgency: the worst status first and the best last, and the first has something wrong",
-      rows.length === names.length && worse.every((s) => s !== undefined) && worse.every((s, i) => i === 0 || worse[i - 1] >= s) && worse[0] > 0,
-      json(rows));
+    const inOrderOfUrgency = (rows) => {
+      const worse = rows.map((r) => severity[r.status]);
+      return rows.length === names.length && worse.every((s) => s !== undefined) && worse.every((s, i) => i === 0 || worse[i - 1] >= s) && worse[0] > 0;
+    };
+    let rows = await statusOfRows();
+    // the panel gives up on what has not come after 10 s (the deadline of the panel): a little more than that is all there is to wait for
+    await page.waitFor(async () => { rows = await statusOfRows(); return inOrderOfUrgency(rows); }, 15000);
+    check("the panel is in order of urgency: the worst status first and the best last, and the first has something wrong", inOrderOfUrgency(rows), json(rows));
     await clean(page, "the panel");
     await noTokenAnywhere(page, "the panel");
 
@@ -467,8 +472,11 @@ async function aPageThatCannotBeDrawn() {
     await axeHere(page, "the page that cannot be drawn");
     await page.evaluate("Intl.DateTimeFormat.prototype.formatToParts = window.__realFormat; true");
     await clickText(page, "Reload the page", "body");
-    const back = await page.waitFor(async () => /Your panel/.test(await page.text()) && !/Something went wrong/.test(await page.text()), 30000);
-    check("and loading it again, with the fault gone, is the workspace", Boolean(back));
+    // the page that is loaded again is the one the person was on: the panel, or the inbox when the fault was found by a click on Alerts
+    // (the page itself draws again within seconds, but a runner may not wait for it)
+    const back = await page.waitFor(async () => !/Something went wrong/.test(await page.text())
+      && await page.evaluate("Boolean(document.querySelector('aside nav')) && document.querySelectorAll('main h1').length === 1"), 30000);
+    check("and loading it again, with the fault gone, is the workspace", Boolean(back), `${await page.path()} ${squash(await page.text()).slice(0, 160)}`);
   } finally {
     await page.close();
   }
