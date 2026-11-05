@@ -77,11 +77,19 @@ Everything binds to `127.0.0.1`: PostgreSQL 5432 (databases `keycloak` and `hapi
 
 `.github/workflows/integration.yml` is not required to merge: it runs by hand, once a week and on a push to `main`. It starts the stack (`bb up`), seeds it, and runs `bb test:it`, `bb spa:journey`, `bb apps`, `bb smoke` and `bb web:journey` against the containers, keeps the logs of the containers as an artifact when something fails, and stops the stack at the end. `tools/test/workflows_test.clj` holds what can be known of both files without running them (pinned actions, the triggers, the order of the steps). Both ran on GitHub on 2026-11-04: `ci.yml` was green on the three pushes of the day, and `integration.yml` was green end to end on the third, in 9 min 47 s. The first two runs failed only at the journey of the workspace, which ran on Linux for the first time and found a defect of the workspace and two mistakes of its own script ([ADR-0029](../adr/0029-the-clinical-workspace-a-browser-client-of-the-api-with-keycloak-js-re-frame-and-the-pages-of-the-mock-ups.md), update of 2026-11-04). A step that fails no longer makes the ones after it skip when what they need is there.
 
+## Secret scan
+
+`gitleaks` (8.30.1, installed with `winget install Gitleaks.Gitleaks`) is not part of `bb check` or of CI (X-150 would put it there). To scan the whole history, every ref, with its default rules and a redacted output, from the root of the repository:
+
+```
+gitleaks git --redact --no-banner --log-opts="--all"
+```
+
+It exits with 1 when it finds something. On 2026-11-05 it scanned 48 commits and found nothing, after a control that it does find a made-up token in a throwaway repository (a scan that cannot see proves nothing). `.env` is ignored by git and was never committed. The names of the original proof of concept, which must not be anywhere, are searched for with `git grep` over `HEAD` and with `git log --all -G` over the history ([CLAUDE.md](../../CLAUDE.md) "Working agreements").
+
 ## Not built yet
 
-[02-implementation-plan.md](../02-implementation-plan.md) Phase 10:
-
-- Phase 10: README with diagram and quick start, licence check of `NOTICE`, `gitleaks` secret scan, publication and release `v0.1.0` (only with the owner's confirmation).
+The first release, `v0.1.0`, waits for the owner's confirmation ([02-implementation-plan.md](../02-implementation-plan.md) Phase 10). Everything else that was left out on purpose is in [03-extras-backlog.md](../03-extras-backlog.md).
 
 ## Windows workstation notes
 

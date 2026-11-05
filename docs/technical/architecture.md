@@ -1,6 +1,6 @@
 # Architecture
 
-> Components, data flow and trust boundaries of Pulse as it is after Phase 8. Each part has its own page (see [index.md](index.md)); the reasons are in [decisions.md](decisions.md) and the ADRs.
+> Components, data flow and trust boundaries of Pulse as it is after Phase 9. The README has a shorter diagram of the same components. Each part has its own page (see [index.md](index.md)); the reasons are in [decisions.md](decisions.md) and the ADRs.
 
 ## Components
 
@@ -172,4 +172,4 @@ Locally everything runs from the developer's machine ([build-and-tooling.md](bui
 
 Inside the compose network the services ask `keycloak:8080` for keys and tokens (`KEYCLOAK_JWKS_URI`, `KEYCLOAK_TOKEN_URI`), while the issuer, the authorization and end-session addresses and the redirect addresses stay at `localhost`, where the realm registers them and a browser reaches them. A token asked at `keycloak:8080` says `iss` `http://localhost:8080/realms/pulse` because Keycloak writes the issuer from its configured hostname (`KC_HOSTNAME`, with `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` for the endpoints a service calls); `bb smoke` checks it from inside the containers, with the tokens of the api's and the scheduler's service accounts.
 
-**Not built (Phase 10 and the backlog):** HTTPS and a hardened deployment profile (X-50: Keycloak stays in `start-dev`, HAPI has no authentication and is bound to `127.0.0.1`), images pushed to a registry, and a README with a diagram ([02-implementation-plan.md](../02-implementation-plan.md) Phase 10).
+**Not built (the backlog):** HTTPS and a hardened deployment profile (X-50: Keycloak stays in `start-dev`, HAPI has no authentication and is bound to `127.0.0.1`) and images pushed to a registry ([03-extras-backlog.md](../03-extras-backlog.md)).

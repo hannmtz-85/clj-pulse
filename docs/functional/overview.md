@@ -55,7 +55,7 @@ There are also two **service accounts**, which are programs rather than people: 
 
 ## Scope: what is built
 
-As of the last commit on the branch, **Phases 0 to 9 of the plan are done** (plan, status line; [README.md](../../README.md) "Status"):
+As of the last commit on the branch, **Phases 0 to 9 of the plan are done, and Phase 10 but for the release** (plan, status line; [README.md](../../README.md) "Status"):
 
 - The local infrastructure (PostgreSQL, Keycloak 26.0.0, HAPI FHIR) and the synthetic cohort.
 - The `api` with its endpoints, authorization rules and documentation page.
@@ -69,7 +69,7 @@ As of the last commit on the branch, **Phases 0 to 9 of the plan are done** (pla
 
 From [02-implementation-plan.md](../02-implementation-plan.md) §6:
 
-- **Phase 10 · Polish and publication** (not started): the final README, a licence check of the third-party notices, a secret scan, a tagged release.
+- **Phase 10 · Polish and publication** (done but for the release): the final README with its diagram, a check of the third-party notices against their licences and a scan of the whole history for secrets are done. What is left is the first tagged release, `v0.1.0`, which the owner decides to publish.
 
 ## Deliberately out of scope
 

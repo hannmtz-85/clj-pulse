@@ -1,6 +1,6 @@
 # Pulse documentation
 
-Remote patient monitoring and appointment coordination on FHIR R4, with Keycloak single sign-on. All data is synthetic; this is not a medical device. **Phases 0 to 9 are done; Phase 10 (polish and publication) is not built yet** ([02-implementation-plan.md](02-implementation-plan.md)).
+Remote patient monitoring and appointment coordination on FHIR R4, with Keycloak single sign-on. All data is synthetic; this is not a medical device. **Phases 0 to 9 are done, and Phase 10 (polish and publication) is done but for the first release, `v0.1.0`, which waits for the owner** ([02-implementation-plan.md](02-implementation-plan.md)).
 
 ## Functional (for a non-technical reader)
 
@@ -29,5 +29,5 @@ Remote patient monitoring and appointment coordination on FHIR R4, with Keycloak
 - [Implementation plan](02-implementation-plan.md): concept, architecture, phases with checklists and acceptance.
 - [Stack review](01-stack-review.md): what was kept, upgraded and replaced, and why.
 - [Extras backlog](03-extras-backlog.md): everything deliberately deferred or rejected.
-- [Architecture decision records](adr/): ADR-0001 to ADR-0029.
+- [Architecture decision records](adr/): ADR-0001 to ADR-0030.
 - [CLAUDE.md](../CLAUDE.md): detailed working notes on each part of the code.

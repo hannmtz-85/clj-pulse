@@ -4,7 +4,7 @@
 
 ## Size
 
-The README states about **4,180 tests** (3,014 on the JVM and 1,170 on Node) and two acceptance journeys in a real browser: the portal's (62 checks) and the workspace's (225 checks, with axe-core) ([README.md](../../README.md) "Status"). These numbers were not re-counted for this document.
+The README states about **4,280 tests** (3,110 on the JVM, with 38,074 assertions, and 1,172 on Node, with 7,358) and two acceptance journeys in a real browser: the portal's (62 checks) and the workspace's (225 checks, with axe-core) ([README.md](../../README.md) "What it demonstrates in Clojure"). The test counts were re-counted on 2026-11-05 by a full `bb check` (green: format, lint with no warnings, the committed realm and design files, and the tests on the JVM and on Node); the journeys' numbers are those of their last runs on GitHub (2026-11-04).
 
 ## Runners and suites
 
@@ -76,4 +76,4 @@ From the plan and CLAUDE.md:
 
 ## Needs the author's confirmation
 
-- The test counts are the README's, not re-counted.
+- The journeys' check counts (62, 225 and the 24 of `bb smoke`) are those of the runs on GitHub on 2026-11-04, not re-run for this document.
