@@ -55,7 +55,7 @@ There are also two **service accounts**, which are programs rather than people: 
 
 ## Scope: what is built
 
-As of the last commit on the branch, **Phases 0 to 9 of the plan are done, and Phase 10 but for the release** (plan, status line; [README.md](../../README.md) "Status"):
+As of the last commit on the branch, **all the phases of the plan (0 to 10) are done** (plan, status line; [README.md](../../README.md) "Status"):
 
 - The local infrastructure (PostgreSQL, Keycloak 26.0.0, HAPI FHIR) and the synthetic cohort.
 - The `api` with its endpoints, authorization rules and documentation page.
@@ -67,9 +67,7 @@ As of the last commit on the branch, **Phases 0 to 9 of the plan are done, and P
 
 ## Not built yet
 
-From [02-implementation-plan.md](../02-implementation-plan.md) §6:
-
-- **Phase 10 · Polish and publication** (done but for the release): the final README with its diagram, a check of the third-party notices against their licences and a scan of the whole history for secrets are done. What is left is the first tagged release, `v0.1.0`, which the owner decides to publish.
+Nothing from [02-implementation-plan.md](../02-implementation-plan.md) is left. **Phase 10 · Polish and publication** is done: the final README with its diagram, a check of the third-party notices against their licences, a scan of the whole history for secrets and the first tagged release, `v0.1.0`, published on 2026-11-05. What was left out on purpose is in [03-extras-backlog.md](../03-extras-backlog.md) (for example HTTPS and a hardened deployment, X-50, and the full SMART App Launch standard, X-02).
 
 ## Deliberately out of scope
 

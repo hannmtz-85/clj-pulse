@@ -89,7 +89,7 @@ It exits with 1 when it finds something. On 2026-11-05 it scanned 48 commits and
 
 ## Not built yet
 
-The first release, `v0.1.0`, waits for the owner's confirmation ([02-implementation-plan.md](../02-implementation-plan.md) Phase 10). Everything else that was left out on purpose is in [03-extras-backlog.md](../03-extras-backlog.md).
+Everything that was left out on purpose is in [03-extras-backlog.md](../03-extras-backlog.md). Release automation is X-45: the release `v0.1.0` of 2026-11-05 was made by hand with `gh release create`, from a commit on which the CI and the integration workflow were green ([02-implementation-plan.md](../02-implementation-plan.md) Phase 10).
 
 ## Windows workstation notes
 

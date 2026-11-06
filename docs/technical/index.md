@@ -16,4 +16,4 @@
 | [build-and-tooling.md](build-and-tooling.md) | Monorepo layout, Babashka tasks, configuration, local stack, the images and the compose profile `apps`, CI |
 | [decisions.md](decisions.md) | Context, choice, alternatives and consequences of each ADR, and the gotchas |
 
-**State:** Phases 0 to 9 are built (Phase 9: the images, the compose profile `apps`, `bb smoke` and the integration workflow). Phase 10 (polish and publication) is done but for the release `v0.1.0`, which waits for the owner ([../02-implementation-plan.md](../02-implementation-plan.md)).
+**State:** All ten phases are built (Phase 9: the images, the compose profile `apps`, `bb smoke` and the integration workflow; Phase 10: the README, the check of the notices, the scan for secrets and the release `v0.1.0` of 2026-11-05) ([../02-implementation-plan.md](../02-implementation-plan.md)).
